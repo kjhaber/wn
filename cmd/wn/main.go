@@ -60,9 +60,10 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 }
 
 var descCmd = &cobra.Command{
-	Use:   "desc",
-	Short: "Print the current task description (prompt-ready: title only or body only)",
-	Long:  "Output is suitable for pasting into an agent prompt. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title.",
+	Use:   "desc [id]",
+	Short: "Print a work item description (prompt-ready: title only or body only)",
+	Long:  "Output is suitable for pasting into an agent prompt. If id is omitted, uses current task. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDesc,
 }
 
@@ -75,16 +76,21 @@ func runDesc(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if meta.CurrentID == "" {
-		return fmt.Errorf("no current task; use 'wn pick' or 'wn next'")
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(meta.CurrentID)
+	item, err := store.Get(id)
 	if err != nil {
-		return fmt.Errorf("current task %s not found", meta.CurrentID)
+		return fmt.Errorf("item %s not found", id)
 	}
 	fmt.Println(wn.PromptBody(item.Description))
 	return nil
@@ -170,15 +176,27 @@ func runAdd(cmd *cobra.Command, args []string) error {
 var rmCmd = &cobra.Command{
 	Use:   "rm [id]",
 	Short: "Remove a work item",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, removes the current task.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runRm,
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	id := args[0]
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -197,15 +215,27 @@ func runRm(cmd *cobra.Command, args []string) error {
 var editCmd = &cobra.Command{
 	Use:   "edit [id]",
 	Short: "Edit a work item description in $EDITOR",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, edits the current task.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runEdit,
 }
 
 func runEdit(cmd *cobra.Command, args []string) error {
-	id := args[0]
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -226,20 +256,37 @@ func runEdit(cmd *cobra.Command, args []string) error {
 }
 
 var tagCmd = &cobra.Command{
-	Use:   "tag [id] [tag]",
+	Use:   "tag [id] <tag>",
 	Short: "Add a tag to a work item",
-	Args:  cobra.ExactArgs(2),
+	Long:  "If id is omitted, tags the current task. Example: wn tag my-tag  or  wn tag abc123 my-tag",
+	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runTag,
 }
 
 func runTag(cmd *cobra.Command, args []string) error {
-	id, tag := args[0], args[1]
+	var id, tag string
+	if len(args) == 2 {
+		id, tag = args[0], args[1]
+	} else {
+		tag = args[0]
+	}
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
 	}
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	if len(args) == 1 {
+		var errResolve error
+		id, errResolve = wn.ResolveItemID(meta.CurrentID, "")
+		if errResolve != nil {
+			return fmt.Errorf("no id provided and no current task")
+		}
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -261,17 +308,34 @@ func runTag(cmd *cobra.Command, args []string) error {
 }
 
 var untagCmd = &cobra.Command{
-	Use:   "untag [id] [tag]",
+	Use:   "untag [id] <tag>",
 	Short: "Remove a tag from a work item",
-	Args:  cobra.ExactArgs(2),
+	Long:  "If id is omitted, untags the current task.",
+	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runUntag,
 }
 
 func runUntag(cmd *cobra.Command, args []string) error {
-	id, tag := args[0], args[1]
+	var id, tag string
+	if len(args) == 2 {
+		id, tag = args[0], args[1]
+	} else {
+		tag = args[0]
+	}
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	if len(args) == 1 {
+		var errResolve error
+		id, errResolve = wn.ResolveItemID(meta.CurrentID, "")
+		if errResolve != nil {
+			return fmt.Errorf("no id provided and no current task")
+		}
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -296,7 +360,8 @@ func runUntag(cmd *cobra.Command, args []string) error {
 var dependCmd = &cobra.Command{
 	Use:   "depend [id] --on [id2]",
 	Short: "Mark an item as depending on another",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, uses the current task.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDepend,
 }
 var dependOn string
@@ -307,11 +372,23 @@ func init() {
 }
 
 func runDepend(cmd *cobra.Command, args []string) error {
-	id, onID := args[0], dependOn
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
 	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	onID := dependOn
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
@@ -341,7 +418,8 @@ func runDepend(cmd *cobra.Command, args []string) error {
 var rmdependCmd = &cobra.Command{
 	Use:   "rmdepend [id] --on [id2]",
 	Short: "Remove a dependency",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, uses the current task.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runRmdepend,
 }
 var rmdependOn string
@@ -352,11 +430,23 @@ func init() {
 }
 
 func runRmdepend(cmd *cobra.Command, args []string) error {
-	id, onID := args[0], rmdependOn
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
 	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	onID := rmdependOn
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
@@ -380,7 +470,8 @@ func runRmdepend(cmd *cobra.Command, args []string) error {
 var doneCmd = &cobra.Command{
 	Use:   "done [id]",
 	Short: "Mark a work item complete",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, marks the current task complete.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDone,
 }
 var doneMessage string
@@ -392,10 +483,21 @@ func init() {
 }
 
 func runDone(cmd *cobra.Command, args []string) error {
-	id := args[0]
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -427,15 +529,27 @@ func runDone(cmd *cobra.Command, args []string) error {
 var undoneCmd = &cobra.Command{
 	Use:   "undone [id]",
 	Short: "Mark a work item not complete",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, marks the current task undone.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runUndone,
 }
 
 func runUndone(cmd *cobra.Command, args []string) error {
-	id := args[0]
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -456,15 +570,27 @@ func runUndone(cmd *cobra.Command, args []string) error {
 var logCmd = &cobra.Command{
 	Use:   "log [id]",
 	Short: "Show history of a work item",
-	Args:  cobra.ExactArgs(1),
+	Long:  "If id is omitted, shows log for the current task.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runLog,
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
-	id := args[0]
 	root, err := wn.FindRoot()
 	if err != nil {
 		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
