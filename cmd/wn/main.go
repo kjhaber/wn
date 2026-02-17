@@ -676,7 +676,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		ordered = items
 	}
 	for _, it := range ordered {
-		fmt.Printf("  %s: %s\n", it.ID, it.Description)
+		fmt.Printf("  %s: %s\n", it.ID, wn.FirstLine(it.Description))
 	}
 	return nil
 }

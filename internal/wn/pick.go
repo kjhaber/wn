@@ -24,7 +24,7 @@ func PickInteractive(items []*Item) (string, error) {
 func pickFzf(items []*Item) (string, error) {
 	lines := make([]string, len(items))
 	for i, it := range items {
-		lines[i] = fmt.Sprintf("%s: %s", it.ID, it.Description)
+		lines[i] = fmt.Sprintf("%s: %s", it.ID, FirstLine(it.Description))
 	}
 	cmd := exec.Command("fzf", "--no-multi")
 	cmd.Stdin = strings.NewReader(strings.Join(lines, "\n"))
@@ -47,7 +47,7 @@ func pickFzf(items []*Item) (string, error) {
 
 func pickNumbered(items []*Item) (string, error) {
 	for i, it := range items {
-		fmt.Printf("  %d. %s: %s\n", i+1, it.ID, it.Description)
+		fmt.Printf("  %d. %s: %s\n", i+1, it.ID, FirstLine(it.Description))
 	}
 	fmt.Print("Number (or Enter to cancel): ")
 	sc := bufio.NewScanner(os.Stdin)
