@@ -127,6 +127,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if err := store.Put(item); err != nil {
 		return err
 	}
+	meta, _ := wn.ReadMeta(root)
+	meta.CurrentID = id
+	if err := wn.WriteMeta(root, meta); err != nil {
+		return err
+	}
 	fmt.Printf("added entry %s\n", id)
 	return nil
 }
