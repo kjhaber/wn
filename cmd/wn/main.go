@@ -29,7 +29,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, logCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, logCmd, descCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -56,6 +56,37 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	fmt.Printf("current task: [%s] %s\n", item.ID, item.Description)
+	return nil
+}
+
+var descCmd = &cobra.Command{
+	Use:   "desc",
+	Short: "Print the current task description (prompt-ready: title only or body only)",
+	Long:  "Output is suitable for pasting into an agent prompt. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title.",
+	RunE:  runDesc,
+}
+
+func runDesc(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	if meta.CurrentID == "" {
+		return fmt.Errorf("no current task; use 'wn pick' or 'wn next'")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(meta.CurrentID)
+	if err != nil {
+		return fmt.Errorf("current task %s not found", meta.CurrentID)
+	}
+	fmt.Println(wn.PromptBody(item.Description))
 	return nil
 }
 
