@@ -1,0 +1,682 @@
+package main
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/keith/wn/internal/wn"
+	"github.com/spf13/cobra"
+)
+
+const version = "0.1.0"
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+var rootCmd = &cobra.Command{
+	Use:   "wn",
+	Short: "What's Next — local task/work item tracker",
+	Long:  `wn is a CLI for tracking work items. Use wn init to create a tracker in the current directory.`,
+	RunE:  runCurrent,
+}
+
+func init() {
+	rootCmd.Version = version
+	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, logCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.CompletionOptions.DisableDefaultCmd = false
+}
+
+func runCurrent(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	if meta.CurrentID == "" {
+		fmt.Println("No current task. Use 'wn pick' to choose one or 'wn next' to advance.")
+		return nil
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(meta.CurrentID)
+	if err != nil {
+		fmt.Printf("Current task ID %s not found. Use 'wn pick' to choose one.\n", meta.CurrentID)
+		return nil
+	}
+	fmt.Printf("current task: [%s] %s\n", item.ID, item.Description)
+	return nil
+}
+
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize wn in the current directory",
+	RunE:  runInit,
+}
+
+func runInit(cmd *cobra.Command, args []string) error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if err := wn.InitRoot(dir); err != nil {
+		return err
+	}
+	fmt.Println(`wn initialized at ".wn"`)
+	return nil
+}
+
+var addCmd = &cobra.Command{
+	Use:   "add",
+	Short: "Add a work item",
+	RunE:  runAdd,
+}
+var addMessage string
+var addTags []string
+
+func init() {
+	addCmd.Flags().StringVarP(&addMessage, "message", "m", "", "Description of the work item")
+	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Tag (repeatable)")
+}
+
+func runAdd(cmd *cobra.Command, args []string) error {
+	msg := addMessage
+	if msg == "" {
+		var err error
+		msg, err = wn.EditWithEditor("")
+		if err != nil {
+			return err
+		}
+		if msg == "" {
+			return fmt.Errorf("empty description")
+		}
+	}
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	id, err := wn.GenerateID(store)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          id,
+		Description: msg,
+		Created:     now,
+		Updated:     now,
+		Tags:        addTags,
+		DependsOn:   nil,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		return err
+	}
+	fmt.Printf("added entry %s\n", id)
+	return nil
+}
+
+var rmCmd = &cobra.Command{
+	Use:   "rm [id]",
+	Short: "Remove a work item",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runRm,
+}
+
+func runRm(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	if _, err := store.Get(id); err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	if err := store.Delete(id); err != nil {
+		return err
+	}
+	fmt.Printf("removed entry %s\n", id)
+	return nil
+}
+
+var editCmd = &cobra.Command{
+	Use:   "edit [id]",
+	Short: "Edit a work item description in $EDITOR",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runEdit,
+}
+
+func runEdit(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	edited, err := wn.EditWithEditor(item.Description)
+	if err != nil {
+		return err
+	}
+	item.Description = edited
+	item.Updated = time.Now().UTC()
+	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "updated"})
+	return store.Put(item)
+}
+
+var tagCmd = &cobra.Command{
+	Use:   "tag [id] [tag]",
+	Short: "Add a tag to a work item",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runTag,
+}
+
+func runTag(cmd *cobra.Command, args []string) error {
+	id, tag := args[0], args[1]
+	if err := wn.ValidateTag(tag); err != nil {
+		return err
+	}
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	for _, t := range item.Tags {
+		if t == tag {
+			return nil
+		}
+	}
+	item.Tags = append(item.Tags, tag)
+	item.Updated = time.Now().UTC()
+	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "tag_added", Msg: tag})
+	return store.Put(item)
+}
+
+var untagCmd = &cobra.Command{
+	Use:   "untag [id] [tag]",
+	Short: "Remove a tag from a work item",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runUntag,
+}
+
+func runUntag(cmd *cobra.Command, args []string) error {
+	id, tag := args[0], args[1]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	var newTags []string
+	for _, t := range item.Tags {
+		if t != tag {
+			newTags = append(newTags, t)
+		}
+	}
+	item.Tags = newTags
+	item.Updated = time.Now().UTC()
+	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "tag_removed", Msg: tag})
+	return store.Put(item)
+}
+
+var dependCmd = &cobra.Command{
+	Use:   "depend [id] --on [id2]",
+	Short: "Mark an item as depending on another",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runDepend,
+}
+var dependOn string
+
+func init() {
+	dependCmd.Flags().StringVar(&dependOn, "on", "", "ID of the dependency")
+	_ = dependCmd.MarkFlagRequired("on")
+}
+
+func runDepend(cmd *cobra.Command, args []string) error {
+	id, onID := args[0], dependOn
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	if wn.WouldCreateCycle(items, id, onID) {
+		return fmt.Errorf("circular dependency detected, could not mark entry %s dependent on %s", id, onID)
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	for _, d := range item.DependsOn {
+		if d == onID {
+			return nil
+		}
+	}
+	item.DependsOn = append(item.DependsOn, onID)
+	item.Updated = time.Now().UTC()
+	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "depend_added", Msg: onID})
+	return store.Put(item)
+}
+
+var rmdependCmd = &cobra.Command{
+	Use:   "rmdepend [id] --on [id2]",
+	Short: "Remove a dependency",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runRmdepend,
+}
+var rmdependOn string
+
+func init() {
+	rmdependCmd.Flags().StringVar(&rmdependOn, "on", "", "ID of the dependency to remove")
+	_ = rmdependCmd.MarkFlagRequired("on")
+}
+
+func runRmdepend(cmd *cobra.Command, args []string) error {
+	id, onID := args[0], rmdependOn
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	var newDeps []string
+	for _, d := range item.DependsOn {
+		if d != onID {
+			newDeps = append(newDeps, d)
+		}
+	}
+	item.DependsOn = newDeps
+	item.Updated = time.Now().UTC()
+	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "depend_removed", Msg: onID})
+	return store.Put(item)
+}
+
+var doneCmd = &cobra.Command{
+	Use:   "done [id]",
+	Short: "Mark a work item complete",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runDone,
+}
+var doneMessage string
+var doneForce bool
+
+func init() {
+	doneCmd.Flags().StringVarP(&doneMessage, "message", "m", "", "Completion message (e.g. git commit)")
+	doneCmd.Flags().BoolVar(&doneForce, "force", false, "Mark complete even if dependencies are not done")
+}
+
+func runDone(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	if !doneForce {
+		for _, depID := range item.DependsOn {
+			dep, err := store.Get(depID)
+			if err != nil {
+				return err
+			}
+			if !dep.Done {
+				return fmt.Errorf("dependency %s not complete, use --force to mark complete anyway", depID)
+			}
+		}
+	}
+	now := time.Now().UTC()
+	item.Done = true
+	item.DoneMessage = doneMessage
+	item.Updated = now
+	item.Log = append(item.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
+	return store.Put(item)
+}
+
+var undoneCmd = &cobra.Command{
+	Use:   "undone [id]",
+	Short: "Mark a work item not complete",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runUndone,
+}
+
+func runUndone(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	item.Done = false
+	item.DoneMessage = ""
+	item.Updated = now
+	item.Log = append(item.Log, wn.LogEntry{At: now, Kind: "undone"})
+	return store.Put(item)
+}
+
+var logCmd = &cobra.Command{
+	Use:   "log [id]",
+	Short: "Show history of a work item",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runLog,
+}
+
+func runLog(cmd *cobra.Command, args []string) error {
+	id := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	for _, e := range item.Log {
+		fmt.Printf("%s %s", e.At.Format("2006-01-02 15:04:05"), e.Kind)
+		if e.Msg != "" {
+			fmt.Printf(" %s", e.Msg)
+		}
+		fmt.Println()
+	}
+	return nil
+}
+
+var nextCmd = &cobra.Command{
+	Use:   "next",
+	Short: "Pick the next task (first undone in dependency order) and set as current",
+	RunE:  runNext,
+}
+
+func runNext(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	var undone []*wn.Item
+	for _, it := range items {
+		if !it.Done {
+			undone = append(undone, it)
+		}
+	}
+	ordered, acyclic := wn.TopoOrder(undone)
+	if !acyclic || len(ordered) == 0 {
+		fmt.Println("No next task.")
+		return nil
+	}
+	next := ordered[0]
+	meta, _ := wn.ReadMeta(root)
+	meta.CurrentID = next.ID
+	if err := wn.WriteMeta(root, meta); err != nil {
+		return err
+	}
+	fmt.Printf("  %s: %s\n", next.ID, next.Description)
+	return nil
+}
+
+var pickCmd = &cobra.Command{
+	Use:   "pick",
+	Short: "Interactively pick a current task (uses fzf if available)",
+	RunE:  runPick,
+}
+
+func runPick(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	var undone []*wn.Item
+	for _, it := range items {
+		if !it.Done {
+			undone = append(undone, it)
+		}
+	}
+	if len(undone) == 0 {
+		fmt.Println("No undone tasks.")
+		return nil
+	}
+	id, err := wn.PickInteractive(undone)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	meta, _ := wn.ReadMeta(root)
+	meta.CurrentID = id
+	return wn.WriteMeta(root, meta)
+}
+
+var settingsCmd = &cobra.Command{
+	Use:   "settings",
+	Short: "Open wn settings file in $EDITOR",
+	RunE:  runSettings,
+}
+
+func runSettings(cmd *cobra.Command, args []string) error {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	wnDir := filepath.Join(configDir, "wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(wnDir, "settings.json")
+	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+		if err := os.WriteFile(settingsPath, []byte("{}\n"), 0644); err != nil {
+			return err
+		}
+	}
+	return wn.RunEditorOnFile(settingsPath)
+}
+
+var exportCmd = &cobra.Command{
+	Use:   "export",
+	Short: "Export all work items to JSON",
+	RunE:  runExport,
+}
+var exportOutput string
+
+func init() {
+	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Write to file (default: stdout)")
+}
+
+func runExport(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	return wn.Export(store, exportOutput)
+}
+
+var importCmd = &cobra.Command{
+	Use:   "import [file]",
+	Short: "Import work items from an export file",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runImport,
+}
+var importReplace bool
+
+func init() {
+	importCmd.Flags().BoolVar(&importReplace, "replace", false, "Replace existing items (required if store has items)")
+}
+
+func runImport(cmd *cobra.Command, args []string) error {
+	path := args[0]
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	hasItems, err := wn.StoreHasItems(store)
+	if err != nil {
+		return err
+	}
+	if hasItems && !importReplace {
+		return fmt.Errorf("store already has items; use --replace to overwrite")
+	}
+	return wn.ImportReplace(store, path)
+}
+
+var listCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List work items (default: undone, in dependency order)",
+	RunE:  runList,
+}
+var listUndone bool
+var listDone bool
+var listAll bool
+var listTag string
+
+func init() {
+	listCmd.Flags().BoolVar(&listUndone, "undone", true, "List undone items (default)")
+	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
+	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
+	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
+}
+
+func runList(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	// Filter by done/undone/all
+	if listAll {
+		// no filter
+	} else if listDone {
+		var filtered []*wn.Item
+		for _, it := range items {
+			if it.Done {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+	} else {
+		var filtered []*wn.Item
+		for _, it := range items {
+			if !it.Done {
+				filtered = append(filtered, it)
+			}
+		}
+		items = filtered
+	}
+	if listTag != "" {
+		var filtered []*wn.Item
+		for _, it := range items {
+			for _, t := range it.Tags {
+				if t == listTag {
+					filtered = append(filtered, it)
+					break
+				}
+			}
+		}
+		items = filtered
+	}
+	ordered, acyclic := wn.TopoOrder(items)
+	if !acyclic && len(ordered) > 0 {
+		// Still print something; cycle only matters for depend command
+		ordered = items
+	}
+	for _, it := range ordered {
+		fmt.Printf("  %s: %s\n", it.ID, it.Description)
+	}
+	return nil
+}
