@@ -771,9 +771,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 }
 
 var listCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List work items (default: undone, in dependency order)",
-	RunE:  runList,
+	Use:     "list",
+	Aliases: []string{"ls"},
+	Short:   "List work items (default: undone, in dependency order)",
+	RunE:    runList,
 }
 var listUndone bool
 var listDone bool
