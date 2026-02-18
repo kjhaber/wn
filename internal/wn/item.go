@@ -4,14 +4,14 @@ import "time"
 
 // Item is a single work item. IDs are 6-character UUID prefixes (lowercase hex).
 type Item struct {
-	ID          string    `json:"id"`
-	Description string    `json:"description"`
-	Created     time.Time `json:"created"`
-	Updated     time.Time `json:"updated"`
-	Done        bool      `json:"done"`
-	DoneMessage string    `json:"done_message,omitempty"`
-	Tags        []string  `json:"tags"`
-	DependsOn   []string  `json:"depends_on"`
+	ID          string     `json:"id"`
+	Description string     `json:"description"`
+	Created     time.Time  `json:"created"`
+	Updated     time.Time  `json:"updated"`
+	Done        bool       `json:"done"`
+	DoneMessage string     `json:"done_message,omitempty"`
+	Tags        []string   `json:"tags"`
+	DependsOn   []string   `json:"depends_on"`
 	Log         []LogEntry `json:"log"`
 }
 
