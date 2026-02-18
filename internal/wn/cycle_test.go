@@ -27,4 +27,14 @@ func TestWouldCreateCycle(t *testing.T) {
 	if !WouldCreateCycle(items, "a", "a") {
 		t.Error("a -> a should create cycle")
 	}
+	// Cycle in graph (a->c->a) but adding b->a does not create a cycle; pathExists
+	// traverses a->c->a and hits seen[a], returning false
+	itemsWithCycle := []*Item{
+		mk("a", "c"),
+		mk("c", "a"),
+		mk("b"),
+	}
+	if WouldCreateCycle(itemsWithCycle, "b", "a") {
+		t.Error("b -> a with existing cycle a->c->a should not create new cycle (no path a->b)")
+	}
 }

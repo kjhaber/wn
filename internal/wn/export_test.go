@@ -1,7 +1,9 @@
 package wn
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -106,5 +108,66 @@ func TestImportReplace_FileNotFound(t *testing.T) {
 	err = ImportReplace(store, filepath.Join(root, "nonexistent.json"))
 	if err == nil {
 		t.Error("expected error for missing file")
+	}
+}
+
+func TestExport_Stdout(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "stdout1",
+		Description: "exported to stdout",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = Export(store, "")
+	os.Stdout = old
+	if err != nil {
+		w.Close()
+		t.Fatalf("Export(store, \"\"): %v", err)
+	}
+	w.Close()
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+	r.Close()
+	var exp ExportData
+	if err := json.Unmarshal(buf.Bytes(), &exp); err != nil {
+		t.Fatalf("stdout output is not valid JSON: %v", err)
+	}
+	if exp.Version != ExportSchemaVersion {
+		t.Errorf("version = %d, want %d", exp.Version, ExportSchemaVersion)
+	}
+	if len(exp.Items) != 1 || exp.Items[0].ID != "stdout1" {
+		t.Errorf("Items = %v, want single item stdout1", exp.Items)
+	}
+}
+
+func TestImportReplace_InvalidJSON(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(path, []byte("not valid json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err = ImportReplace(store, path)
+	if err == nil {
+		t.Error("expected error for invalid JSON")
 	}
 }

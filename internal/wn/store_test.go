@@ -13,6 +13,9 @@ func TestFileStore_PutGetListDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
+	if got := store.Root(); got != root {
+		t.Errorf("Root() = %q, want %q", got, root)
+	}
 
 	item := &Item{
 		ID:          "abc123",
@@ -91,6 +94,59 @@ func TestNewFileStore_RequiresItemsDir(t *testing.T) {
 	itemsPath := filepath.Join(root, ".wn", "items")
 	if info, err := os.Stat(itemsPath); err != nil || !info.IsDir() {
 		t.Errorf("expected .wn/items to exist: err=%v isDir=%v", err, info != nil && info.IsDir())
+	}
+}
+
+func TestFileStore_ListSkipsNonJsonAndSubdirs(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	item := &Item{
+		ID:          "abc123",
+		Description: "only item",
+		Created:     time.Now().UTC(),
+		Updated:     time.Now().UTC(),
+		Log:         []LogEntry{{At: time.Now().UTC(), Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	itemsDir := filepath.Join(root, ".wn", "items")
+	// Add a non-.json file; List should skip it
+	if err := os.WriteFile(filepath.Join(itemsDir, "readme.txt"), []byte("ignore"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Add a subdirectory; List should skip it
+	if err := os.Mkdir(filepath.Join(itemsDir, "subdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 1 {
+		t.Errorf("List len = %d, want 1 (should skip readme.txt and subdir)", len(items))
+	}
+	if len(items) == 1 && items[0].ID != "abc123" {
+		t.Errorf("List[0].ID = %q, want abc123", items[0].ID)
+	}
+}
+
+func TestFileStore_GetInvalidJSON(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	itemsDir := filepath.Join(root, ".wn", "items")
+	if err := os.WriteFile(filepath.Join(itemsDir, "badid.json"), []byte("not valid json"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.Get("badid")
+	if err == nil {
+		t.Error("Get on invalid JSON file should error")
 	}
 }
 
