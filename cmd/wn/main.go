@@ -164,9 +164,10 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if err := store.Put(item); err != nil {
 		return err
 	}
-	meta, _ := wn.ReadMeta(root)
-	meta.CurrentID = id
-	if err := wn.WriteMeta(root, meta); err != nil {
+	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		m.CurrentID = id
+		return m, nil
+	}); err != nil {
 		return err
 	}
 	fmt.Printf("added entry %s\n", id)
@@ -241,18 +242,16 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
-	edited, err := wn.EditWithEditor(item.Description)
-	if err != nil {
-		return err
-	}
-	item.Description = edited
-	item.Updated = time.Now().UTC()
-	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "updated"})
-	return store.Put(item)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		edited, err := wn.EditWithEditor(it.Description)
+		if err != nil {
+			return nil, err
+		}
+		it.Description = edited
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "updated"})
+		return it, nil
+	})
 }
 
 var tagCmd = &cobra.Command{
@@ -292,19 +291,17 @@ func runTag(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
-	for _, t := range item.Tags {
-		if t == tag {
-			return nil
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		for _, t := range it.Tags {
+			if t == tag {
+				return it, nil
+			}
 		}
-	}
-	item.Tags = append(item.Tags, tag)
-	item.Updated = time.Now().UTC()
-	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "tag_added", Msg: tag})
-	return store.Put(item)
+		it.Tags = append(it.Tags, tag)
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "tag_added", Msg: tag})
+		return it, nil
+	})
 }
 
 var untagCmd = &cobra.Command{
@@ -341,20 +338,18 @@ func runUntag(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
-	var newTags []string
-	for _, t := range item.Tags {
-		if t != tag {
-			newTags = append(newTags, t)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		var newTags []string
+		for _, t := range it.Tags {
+			if t != tag {
+				newTags = append(newTags, t)
+			}
 		}
-	}
-	item.Tags = newTags
-	item.Updated = time.Now().UTC()
-	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "tag_removed", Msg: tag})
-	return store.Put(item)
+		it.Tags = newTags
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "tag_removed", Msg: tag})
+		return it, nil
+	})
 }
 
 var dependCmd = &cobra.Command{
@@ -400,19 +395,17 @@ func runDepend(cmd *cobra.Command, args []string) error {
 	if wn.WouldCreateCycle(items, id, onID) {
 		return fmt.Errorf("circular dependency detected, could not mark entry %s dependent on %s", id, onID)
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
-	for _, d := range item.DependsOn {
-		if d == onID {
-			return nil
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		for _, d := range it.DependsOn {
+			if d == onID {
+				return it, nil
+			}
 		}
-	}
-	item.DependsOn = append(item.DependsOn, onID)
-	item.Updated = time.Now().UTC()
-	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "depend_added", Msg: onID})
-	return store.Put(item)
+		it.DependsOn = append(it.DependsOn, onID)
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "depend_added", Msg: onID})
+		return it, nil
+	})
 }
 
 var rmdependCmd = &cobra.Command{
@@ -451,20 +444,18 @@ func runRmdepend(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
-	var newDeps []string
-	for _, d := range item.DependsOn {
-		if d != onID {
-			newDeps = append(newDeps, d)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		var newDeps []string
+		for _, d := range it.DependsOn {
+			if d != onID {
+				newDeps = append(newDeps, d)
+			}
 		}
-	}
-	item.DependsOn = newDeps
-	item.Updated = time.Now().UTC()
-	item.Log = append(item.Log, wn.LogEntry{At: item.Updated, Kind: "depend_removed", Msg: onID})
-	return store.Put(item)
+		it.DependsOn = newDeps
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "depend_removed", Msg: onID})
+		return it, nil
+	})
 }
 
 var doneCmd = &cobra.Command{
@@ -503,11 +494,11 @@ func runDone(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
 	if !doneForce {
+		item, err := store.Get(id)
+		if err != nil {
+			return err
+		}
 		for _, depID := range item.DependsOn {
 			dep, err := store.Get(depID)
 			if err != nil {
@@ -519,11 +510,13 @@ func runDone(cmd *cobra.Command, args []string) error {
 		}
 	}
 	now := time.Now().UTC()
-	item.Done = true
-	item.DoneMessage = doneMessage
-	item.Updated = now
-	item.Log = append(item.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
-	return store.Put(item)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.Done = true
+		it.DoneMessage = doneMessage
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
+		return it, nil
+	})
 }
 
 var undoneCmd = &cobra.Command{
@@ -555,16 +548,14 @@ func runUndone(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	item, err := store.Get(id)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	item.Done = false
-	item.DoneMessage = ""
-	item.Updated = now
-	item.Log = append(item.Log, wn.LogEntry{At: now, Kind: "undone"})
-	return store.Put(item)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.Done = false
+		it.DoneMessage = ""
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "undone"})
+		return it, nil
+	})
 }
 
 var logCmd = &cobra.Command{
@@ -641,9 +632,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 	next := ordered[0]
-	meta, _ := wn.ReadMeta(root)
-	meta.CurrentID = next.ID
-	if err := wn.WriteMeta(root, meta); err != nil {
+	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		m.CurrentID = next.ID
+		return m, nil
+	}); err != nil {
 		return err
 	}
 	fmt.Printf("  %s: %s\n", next.ID, next.Description)
@@ -686,9 +678,10 @@ func runPick(cmd *cobra.Command, args []string) error {
 	if id == "" {
 		return nil
 	}
-	meta, _ := wn.ReadMeta(root)
-	meta.CurrentID = id
-	return wn.WriteMeta(root, meta)
+	return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		m.CurrentID = id
+		return m, nil
+	})
 }
 
 var settingsCmd = &cobra.Command{

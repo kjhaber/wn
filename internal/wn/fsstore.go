@@ -3,6 +3,7 @@ package wn
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 )
@@ -74,9 +75,86 @@ func (s *fileStore) Put(item *Item) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.itemPath(item.ID), data, 0644)
+	path := s.itemPath(item.ID)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := lockFile(f); err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(f) }()
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	return err
+}
+
+// UpdateItem runs fn with the item under exclusive lock (read-modify-write).
+func (s *fileStore) UpdateItem(id string, fn func(*Item) (*Item, error)) error {
+	path := s.itemPath(id)
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("item %s not found", id)
+		}
+		return err
+	}
+	defer f.Close()
+	if err := lockFile(f); err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(f) }()
+	if _, err := f.Seek(0, 0); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	var item Item
+	if err := json.Unmarshal(data, &item); err != nil {
+		return err
+	}
+	updated, err := fn(&item)
+	if err != nil {
+		return err
+	}
+	if updated == nil {
+		return nil
+	}
+	data, err = json.MarshalIndent(updated, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := f.Truncate(0); err != nil {
+		return err
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		return err
+	}
+	_, err = f.Write(data)
+	return err
 }
 
 func (s *fileStore) Delete(id string) error {
-	return os.Remove(s.itemPath(id))
+	path := s.itemPath(id)
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("item %s not found", id)
+		}
+		return err
+	}
+	defer f.Close()
+	if err := lockFile(f); err != nil {
+		return err
+	}
+	defer func() { _ = unlockFile(f) }()
+	return os.Remove(path)
 }

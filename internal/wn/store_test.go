@@ -3,6 +3,7 @@ package wn
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -157,7 +158,15 @@ func (s *fullStore) List() ([]*Item, error) { return nil, nil }
 func (s *fullStore) Get(id string) (*Item, error) {
 	return &Item{ID: id, Created: time.Now().UTC(), Updated: time.Now().UTC()}, nil
 }
-func (s *fullStore) Put(*Item) error     { return nil }
+func (s *fullStore) Put(*Item) error { return nil }
+func (s *fullStore) UpdateItem(id string, fn func(*Item) (*Item, error)) error {
+	it, _ := s.Get(id)
+	updated, err := fn(it)
+	if err != nil || updated == nil {
+		return err
+	}
+	return s.Put(updated)
+}
 func (s *fullStore) Delete(string) error { return nil }
 func (s *fullStore) Root() string        { return s.root }
 
@@ -169,6 +178,52 @@ func TestGenerateID_AllCollisions(t *testing.T) {
 	}
 	if id != "" {
 		t.Errorf("GenerateID(fullStore) id = %q, want \"\"", id)
+	}
+}
+
+// TestFileStore_ConcurrentPutSameItem verifies that concurrent read-modify-write
+// of the same item is serialized by advisory locking (no lost updates).
+func TestFileStore_ConcurrentPutSameItem(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "concurrent test",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	appendLog := func(kind string) {
+		defer wg.Done()
+		err := store.UpdateItem("abc123", func(it *Item) (*Item, error) {
+			it.Log = append(it.Log, LogEntry{At: time.Now().UTC(), Kind: kind})
+			return it, nil
+		})
+		if err != nil {
+			t.Errorf("UpdateItem: %v", err)
+		}
+	}
+	wg.Add(2)
+	go appendLog("update_a")
+	go appendLog("update_b")
+	wg.Wait()
+
+	got, err := store.Get("abc123")
+	if err != nil {
+		t.Fatalf("Get after concurrent Put: %v", err)
+	}
+	// With locking, both updates are applied (one then the other); we should see 3 entries (created + 2).
+	if len(got.Log) != 3 {
+		t.Errorf("len(Log) = %d, want 3 (created + update_a + update_b); got %v", len(got.Log), got.Log)
 	}
 }
 
