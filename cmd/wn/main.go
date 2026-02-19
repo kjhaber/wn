@@ -1,12 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/keith/wn/internal/wn"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +31,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -764,6 +766,21 @@ func runPick(cmd *cobra.Command, args []string) error {
 		m.CurrentID = id
 		return m, nil
 	})
+}
+
+var mcpCmd = &cobra.Command{
+	Use:   "mcp",
+	Short: "Run MCP server on stdio (for Cursor and other MCP clients)",
+	Long:  "Starts the Model Context Protocol server over stdin/stdout. The client (e.g. Cursor) spawns this process with cwd set to the project directory; tools operate on the wn work list in that directory. No continuous process—exits when the client disconnects.",
+	RunE:  runMCP,
+}
+
+func runMCP(cmd *cobra.Command, args []string) error {
+	server := wn.NewMCPServer()
+	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
+		return err
+	}
+	return nil
 }
 
 var settingsCmd = &cobra.Command{

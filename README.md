@@ -46,6 +46,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
 | `wn import <file>` | Import items (use `--replace` if store already has items) |
 | `wn help` / `wn completion` | Help and shell completion |
+| `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients) |
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
 
@@ -58,6 +59,12 @@ wn completion zsh > "${fpath[1]}/_wn" && compinit
 # bash
 wn completion bash > /etc/bash_completion.d/wn  # or ~/.local/share/bash-completion/completions/wn
 ```
+
+## MCP server
+
+To use wn from Cursor (or another MCP client), add an MCP server that runs `wn mcp`. The client spawns the process with the project directory as cwd, so the tools operate on that project's work list. The process runs only while the client is connected—no long-lived daemon.
+
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`.
 
 ## Optional: fzf for `wn pick`
 
