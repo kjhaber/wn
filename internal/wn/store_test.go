@@ -150,6 +150,28 @@ func TestFileStore_GetInvalidJSON(t *testing.T) {
 	}
 }
 
+// fullStore is a Store that always reports every ID as existing (for testing collision path).
+type fullStore struct{ root string }
+
+func (s *fullStore) List() ([]*Item, error) { return nil, nil }
+func (s *fullStore) Get(id string) (*Item, error) {
+	return &Item{ID: id, Created: time.Now().UTC(), Updated: time.Now().UTC()}, nil
+}
+func (s *fullStore) Put(*Item) error     { return nil }
+func (s *fullStore) Delete(string) error { return nil }
+func (s *fullStore) Root() string        { return s.root }
+
+func TestGenerateID_AllCollisions(t *testing.T) {
+	store := &fullStore{}
+	id, err := GenerateID(store)
+	if err == nil {
+		t.Errorf("GenerateID(fullStore) = %q, nil; want error after 100 attempts", id)
+	}
+	if id != "" {
+		t.Errorf("GenerateID(fullStore) id = %q, want \"\"", id)
+	}
+}
+
 func TestGenerateID_Unique(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)

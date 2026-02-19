@@ -142,7 +142,10 @@ func TestExport_Stdout(t *testing.T) {
 	}
 	w.Close()
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	if _, err := io.Copy(&buf, r); err != nil {
+		r.Close()
+		t.Fatalf("io.Copy: %v", err)
+	}
 	r.Close()
 	var exp ExportData
 	if err := json.Unmarshal(buf.Bytes(), &exp); err != nil {
