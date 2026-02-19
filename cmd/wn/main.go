@@ -29,7 +29,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, logCmd, descCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, nextCmd, pickCmd, settingsCmd, exportCmd, importCmd, listCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -558,6 +558,100 @@ func runUndone(cmd *cobra.Command, args []string) error {
 	})
 }
 
+var claimCmd = &cobra.Command{
+	Use:   "claim [id]",
+	Short: "Mark a work item in progress (exclusive until expiration)",
+	Long:  "Claims the item so it leaves the undone list until --for duration expires or you run wn done/release. If id is omitted, uses current task.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runClaim,
+}
+var claimFor string
+var claimBy string
+
+func init() {
+	claimCmd.Flags().StringVar(&claimFor, "for", "", "Duration the claim is held (e.g. 30m, 1h); required")
+	_ = claimCmd.MarkFlagRequired("for")
+	claimCmd.Flags().StringVar(&claimBy, "by", "", "Optional worker ID for logging")
+}
+
+func runClaim(cmd *cobra.Command, args []string) error {
+	d, err := time.ParseDuration(claimFor)
+	if err != nil {
+		return fmt.Errorf("invalid --for duration %q: %w", claimFor, err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("--for duration must be positive, got %v", d)
+	}
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task; use wn pick or wn next")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	until := now.Add(d)
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.InProgressUntil = until
+		it.InProgressBy = claimBy
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: claimFor})
+		return it, nil
+	})
+}
+
+var releaseCmd = &cobra.Command{
+	Use:   "release [id]",
+	Short: "Clear in-progress on a work item (return to undone list)",
+	Long:  "If id is omitted, releases the current task.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runRelease,
+}
+
+func runRelease(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.InProgressUntil = time.Time{}
+		it.InProgressBy = ""
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "released"})
+		return it, nil
+	})
+}
+
 var logCmd = &cobra.Command{
 	Use:   "log [id]",
 	Short: "Show history of a work item",
@@ -616,15 +710,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	items, err := store.List()
+	undone, err := wn.UndoneItems(store)
 	if err != nil {
 		return err
-	}
-	var undone []*wn.Item
-	for _, it := range items {
-		if !it.Done {
-			undone = append(undone, it)
-		}
 	}
 	ordered, acyclic := wn.TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
@@ -657,15 +745,9 @@ func runPick(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	items, err := store.List()
+	undone, err := wn.UndoneItems(store)
 	if err != nil {
 		return err
-	}
-	var undone []*wn.Item
-	for _, it := range items {
-		if !it.Done {
-			undone = append(undone, it)
-		}
 	}
 	if len(undone) == 0 {
 		fmt.Println("No undone tasks.")
@@ -790,29 +872,27 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	items, err := store.List()
-	if err != nil {
-		return err
-	}
-	// Filter by done/undone/all
+	var items []*wn.Item
 	if listAll {
-		// no filter
+		items, err = store.List()
+		if err != nil {
+			return err
+		}
 	} else if listDone {
-		var filtered []*wn.Item
-		for _, it := range items {
+		all, err := store.List()
+		if err != nil {
+			return err
+		}
+		for _, it := range all {
 			if it.Done {
-				filtered = append(filtered, it)
+				items = append(items, it)
 			}
 		}
-		items = filtered
 	} else {
-		var filtered []*wn.Item
-		for _, it := range items {
-			if !it.Done {
-				filtered = append(filtered, it)
-			}
+		items, err = wn.UndoneItems(store)
+		if err != nil {
+			return err
 		}
-		items = filtered
 	}
 	if listTag != "" {
 		var filtered []*wn.Item

@@ -32,13 +32,15 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag <id> <tag>` / `wn untag <id> <tag>` | Add or remove a tag |
-| `wn list` | List items (default: undone, dependency order). Use `--done`, `--all`, `--tag x` |
+| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x` |
 | `wn depend <id> --on <id2>` | Mark dependency (rejects cycles) |
 | `wn rmdepend <id> --on <id2>` | Remove dependency |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
+| `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
+| `wn release [id]` | Clear in progress (return item to undone list) |
 | `wn log <id>` | Show history for an item |
-| `wn next` | Set “next” task (first undone in dependency order) as current |
+| `wn next` | Set “next” task (first available undone in dependency order) as current |
 | `wn pick` | Interactively choose current task (fzf if available) |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR` |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
