@@ -14,6 +14,7 @@ type Item struct {
 	InProgressBy    string     `json:"in_progress_by,omitempty"`    // optional worker id for logging
 	Tags            []string   `json:"tags"`
 	DependsOn       []string   `json:"depends_on"`
+	Order           *int       `json:"order,omitempty"` // optional backlog order when deps don't define it; lower = earlier
 	Log             []LogEntry `json:"log"`
 }
 

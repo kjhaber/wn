@@ -47,6 +47,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_next",
 		Description: "Set the next available task as current and return its id and description.",
 	}, handleWnNext)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_order",
+		Description: "Set or clear optional backlog order for an item (lower = earlier when dependencies don't define order).",
+	}, handleWnOrder)
 
 	return server
 }
@@ -66,6 +70,7 @@ func getStore(ctx context.Context) (Store, string, error) {
 type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
+	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order (lower = earlier)"`
 }
 
 func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mcp.CallToolResult, any, error) {
@@ -88,6 +93,7 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 		Updated:     now,
 		Tags:        in.Tags,
 		DependsOn:   nil,
+		Order:       in.Order,
 		Log:         []LogEntry{{At: now, Kind: "created"}},
 	}
 	if err := store.Put(item); err != nil {
@@ -308,4 +314,48 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 	}
 	text := fmt.Sprintf("%s: %s", next.ID, FirstLine(next.Description))
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
+}
+
+type wnOrderIn struct {
+	ID    string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Order *int   `json:"order,omitempty" jsonschema:"Set order to this number (lower = earlier)"`
+	Unset bool   `json:"unset,omitempty" jsonschema:"If true, clear the order field"`
+}
+
+func handleWnOrder(ctx context.Context, req *mcp.CallToolRequest, in wnOrderIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStore(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.Unset {
+		err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+			it.Order = nil
+			it.Updated = time.Now().UTC()
+			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "order_cleared"})
+			return it, nil
+		})
+	} else if in.Order != nil {
+		n := *in.Order
+		err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+			it.Order = &n
+			it.Updated = time.Now().UTC()
+			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "order_set", Msg: fmt.Sprintf("%d", n)})
+			return it, nil
+		})
+	} else {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "provide order (number) or unset: true"}}, IsError: true}, nil, nil
+	}
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("order updated for %s", id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }

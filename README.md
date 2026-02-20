@@ -35,6 +35,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
 | `wn depend <id> --on <id2>` | Mark dependency (rejects cycles) |
 | `wn rmdepend <id> --on <id2>` | Remove dependency |
+| `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
 | `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
@@ -66,7 +67,7 @@ wn completion bash > /etc/bash_completion.d/wn  # or ~/.local/share/bash-complet
 
 To use wn from Cursor (or another MCP client), add an MCP server that runs `wn mcp`. The client spawns the process with the project directory as cwd, so the tools operate on that project's work list. The process runs only while the client is connected—no long-lived daemon.
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`.
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
 
 ## Optional: fzf for `wn pick`
 
