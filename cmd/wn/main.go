@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -64,9 +65,14 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 var descCmd = &cobra.Command{
 	Use:   "desc [id]",
 	Short: "Print a work item description (prompt-ready: title only or body only)",
-	Long:  "Output is suitable for pasting into an agent prompt. If id is omitted, uses current task. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title.",
+	Long:  "Output is suitable for pasting into an agent prompt. If id is omitted, uses current task. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title. Use --json for machine-readable output.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDesc,
+}
+var descJson bool
+
+func init() {
+	descCmd.Flags().BoolVar(&descJson, "json", false, "Output as JSON object with description field")
 }
 
 func runDesc(cmd *cobra.Command, args []string) error {
@@ -94,8 +100,55 @@ func runDesc(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
-	fmt.Println(wn.PromptBody(item.Description))
+	body := wn.PromptBody(item.Description)
+	if descJson {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(struct {
+			Description string `json:"description"`
+		}{Description: body})
+	}
+	fmt.Println(body)
 	return nil
+}
+
+var showCmd = &cobra.Command{
+	Use:   "show [id]",
+	Short: "Output one work item as JSON",
+	Long:  "Prints the full work item (id, description, done, tags, dependencies, log, etc.) as JSON. If id is omitted, uses current task. For agents and scripts.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runShow,
+}
+
+func runShow(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(item)
 }
 
 var initCmd = &cobra.Command{
@@ -873,11 +926,14 @@ var listDone bool
 var listAll bool
 var listTag string
 
+var listJson bool
+
 func init() {
 	listCmd.Flags().BoolVar(&listUndone, "undone", true, "List undone items (default)")
 	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
 	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
+	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (array of id and description)")
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -925,8 +981,20 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	ordered, acyclic := wn.TopoOrder(items)
 	if !acyclic && len(ordered) > 0 {
-		// Still print something; cycle only matters for depend command
 		ordered = items
+	}
+	if listJson {
+		out := make([]struct {
+			ID          string `json:"id"`
+			Description string `json:"description"`
+		}, len(ordered))
+		for i, it := range ordered {
+			out[i].ID = it.ID
+			out[i].Description = wn.FirstLine(it.Description)
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(out)
 	}
 	for _, it := range ordered {
 		fmt.Printf("  %s: %s\n", it.ID, wn.FirstLine(it.Description))

@@ -32,7 +32,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag <id> <tag>` / `wn untag <id> <tag>` | Add or remove a tag |
-| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x` |
+| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
 | `wn depend <id> --on <id2>` | Mark dependency (rejects cycles) |
 | `wn rmdepend <id> --on <id2>` | Remove dependency |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
@@ -40,6 +40,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
 | `wn release [id]` | Clear in progress (return item to undone list) |
 | `wn log <id>` | Show history for an item |
+| `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
+| `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
 | `wn next` | Set “next” task (first available undone in dependency order) as current |
 | `wn pick` | Interactively choose current task (fzf if available) |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR` |
