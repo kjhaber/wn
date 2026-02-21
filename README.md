@@ -10,6 +10,8 @@ go build -o wn ./cmd/wn
 go install ./cmd/wn
 ```
 
+Or use the Makefile: `make build` builds the binary to `build/wn`, `make test` runs tests, and `make` (or `make all`) runs format check, lint, coverage, and build.
+
 Requires **Go 1.26** or later.
 
 ## Quick start
