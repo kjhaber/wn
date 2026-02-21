@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/keith/wn/internal/wn"
@@ -64,8 +65,34 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 	} else if wn.IsInProgress(item, time.Now().UTC()) {
 		state = " (claimed)"
 	}
-	fmt.Printf("current task: [%s] %s%s\n", item.ID, item.Description, state)
+	firstLine := wn.FirstLine(item.Description)
+	tagsStr := formatTags(item.Tags)
+	const currentTaskContentWidth = 56 // pad so tags/state align on the right
+	content := fmt.Sprintf("current task: [%s] %s", item.ID, firstLine)
+	if tagsStr != "" {
+		if len(content) > currentTaskContentWidth {
+			content = content[:currentTaskContentWidth-3] + "..."
+		} else {
+			content = content + strings.Repeat(" ", currentTaskContentWidth-len(content))
+		}
+		fmt.Printf("%s  %s%s\n", content, tagsStr, state)
+	} else {
+		fmt.Printf("%s%s\n", content, state)
+	}
+	// Remaining description lines, if any (preserve blank lines)
+	if rest := getRestOfDescription(item.Description); rest != "" {
+		fmt.Print(rest)
+		if !strings.HasSuffix(rest, "\n") {
+			fmt.Println()
+		}
+	}
 	return nil
+}
+
+// getRestOfDescription returns all but the first line of s (unchanged, so blank lines are preserved).
+func getRestOfDescription(s string) string {
+	_, rest, _ := strings.Cut(s, "\n")
+	return rest
 }
 
 var descCmd = &cobra.Command{
@@ -1047,15 +1074,17 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	if listJson {
 		out := make([]struct {
-			ID          string `json:"id"`
-			Description string `json:"description"`
-			Status      string `json:"status,omitempty"`
+			ID          string   `json:"id"`
+			Description string   `json:"description"`
+			Status      string   `json:"status,omitempty"`
+			Tags        []string `json:"tags,omitempty"`
 		}, len(ordered))
 		now := time.Now().UTC()
 		for i, it := range ordered {
 			out[i].ID = it.ID
 			out[i].Description = wn.FirstLine(it.Description)
 			out[i].Status = itemListStatus(it, now)
+			out[i].Tags = it.Tags
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
@@ -1063,11 +1092,25 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	now := time.Now().UTC()
 	const listStatusWidth = 7
+	const listDescWidth = 51 // so tags align on the right
 	for _, it := range ordered {
 		status := itemListStatus(it, now)
-		fmt.Printf("  %-6s  %-*s  %s\n", it.ID, listStatusWidth, status, wn.FirstLine(it.Description))
+		desc := wn.FirstLine(it.Description)
+		if len(desc) > listDescWidth {
+			desc = desc[:listDescWidth-3] + "..."
+		}
+		tagsStr := formatTags(it.Tags)
+		fmt.Printf("  %-6s  %-*s  %-*s  %s\n", it.ID, listStatusWidth, status, listDescWidth, desc, tagsStr)
 	}
 	return nil
+}
+
+// formatTags returns tags joined with ", " and wrapped in square brackets, or "" if none.
+func formatTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(tags, ", ") + "]"
 }
 
 // itemListStatus returns "done", "undone", or "claimed" for list and JSON output.

@@ -379,3 +379,96 @@ func TestCurrentTaskShowsState(t *testing.T) {
 		}
 	})
 }
+
+func TestCurrentTaskShowsTags(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "first line",
+		Created:     now,
+		Updated:     now,
+		Tags:        []string{"urgent", "backend"},
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "abc123"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs(nil)
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "urgent") || !strings.Contains(out, "backend") {
+		t.Errorf("current task output should show tags on the right; got %q", out)
+	}
+	// First line should contain both description and tags
+	firstLine := strings.Split(out, "\n")[0]
+	if !strings.Contains(firstLine, "first line") || !strings.Contains(firstLine, "urgent") {
+		t.Errorf("first line should contain description and tags; got %q", firstLine)
+	}
+}
+
+func TestListShowsTags(t *testing.T) {
+	listJson = false
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "xyz789",
+		Description: "task with tags",
+		Created:     now,
+		Updated:     now,
+		Tags:        []string{"foo", "bar"},
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--all"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "foo") || !strings.Contains(out, "bar") {
+		t.Errorf("list output should show tags on the right; got %q", out)
+	}
+	// Tags should appear on the same line as the item (right of description)
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected 1 line; got %d: %q", len(lines), out)
+	}
+	if !strings.Contains(lines[0], "task with tags") || !strings.Contains(lines[0], "foo") {
+		t.Errorf("line should contain description and tags; got %q", lines[0])
+	}
+}
