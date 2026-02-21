@@ -244,3 +244,77 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 		t.Errorf("list --done --json = %v, want single item done1", list)
 	}
 }
+
+// TestCurrentTaskShowsState verifies that running "wn" (no args) prints the current task's state: done, undone, or claimed.
+func TestCurrentTaskShowsState(t *testing.T) {
+	t.Run("undone", func(t *testing.T) {
+		dir, _ := setupWnRoot(t)
+		cwd, _ := os.Getwd()
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+		defer func() { _ = os.Chdir(cwd) }()
+
+		out := captureStdout(t, func() {
+			rootCmd.SetArgs(nil)
+			if err := rootCmd.Execute(); err != nil {
+				t.Errorf("Execute: %v", err)
+			}
+		})
+		// Undone is default: no state suffix
+		if bytes.Contains([]byte(out), []byte("(undone)")) {
+			t.Errorf("current task output should not show (undone); got %q", out)
+		}
+		if !bytes.Contains([]byte(out), []byte("current task:")) || !bytes.Contains([]byte(out), []byte("abc123")) {
+			t.Errorf("current task output should show id and description; got %q", out)
+		}
+	})
+
+	t.Run("done", func(t *testing.T) {
+		dir, _ := setupWnRoot(t)
+		cwd, _ := os.Getwd()
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+		defer func() { _ = os.Chdir(cwd) }()
+
+		rootCmd.SetArgs([]string{"done"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("wn done: %v", err)
+		}
+
+		out := captureStdout(t, func() {
+			rootCmd.SetArgs(nil)
+			if err := rootCmd.Execute(); err != nil {
+				t.Errorf("Execute: %v", err)
+			}
+		})
+		if !bytes.Contains([]byte(out), []byte("done")) {
+			t.Errorf("current task output should contain state 'done'; got %q", out)
+		}
+	})
+
+	t.Run("claimed", func(t *testing.T) {
+		dir, _ := setupWnRoot(t)
+		cwd, _ := os.Getwd()
+		if err := os.Chdir(dir); err != nil {
+			t.Fatalf("Chdir: %v", err)
+		}
+		defer func() { _ = os.Chdir(cwd) }()
+
+		rootCmd.SetArgs([]string{"claim", "--for", "1h"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("wn claim: %v", err)
+		}
+
+		out := captureStdout(t, func() {
+			rootCmd.SetArgs(nil)
+			if err := rootCmd.Execute(); err != nil {
+				t.Errorf("Execute: %v", err)
+			}
+		})
+		if !bytes.Contains([]byte(out), []byte("claimed")) {
+			t.Errorf("current task output should contain state 'claimed'; got %q", out)
+		}
+	})
+}

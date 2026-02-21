@@ -58,7 +58,13 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Current task ID %s not found. Use 'wn pick' to choose one.\n", meta.CurrentID)
 		return nil
 	}
-	fmt.Printf("current task: [%s] %s\n", item.ID, item.Description)
+	var state string
+	if item.Done {
+		state = " (done)"
+	} else if wn.IsInProgress(item, time.Now().UTC()) {
+		state = " (claimed)"
+	}
+	fmt.Printf("current task: [%s] %s%s\n", item.ID, item.Description, state)
 	return nil
 }
 
