@@ -604,6 +604,76 @@ func TestTagInteractive_Toggle(t *testing.T) {
 	}
 }
 
+func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
+	// wn tag -i should list only undone items; done items must not appear in fzf/numbered list
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	doneItem := &wn.Item{ID: "aa1111", Description: "done task", Done: true, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	undoneItem := &wn.Item{ID: "bb2222", Description: "undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	for _, it := range []*wn.Item{doneItem, undoneItem} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"tag", "-i", "mytag"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag -i mytag: %v", err)
+	}
+
+	// Only undone item (bb2222) should be in the list; selecting "1" must tag bb2222, not aa1111
+	gotDone, _ := store.Get("aa1111")
+	gotUndone, _ := store.Get("bb2222")
+	doneHasTag := false
+	for _, tag := range gotDone.Tags {
+		if tag == "mytag" {
+			doneHasTag = true
+			break
+		}
+	}
+	undoneHasTag := false
+	for _, tag := range gotUndone.Tags {
+		if tag == "mytag" {
+			undoneHasTag = true
+			break
+		}
+	}
+	if doneHasTag {
+		t.Error("tag -i must not list done items; aa1111 (done) should not have been selectable and must not have mytag")
+	}
+	if !undoneHasTag {
+		t.Error("selecting the only listed item (bb2222, undone) should have added mytag")
+	}
+}
+
 func TestDependInteractive(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", "")

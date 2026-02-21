@@ -416,7 +416,7 @@ func runTagInteractive(args []string) error {
 	if err != nil {
 		return err
 	}
-	items, err := store.List()
+	items, err := wn.UndoneItems(store)
 	if err != nil {
 		return err
 	}
