@@ -511,15 +511,16 @@ func runUntag(cmd *cobra.Command, args []string) error {
 var dependCmd = &cobra.Command{
 	Use:   "depend [id] --on [id2]",
 	Short: "Mark an item as depending on another",
-	Long:  "If id is omitted, uses the current task.",
+	Long:  "If id is omitted, uses the current task. Use -i/--interactive to pick the depended-on item from undone work items (fzf or numbered list).",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDepend,
 }
 var dependOn string
+var dependInteractive bool
 
 func init() {
 	dependCmd.Flags().StringVar(&dependOn, "on", "", "ID of the dependency")
-	_ = dependCmd.MarkFlagRequired("on")
+	dependCmd.Flags().BoolVarP(&dependInteractive, "interactive", "i", false, "Pick the depended-on item with fzf (undone items only)")
 }
 
 func runDepend(cmd *cobra.Command, args []string) error {
@@ -539,10 +540,24 @@ func runDepend(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	onID := dependOn
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
+	}
+	var onID string
+	if dependInteractive {
+		onID, err = runDependInteractive(store, id)
+		if err != nil {
+			return err
+		}
+		if onID == "" {
+			return nil
+		}
+	} else {
+		if dependOn == "" {
+			return fmt.Errorf("required flag \"on\" not set")
+		}
+		onID = dependOn
 	}
 	items, err := store.List()
 	if err != nil {
@@ -564,18 +579,36 @@ func runDepend(cmd *cobra.Command, args []string) error {
 	})
 }
 
+func runDependInteractive(store wn.Store, excludeID string) (string, error) {
+	undone, err := wn.UndoneItems(store)
+	if err != nil {
+		return "", err
+	}
+	var candidates []*wn.Item
+	for _, it := range undone {
+		if it.ID != excludeID {
+			candidates = append(candidates, it)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no other undone items to depend on")
+	}
+	return wn.PickInteractive(candidates)
+}
+
 var rmdependCmd = &cobra.Command{
 	Use:   "rmdepend [id] --on [id2]",
 	Short: "Remove a dependency",
-	Long:  "If id is omitted, uses the current task.",
+	Long:  "If id is omitted, uses the current task. Use -i/--interactive to pick which dependency to remove (fzf or numbered list).",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runRmdepend,
 }
 var rmdependOn string
+var rmdependInteractive bool
 
 func init() {
 	rmdependCmd.Flags().StringVar(&rmdependOn, "on", "", "ID of the dependency to remove")
-	_ = rmdependCmd.MarkFlagRequired("on")
+	rmdependCmd.Flags().BoolVarP(&rmdependInteractive, "interactive", "i", false, "Pick the dependency to remove with fzf")
 }
 
 func runRmdepend(cmd *cobra.Command, args []string) error {
@@ -595,10 +628,24 @@ func runRmdepend(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	onID := rmdependOn
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
+	}
+	var onID string
+	if rmdependInteractive {
+		onID, err = runRmdependInteractive(store, id)
+		if err != nil {
+			return err
+		}
+		if onID == "" {
+			return nil
+		}
+	} else {
+		if rmdependOn == "" {
+			return fmt.Errorf("required flag \"on\" not set")
+		}
+		onID = rmdependOn
 	}
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		var newDeps []string
@@ -612,6 +659,25 @@ func runRmdepend(cmd *cobra.Command, args []string) error {
 		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "depend_removed", Msg: onID})
 		return it, nil
 	})
+}
+
+func runRmdependInteractive(store wn.Store, id string) (string, error) {
+	it, err := store.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if len(it.DependsOn) == 0 {
+		return "", fmt.Errorf("item %s has no dependencies to remove", id)
+	}
+	var candidates []*wn.Item
+	for _, depID := range it.DependsOn {
+		dep, err := store.Get(depID)
+		if err != nil {
+			dep = &wn.Item{ID: depID, Description: depID}
+		}
+		candidates = append(candidates, dep)
+	}
+	return wn.PickInteractive(candidates)
 }
 
 var orderCmd = &cobra.Command{

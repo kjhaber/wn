@@ -541,3 +541,118 @@ func TestTagInteractive_Toggle(t *testing.T) {
 		t.Error("item bb2222 should not have mytag after toggle (was removed)")
 	}
 }
+
+func TestDependInteractive(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"depend", "-i"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend -i: %v", err)
+	}
+
+	it, _ := store.Get("aa1111")
+	found := false
+	for _, dep := range it.DependsOn {
+		if dep == "bb2222" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("aa1111 should depend on bb2222 after depend -i; DependsOn = %v", it.DependsOn)
+	}
+}
+
+func TestRmdependInteractive(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, DependsOn: []string{"bb2222"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rmdepend", "-i"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rmdepend -i: %v", err)
+	}
+
+	it, _ := store.Get("aa1111")
+	if len(it.DependsOn) != 0 {
+		t.Errorf("aa1111 should have no dependencies after rmdepend -i; DependsOn = %v", it.DependsOn)
+	}
+}
