@@ -1058,13 +1058,20 @@ func runPick(cmd *cobra.Command, args []string) error {
 }
 
 var mcpCmd = &cobra.Command{
-	Use:   "mcp",
+	Use:   "mcp [project_root]",
 	Short: "Run MCP server on stdio (for Cursor and other MCP clients)",
-	Long:  "Starts the Model Context Protocol server over stdin/stdout. The client (e.g. Cursor) spawns this process with cwd set to the project directory; tools operate on the wn work list in that directory. No continuous process—exits when the client disconnects.",
+	Long:  "Starts the Model Context Protocol server over stdin/stdout. Optional project_root is the directory containing .wn; when provided (or when WN_ROOT is set), the server is locked to that project and the per-request \"root\" parameter is ignored. No continuous process—exits when the client disconnects.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runMCP,
 }
 
 func runMCP(cmd *cobra.Command, args []string) error {
+	// Fixed root: spawn-time arg wins, then WN_ROOT env, else no lock (tools use cwd or request "root").
+	if len(args) > 0 {
+		wn.SetMCPFixedRoot(args[0])
+	} else if r := os.Getenv("WN_ROOT"); r != "" {
+		wn.SetMCPFixedRoot(r)
+	}
 	server := wn.NewMCPServer()
 	if err := server.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 		return err

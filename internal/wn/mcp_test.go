@@ -328,3 +328,113 @@ func TestMCP_no_wn_root_returns_error(t *testing.T) {
 	}
 	t.Error("wn_list with no wn root: want error or IsError result")
 }
+
+// TestMCP_wn_list_with_root verifies that passing "root" to a tool uses that path
+// instead of process cwd. We create a wn root in a temp dir but do not chdir there;
+// we pass the path in the tool call.
+func TestMCP_wn_list_with_root(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "x1y2z3",
+		Description: "item via root param",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	// Do not chdir; stay in current (possibly non-wn) directory.
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect: %v", err)
+	}
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client.Connect: %v", err)
+	}
+	defer clientSession.Close()
+
+	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_list",
+		Arguments: map[string]any{"root": dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_list with root: %v", err)
+	}
+	if res != nil && res.IsError {
+		t.Fatalf("wn_list with root: %s", textContent(res))
+	}
+	text := textContent(res)
+	if !strings.Contains(text, "x1y2z3") || !strings.Contains(text, "item via root param") {
+		t.Errorf("wn_list with root: expected item in output, got %q", text)
+	}
+}
+
+// TestMCP_fixed_root_guardrail verifies that when SetMCPFixedRoot is set, the server
+// uses that path and ignores the "root" parameter in requests.
+func TestMCP_fixed_root_guardrail(t *testing.T) {
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	if err := InitRoot(dirA); err != nil {
+		t.Fatalf("InitRoot A: %v", err)
+	}
+	if err := InitRoot(dirB); err != nil {
+		t.Fatalf("InitRoot B: %v", err)
+	}
+	storeA, _ := NewFileStore(dirA)
+	storeB, _ := NewFileStore(dirB)
+	now := time.Now().UTC()
+	itemA := &Item{ID: "aaaaaa", Description: "only in A", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}}
+	itemB := &Item{ID: "bbbbbb", Description: "only in B", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}}
+	if err := storeA.Put(itemA); err != nil {
+		t.Fatal(err)
+	}
+	if err := storeB.Put(itemB); err != nil {
+		t.Fatal(err)
+	}
+
+	SetMCPFixedRoot(dirA)
+	defer SetMCPFixedRoot("")
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, _ := server.Connect(ctx, serverTransport, nil)
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	clientSession, _ := client.Connect(ctx, clientTransport, nil)
+	defer clientSession.Close()
+
+	// Request root=dirB but fixed root is dirA: should see A's item, not B's.
+	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_list",
+		Arguments: map[string]any{"root": dirB},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res != nil && res.IsError {
+		t.Fatalf("wn_list: %s", textContent(res))
+	}
+	text := textContent(res)
+	if !strings.Contains(text, "aaaaaa") || !strings.Contains(text, "only in A") {
+		t.Errorf("fixed root guardrail: expected A's item, got %q", text)
+	}
+	if strings.Contains(text, "bbbbbb") {
+		t.Errorf("fixed root guardrail: should not see B's item when fixed to A, got %q", text)
+	}
+}

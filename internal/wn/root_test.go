@@ -50,3 +50,55 @@ func TestFindRoot_NoWn(t *testing.T) {
 		t.Error("FindRoot() expected error when .wn does not exist")
 	}
 }
+
+func TestFindRootFromDir(t *testing.T) {
+	tmp := t.TempDir()
+	wnDir := filepath.Join(tmp, ".wn")
+	itemsDir := filepath.Join(wnDir, "items")
+	if err := os.MkdirAll(itemsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// From project root
+	root, err := FindRootFromDir(tmp)
+	if err != nil {
+		t.Fatalf("FindRootFromDir(project root): %v", err)
+	}
+	if root != tmp {
+		t.Errorf("FindRootFromDir(%q) = %q", tmp, root)
+	}
+
+	// From subdirectory under project
+	sub := filepath.Join(tmp, "src", "pkg")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	root, err = FindRootFromDir(sub)
+	if err != nil {
+		t.Fatalf("FindRootFromDir(subdir): %v", err)
+	}
+	if root != tmp {
+		t.Errorf("FindRootFromDir(subdir) = %q, want %q", root, tmp)
+	}
+}
+
+func TestFindRootFromDir_NoWn(t *testing.T) {
+	tmp := t.TempDir()
+	_, err := FindRootFromDir(tmp)
+	if err == nil {
+		t.Error("FindRootFromDir expected error when .wn does not exist")
+	}
+	if err != ErrNoRoot {
+		t.Errorf("FindRootFromDir err = %v, want ErrNoRoot", err)
+	}
+}
+
+func TestFindRootFromDir_Empty(t *testing.T) {
+	_, err := FindRootFromDir("")
+	if err == nil {
+		t.Error("FindRootFromDir(\"\") expected error")
+	}
+	if err != ErrNoRoot {
+		t.Errorf("FindRootFromDir(\"\") err = %v, want ErrNoRoot", err)
+	}
+}

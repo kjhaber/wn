@@ -10,8 +10,19 @@ import (
 
 const mcpVersion = "0.1.0"
 
+// mcpFixedRoot, when set by SetMCPFixedRoot, locks the server to that project root:
+// all tools use it and the per-request "root" parameter is ignored (guardrail).
+var mcpFixedRoot string
+
+// SetMCPFixedRoot sets the project root used by all MCP tools for this process.
+// When non-empty, tools use this path instead of the request "root" or process cwd.
+// Call before Run to lock the server to a specific workspace (e.g. from a spawn-time arg or env).
+func SetMCPFixedRoot(root string) {
+	mcpFixedRoot = root
+}
+
 // NewMCPServer returns an MCP server with wn tools registered (add, list, done, undone, desc, claim, release, next).
-// The server uses the current working directory to find the wn root; the client (e.g. Cursor) should spawn the process with cwd set to the project directory.
+// Each tool accepts an optional "root" argument (used only when no fixed root is set). If the server was started with a fixed root (wn mcp /path or WN_ROOT), that path is used and request "root" is ignored.
 func NewMCPServer() *mcp.Server {
 	server := mcp.NewServer(&mcp.Implementation{Name: "wn", Version: mcpVersion}, nil)
 
@@ -55,10 +66,26 @@ func NewMCPServer() *mcp.Server {
 	return server
 }
 
-func getStore(ctx context.Context) (Store, string, error) {
-	root, err := FindRoot()
+// getStoreWithRoot returns the store and root for the given project. When mcpFixedRoot is set (spawn-time guardrail), it is used and projectRoot from the request is ignored. Otherwise, if projectRoot is non-empty it is used (via FindRootFromDir); else FindRoot() (process cwd).
+func getStoreWithRoot(ctx context.Context, projectRoot string) (Store, string, error) {
+	var root string
+	var err error
+	if mcpFixedRoot != "" {
+		root, err = FindRootFromDir(mcpFixedRoot)
+	} else if projectRoot != "" {
+		root, err = FindRootFromDir(projectRoot)
+	} else {
+		root, err = FindRoot()
+	}
 	if err != nil {
-		return nil, "", err
+		// Include what we tried so MCP callers can debug config (e.g. ${workspaceFolder})
+		msg := err.Error()
+		if mcpFixedRoot != "" {
+			msg = fmt.Sprintf("%s (mcp fixed root was %q)", msg, mcpFixedRoot)
+		} else if projectRoot != "" {
+			msg = fmt.Sprintf("%s (request root was %q)", msg, projectRoot)
+		}
+		return nil, "", fmt.Errorf("%s", msg)
 	}
 	store, err := NewFileStore(root)
 	if err != nil {
@@ -71,10 +98,11 @@ type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
 	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order (lower = earlier)"`
+	Root        string   `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -110,11 +138,12 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 }
 
 type wnListIn struct {
-	Tag string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
+	Tag  string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStore(ctx)
+	store, _, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,10 +183,11 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 type wnDoneIn struct {
 	ID      string `json:"id" jsonschema:"Work item id (6-char hex)"`
 	Message string `json:"message,omitempty" jsonschema:"Completion message"`
+	Root    string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnDone(ctx context.Context, req *mcp.CallToolRequest, in wnDoneIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStore(ctx)
+	store, _, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -177,11 +207,12 @@ func handleWnDone(ctx context.Context, req *mcp.CallToolRequest, in wnDoneIn) (*
 }
 
 type wnUndoneIn struct {
-	ID string `json:"id" jsonschema:"Work item id"`
+	ID   string `json:"id" jsonschema:"Work item id"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnUndone(ctx context.Context, req *mcp.CallToolRequest, in wnUndoneIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStore(ctx)
+	store, _, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -201,11 +232,12 @@ func handleWnUndone(ctx context.Context, req *mcp.CallToolRequest, in wnUndoneIn
 }
 
 type wnDescIn struct {
-	ID string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnDesc(ctx context.Context, req *mcp.CallToolRequest, in wnDescIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -226,9 +258,10 @@ func handleWnDesc(ctx context.Context, req *mcp.CallToolRequest, in wnDescIn) (*
 }
 
 type wnClaimIn struct {
-	ID  string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
-	For string `json:"for" jsonschema:"Duration (e.g. 30m, 1h)"`
-	By  string `json:"by,omitempty" jsonschema:"Optional worker id for logging"`
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	For  string `json:"for" jsonschema:"Duration (e.g. 30m, 1h)"`
+	By   string `json:"by,omitempty" jsonschema:"Optional worker id for logging"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) (*mcp.CallToolResult, any, error) {
@@ -236,7 +269,7 @@ func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) 
 	if err != nil || d <= 0 {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive duration for 'for'"}}, IsError: true}, nil, nil
 	}
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -265,11 +298,12 @@ func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) 
 }
 
 type wnReleaseIn struct {
-	ID string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnReleaseIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -296,10 +330,12 @@ func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnRelease
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
-type wnNextIn struct{}
+type wnNextIn struct {
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
 
 func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -326,10 +362,11 @@ type wnOrderIn struct {
 	ID    string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
 	Order *int   `json:"order,omitempty" jsonschema:"Set order to this number (lower = earlier)"`
 	Unset bool   `json:"unset,omitempty" jsonschema:"If true, clear the order field"`
+	Root  string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnOrder(ctx context.Context, req *mcp.CallToolRequest, in wnOrderIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStore(ctx)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}

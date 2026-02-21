@@ -79,7 +79,27 @@ wn completion bash > /etc/bash_completion.d/wn  # or ~/.local/share/bash-complet
 
 ## MCP server
 
-To use wn from Cursor (or another MCP client), add an MCP server that runs `wn mcp`. The client spawns the process with the project directory as cwd, so the tools operate on that project's work list. The process runs only while the client is connected—no long-lived daemon.
+To use wn from Cursor (or another MCP client), add an MCP server that runs `wn mcp`. The process runs only while the client is connected—no long-lived daemon.
+
+**Project root and guardrail:** You can lock the server to a single project so MCP callers cannot access other `.wn` directories:
+
+- **Spawn-time argument:** `wn mcp /path/to/project` — the server uses that path as the project root and ignores the per-request `root` parameter. Use this when your client can pass the workspace path as an argument (e.g. project-level config with a path, or when Cursor adds variable substitution like `${workspaceFolder}`).
+- **Environment variable:** Set `WN_ROOT` to the project root before starting (e.g. in a wrapper script or in the MCP config `env` if your client supports it). Same guardrail: the server uses `WN_ROOT` and ignores request `root`.
+
+If neither is set, each tool accepts an optional `root` argument in the request; if omitted, the server finds the wn root from the process cwd.
+
+TL;DR: For Cursor set `~/.cursor/mcp.json` to
+```
+{
+  "mcpServers": {
+    "wn": {
+      "command": "wn",
+      "args": ["mcp", "${workspaceFolder}"]
+    }
+  }
+}
+```
+
 
 Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
 
