@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1275,6 +1275,228 @@ func listSortSpec() []wn.SortOption {
 		return nil
 	}
 	return wn.SortSpecFromSettings(settings)
+}
+
+// --- note command and subcommands add, list, edit, rm ---
+
+var noteCmd = &cobra.Command{
+	Use:   "note",
+	Short: "Add, list, edit, or remove notes (attachments) on a work item",
+	Long:  "Notes attach text (e.g. \"I wrote this in file X\" or a link) without editing the item description. Use 'wn note add [id] -m \"...\"', 'wn note list [id]', 'wn note edit [id] <index> -m \"...\"', and 'wn note rm [id] <index>'.",
+}
+
+var noteAddCmd = &cobra.Command{
+	Use:   "add [id]",
+	Short: "Add a note to a work item",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runNoteAdd,
+}
+var noteAddMessage string
+
+func init() {
+	noteAddCmd.Flags().StringVarP(&noteAddMessage, "message", "m", "", "Note text (or open $EDITOR if omitted)")
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteEditCmd, noteRmCmd)
+}
+
+func runNoteAdd(cmd *cobra.Command, args []string) error {
+	body := noteAddMessage
+	if body == "" {
+		var err error
+		body, err = wn.EditWithEditor("")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(body) == "" {
+			return fmt.Errorf("empty note")
+		}
+	}
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		if it.Notes == nil {
+			it.Notes = []wn.Note{}
+		}
+		it.Notes = append(it.Notes, wn.Note{Created: now, Body: strings.TrimSpace(body)})
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "note_added"})
+		return it, nil
+	})
+}
+
+var noteListCmd = &cobra.Command{
+	Use:   "list [id]",
+	Short: "List notes on a work item (ordered by create time)",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runNoteList,
+}
+
+func runNoteList(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	for i, n := range item.Notes {
+		fmt.Printf("%d\t%s\t%s\n", i+1, n.Created.Format("2006-01-02 15:04:05"), n.Body)
+	}
+	return nil
+}
+
+var noteEditCmd = &cobra.Command{
+	Use:   "edit [id] <index>",
+	Short: "Edit a note by index (1-based)",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runNoteEdit,
+}
+var noteEditMessage string
+
+func init() {
+	noteEditCmd.Flags().StringVarP(&noteEditMessage, "message", "m", "", "New note text (or open $EDITOR with current body if omitted)")
+}
+
+func runNoteEdit(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	var id string
+	var indexArg string
+	if len(args) == 2 {
+		id, indexArg = args[0], args[1]
+	} else {
+		id, err = wn.ResolveItemID(meta.CurrentID, "")
+		if err != nil {
+			return fmt.Errorf("no id provided and no current task")
+		}
+		indexArg = args[0]
+	}
+	var index int
+	if _, err := fmt.Sscanf(indexArg, "%d", &index); err != nil || index < 1 {
+		return fmt.Errorf("invalid index %q (must be 1-based integer)", indexArg)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	body := noteEditMessage
+	if body == "" {
+		item, err := store.Get(id)
+		if err != nil {
+			return fmt.Errorf("item %s not found", id)
+		}
+		if item.Notes == nil || index > len(item.Notes) {
+			return fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(item.Notes))
+		}
+		var errEdit error
+		body, errEdit = wn.EditWithEditor(item.Notes[index-1].Body)
+		if errEdit != nil {
+			return errEdit
+		}
+		if strings.TrimSpace(body) == "" {
+			return fmt.Errorf("empty note")
+		}
+		body = strings.TrimSpace(body)
+	} else {
+		body = strings.TrimSpace(body)
+	}
+	now := time.Now().UTC()
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		if it.Notes == nil || index > len(it.Notes) {
+			return nil, fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(it.Notes))
+		}
+		it.Notes[index-1].Body = body
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "note_edited", Msg: indexArg})
+		return it, nil
+	})
+}
+
+var noteRmCmd = &cobra.Command{
+	Use:   "rm [id] <index>",
+	Short: "Remove a note by index (1-based)",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runNoteRm,
+}
+
+func runNoteRm(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	var id string
+	var indexArg string
+	if len(args) == 2 {
+		id, indexArg = args[0], args[1]
+	} else {
+		id, err = wn.ResolveItemID(meta.CurrentID, "")
+		if err != nil {
+			return fmt.Errorf("no id provided and no current task")
+		}
+		indexArg = args[0]
+	}
+	var index int
+	if _, err := fmt.Sscanf(indexArg, "%d", &index); err != nil || index < 1 {
+		return fmt.Errorf("invalid index %q (must be 1-based integer)", indexArg)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		if it.Notes == nil || index > len(it.Notes) {
+			return nil, fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(it.Notes))
+		}
+		it.Notes = append(it.Notes[:index-1], it.Notes[index:]...)
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "note_removed", Msg: indexArg})
+		return it, nil
+	})
 }
 
 // formatTags returns tags joined with ", " and wrapped in square brackets, or "" if none.

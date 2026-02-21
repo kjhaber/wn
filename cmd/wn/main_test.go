@@ -788,3 +788,189 @@ func TestRmdependInteractive(t *testing.T) {
 		t.Errorf("aa1111 should have no dependencies after rmdepend -i; DependsOn = %v", it.DependsOn)
 	}
 }
+
+func TestNoteAddAndList(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Add a note
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "I wrote this in file X"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	// Verify add persisted
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	item, err := store.Get(itemID)
+	if err != nil {
+		t.Fatalf("Get after add: %v", err)
+	}
+	if len(item.Notes) != 1 || item.Notes[0].Body != "I wrote this in file X" {
+		t.Fatalf("after note add: item.Notes = %v, want one note with body", item.Notes)
+	}
+
+	// List notes: should show one note (index 1, body)
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "list", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "I wrote this in file X") {
+		t.Errorf("note list should contain note body; got %q", out)
+	}
+	if !strings.Contains(out, "1") {
+		t.Errorf("note list should show index 1; got %q", out)
+	}
+}
+
+func TestNoteListOrderedByCreateTime(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "first note"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add 1: %v", err)
+	}
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "second note"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add 2: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "list", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note list: %v", err)
+		}
+	})
+	idx1 := strings.Index(out, "first note")
+	idx2 := strings.Index(out, "second note")
+	if idx1 < 0 || idx2 < 0 {
+		t.Fatalf("note list should show both notes; got %q", out)
+	}
+	// First note (older) should appear before second in output
+	if idx1 > idx2 {
+		t.Errorf("notes should be ordered by create time (first before second); got %q", out)
+	}
+}
+
+func TestNoteEdit(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "original"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	rootCmd.SetArgs([]string{"note", "edit", itemID, "1", "-m", "edited body"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note edit: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "list", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note list: %v", err)
+		}
+	})
+	if !strings.Contains(out, "edited body") {
+		t.Errorf("note list after edit should show edited body; got %q", out)
+	}
+	if strings.Contains(out, "original") {
+		t.Errorf("note list after edit should not show original; got %q", out)
+	}
+}
+
+func TestNoteRm(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "to be removed"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	rootCmd.SetArgs([]string{"note", "rm", itemID, "1"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note rm: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "list", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note list: %v", err)
+		}
+	})
+	if strings.Contains(out, "to be removed") {
+		t.Errorf("note list after rm should not show removed note; got %q", out)
+	}
+}
+
+func TestShowIncludesNotes(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "see file X"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("show: %v", err)
+		}
+	})
+	var item wn.Item
+	if err := json.Unmarshal([]byte(out), &item); err != nil {
+		t.Fatalf("Unmarshal show: %v", err)
+	}
+	if len(item.Notes) != 1 || item.Notes[0].Body != "see file X" {
+		t.Errorf("show should include notes; got Notes = %v", item.Notes)
+	}
+}
+
+func TestNoteListEmpty(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "list", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note list: %v", err)
+		}
+	})
+	// Empty list: no notes line or just empty
+	if len(strings.TrimSpace(out)) != 0 && !strings.Contains(out, "no note") && !strings.Contains(out, "0 note") {
+		// Accept empty output or a message like "no notes"
+		t.Logf("note list (empty) output: %q", out)
+	}
+}
