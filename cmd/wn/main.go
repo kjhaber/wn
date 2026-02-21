@@ -1049,17 +1049,34 @@ func runList(cmd *cobra.Command, args []string) error {
 		out := make([]struct {
 			ID          string `json:"id"`
 			Description string `json:"description"`
+			Status      string `json:"status,omitempty"`
 		}, len(ordered))
+		now := time.Now().UTC()
 		for i, it := range ordered {
 			out[i].ID = it.ID
 			out[i].Description = wn.FirstLine(it.Description)
+			out[i].Status = itemListStatus(it, now)
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		return enc.Encode(out)
 	}
+	now := time.Now().UTC()
+	const listStatusWidth = 7
 	for _, it := range ordered {
-		fmt.Printf("  %s: %s\n", it.ID, wn.FirstLine(it.Description))
+		status := itemListStatus(it, now)
+		fmt.Printf("  %-6s  %-*s  %s\n", it.ID, listStatusWidth, status, wn.FirstLine(it.Description))
 	}
 	return nil
+}
+
+// itemListStatus returns "done", "undone", or "claimed" for list and JSON output.
+func itemListStatus(it *wn.Item, now time.Time) string {
+	if it.Done {
+		return "done"
+	}
+	if wn.IsInProgress(it, now) {
+		return "claimed"
+	}
+	return "undone"
 }

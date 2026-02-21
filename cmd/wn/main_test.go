@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/keith/wn/internal/wn"
 )
+
+// listStatusWidth and listIDWidth must match runList formatting for alignment tests.
+const listStatusWidth = 7
+const listIDWidth = 6
+const listDescriptionStart = 2 + listIDWidth + 2 + listStatusWidth + 2 // "  "+id+"  "+status+"  "
 
 // setupWnRoot creates a temp dir with .wn and one undone item; returns the dir and item id.
 // Caller must chdir to dir before running commands and restore cwd in defer.
@@ -242,6 +248,61 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].ID != "done1" {
 		t.Errorf("list --done --json = %v, want single item done1", list)
+	}
+}
+
+func TestListShowsStatusWithAlignment(t *testing.T) {
+	listJson = false // reset in case a previous test set --json
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "done11", Description: "done task", Created: now, Updated: now, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "undone1", Description: "undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--all"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("list --all should show at least 2 lines; got %q", out)
+	}
+	// Status column shows done/undone (and claimed when applicable); include default undone.
+	if !strings.Contains(out, "done") {
+		t.Errorf("list output should contain status 'done'; got %q", out)
+	}
+	if !strings.Contains(out, "undone") {
+		t.Errorf("list output should contain status 'undone'; got %q", out)
+	}
+	// Descriptions aligned: each line has status then "  " then description at fixed column.
+	for i, line := range lines {
+		if len(line) < listDescriptionStart {
+			t.Errorf("line %d too short for aligned format: %q", i, line)
+			continue
+		}
+		if line[listDescriptionStart-2:listDescriptionStart] != "  " {
+			t.Errorf("line %d: expected two spaces before description at col %d; got %q", i, listDescriptionStart, line[listDescriptionStart-2:listDescriptionStart])
+		}
 	}
 }
 
