@@ -472,3 +472,72 @@ func TestListShowsTags(t *testing.T) {
 		t.Errorf("line should contain description and tags; got %q", lines[0])
 	}
 }
+
+func TestTagInteractive_Toggle(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1 2\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Tags: []string{"mytag"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"tag", "-i", "mytag"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag -i mytag: %v", err)
+	}
+
+	it1, _ := store.Get("aa1111")
+	it2, _ := store.Get("bb2222")
+	has1 := false
+	for _, tag := range it1.Tags {
+		if tag == "mytag" {
+			has1 = true
+			break
+		}
+	}
+	has2 := false
+	for _, tag := range it2.Tags {
+		if tag == "mytag" {
+			has2 = true
+			break
+		}
+	}
+	if !has1 {
+		t.Error("item aa1111 should have mytag after toggle (was added)")
+	}
+	if has2 {
+		t.Error("item bb2222 should not have mytag after toggle (was removed)")
+	}
+}

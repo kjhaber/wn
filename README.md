@@ -31,7 +31,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn add -m "..."` | Add a work item (use `-t tag` for tags; omit `-m` to use `$EDITOR`) |
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
-| `wn tag <id> <tag>` / `wn untag <id> <tag>` | Add or remove a tag |
+| `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
 | `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
 | `wn depend <id> --on <id2>` | Mark dependency (rejects cycles) |
 | `wn rmdepend <id> --on <id2>` | Remove dependency |
@@ -69,9 +69,11 @@ To use wn from Cursor (or another MCP client), add an MCP server that runs `wn m
 
 Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
 
-## Optional: fzf for `wn pick`
+## Optional: fzf for interactive commands
 
-If `fzf` is in your `PATH`, `wn pick` uses it for fuzzy selection. Otherwise a numbered list is shown and you type the number.
+If `fzf` is in your `PATH`:
+- **`wn pick`** uses it for fuzzy selection of the current task. Otherwise a numbered list is shown and you type the number.
+- **`wn tag -i <tag>`** uses fzf with multi-select (Tab to select, Enter to confirm); the list shows each item’s tags. Selected items have the tag toggled (added if missing, removed if present). Without fzf, a numbered list is shown—enter space-separated numbers to select items.
 
 ## Testing
 

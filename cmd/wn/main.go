@@ -345,12 +345,20 @@ func runEdit(cmd *cobra.Command, args []string) error {
 var tagCmd = &cobra.Command{
 	Use:   "tag [id] <tag>",
 	Short: "Add a tag to a work item",
-	Long:  "If id is omitted, tags the current task. Example: wn tag my-tag  or  wn tag abc123 my-tag",
+	Long:  "If id is omitted, tags the current task. Use -i/--interactive to pick items with fzf and toggle the tag on each. Example: wn tag my-tag  or  wn tag -i mytag",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runTag,
 }
+var tagInteractive bool
+
+func init() {
+	tagCmd.Flags().BoolVarP(&tagInteractive, "interactive", "i", false, "Pick work items with fzf (or numbered list); toggle tag on selected items")
+}
 
 func runTag(cmd *cobra.Command, args []string) error {
+	if tagInteractive {
+		return runTagInteractive(args)
+	}
 	var id, tag string
 	if len(args) == 2 {
 		id, tag = args[0], args[1]
@@ -390,6 +398,66 @@ func runTag(cmd *cobra.Command, args []string) error {
 		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "tag_added", Msg: tag})
 		return it, nil
 	})
+}
+
+func runTagInteractive(args []string) error {
+	if len(args) != 1 {
+		return fmt.Errorf("interactive tag requires exactly one argument: the tag name")
+	}
+	tag := args[0]
+	if err := wn.ValidateTag(tag); err != nil {
+		return err
+	}
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	ids, err := wn.PickMultiInteractiveWithTags(items)
+	if err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	now := time.Now().UTC()
+	for _, id := range ids {
+		err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+			hasTag := false
+			for _, t := range it.Tags {
+				if t == tag {
+					hasTag = true
+					break
+				}
+			}
+			if hasTag {
+				var newTags []string
+				for _, t := range it.Tags {
+					if t != tag {
+						newTags = append(newTags, t)
+					}
+				}
+				it.Tags = newTags
+				it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "tag_removed", Msg: tag})
+			} else {
+				it.Tags = append(it.Tags, tag)
+				it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "tag_added", Msg: tag})
+			}
+			it.Updated = now
+			return it, nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var untagCmd = &cobra.Command{
