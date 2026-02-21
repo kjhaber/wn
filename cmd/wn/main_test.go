@@ -473,6 +473,68 @@ func TestListShowsTags(t *testing.T) {
 	}
 }
 
+func TestListSortFlag(t *testing.T) {
+	listJson = true
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "bbb", Description: "second alpha", Created: now.Add(1 * time.Hour), Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "aaa", Description: "first alpha", Created: now, Updated: now.Add(1 * time.Hour), Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	var list []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
+	}
+	if len(list) != 2 {
+		t.Fatalf("len(list) = %d, want 2", len(list))
+	}
+	// alpha asc: first alpha (aaa) then second alpha (bbb)
+	if list[0].ID != "aaa" || list[1].ID != "bbb" {
+		t.Errorf("list --sort alpha = %v, %v; want aaa then bbb", list[0].ID, list[1].ID)
+	}
+
+	out2 := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--json", "--sort", "updated:desc"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if err := json.Unmarshal([]byte(out2), &list); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	// updated desc: aaa (Updated: now+1h) then bbb (Updated: now)
+	if list[0].ID != "aaa" || list[1].ID != "bbb" {
+		t.Errorf("list --sort updated:desc = %v, %v; want aaa then bbb", list[0].ID, list[1].ID)
+	}
+	listJson = false
+}
+
 func TestTagInteractive_Toggle(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", "")

@@ -32,7 +32,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
-| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
+| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
 | `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
 | `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
@@ -45,7 +45,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
 | `wn next` | Set “next” task (first available undone in dependency order) as current |
 | `wn pick` | Interactively choose current task (fzf if available) |
-| `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR` |
+| `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR`. Set `"sort": "updated:desc,priority,tags"` for default list/fzf order |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
 | `wn import <file>` | Import items (use `--replace` if store already has items) |
 | `wn help` / `wn completion` | Help and shell completion |
@@ -68,6 +68,15 @@ wn completion bash > /etc/bash_completion.d/wn  # or ~/.local/share/bash-complet
 To use wn from Cursor (or another MCP client), add an MCP server that runs `wn mcp`. The client spawns the process with the project directory as cwd, so the tools operate on that project's work list. The process runs only while the client is connected—no long-lived daemon.
 
 Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
+
+## Sort order
+
+List order and fzf pick order can be controlled by:
+
+- **`wn list --sort '...'`** — Comma-separated sort keys; each key may be suffixed with `:asc` or `:desc` (default `:asc`). Keys: `created`, `updated`, `priority` (backlog order), `alpha` (description), `tags` (group by tags). Example: `wn list --sort 'updated:desc,priority,tags'`.
+- **Default in settings** — In `~/.config/wn/settings.json`, set `"sort": "updated:desc,priority"` (or any valid sort spec). This applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag -i`, `wn depend -i`, and `wn rmdepend -i`.
+
+When no sort preference is set, `wn list` uses dependency order (topological) for undone items.
 
 ## Optional: fzf for interactive commands
 

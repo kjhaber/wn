@@ -420,6 +420,7 @@ func runTagInteractive(args []string) error {
 	if err != nil {
 		return err
 	}
+	items = wn.ApplySort(items, interactiveSortSpec())
 	ids, err := wn.PickMultiInteractiveWithTags(items)
 	if err != nil {
 		return err
@@ -593,6 +594,7 @@ func runDependInteractive(store wn.Store, excludeID string) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no other undone items to depend on")
 	}
+	candidates = wn.ApplySort(candidates, interactiveSortSpec())
 	return wn.PickInteractive(candidates)
 }
 
@@ -677,7 +679,17 @@ func runRmdependInteractive(store wn.Store, id string) (string, error) {
 		}
 		candidates = append(candidates, dep)
 	}
+	candidates = wn.ApplySort(candidates, interactiveSortSpec())
 	return wn.PickInteractive(candidates)
+}
+
+// interactiveSortSpec returns sort options from user settings for fzf/numbered lists. No CLI override.
+func interactiveSortSpec() []wn.SortOption {
+	settings, err := wn.ReadSettings()
+	if err != nil {
+		return nil
+	}
+	return wn.SortSpecFromSettings(settings)
 }
 
 var orderCmd = &cobra.Command{
@@ -1031,6 +1043,7 @@ func runPick(cmd *cobra.Command, args []string) error {
 		fmt.Println("No undone tasks.")
 		return nil
 	}
+	undone = wn.ApplySort(undone, interactiveSortSpec())
 	id, err := wn.PickInteractive(undone)
 	if err != nil {
 		return err
@@ -1148,6 +1161,7 @@ var listUndone bool
 var listDone bool
 var listAll bool
 var listTag string
+var listSort string
 
 var listJson bool
 
@@ -1156,6 +1170,7 @@ func init() {
 	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
 	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
+	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (array of id and description)")
 }
 
@@ -1202,9 +1217,16 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 		items = filtered
 	}
-	ordered, acyclic := wn.TopoOrder(items)
-	if !acyclic && len(ordered) > 0 {
-		ordered = items
+	var ordered []*wn.Item
+	sortSpec := listSortSpec()
+	if len(sortSpec) > 0 {
+		ordered = wn.ApplySort(items, sortSpec)
+	} else {
+		var acyclic bool
+		ordered, acyclic = wn.TopoOrder(items)
+		if !acyclic && len(ordered) > 0 {
+			ordered = items
+		}
 	}
 	if listJson {
 		out := make([]struct {
@@ -1237,6 +1259,22 @@ func runList(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %-6s  %-*s  %-*s  %s\n", it.ID, listStatusWidth, status, listDescWidth, desc, tagsStr)
 	}
 	return nil
+}
+
+// listSortSpec returns sort options from --sort flag or user settings. Invalid spec returns nil.
+func listSortSpec() []wn.SortOption {
+	if listSort != "" {
+		spec, err := wn.ParseSortSpec(listSort)
+		if err != nil {
+			return nil
+		}
+		return spec
+	}
+	settings, err := wn.ReadSettings()
+	if err != nil {
+		return nil
+	}
+	return wn.SortSpecFromSettings(settings)
 }
 
 // formatTags returns tags joined with ", " and wrapped in square brackets, or "" if none.

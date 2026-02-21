@@ -134,7 +134,13 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 		}
 		items = filtered
 	}
-	ordered, _ := TopoOrder(items)
+	var ordered []*Item
+	settings, _ := ReadSettings()
+	if spec := SortSpecFromSettings(settings); len(spec) > 0 {
+		ordered = ApplySort(items, spec)
+	} else {
+		ordered, _ = TopoOrder(items)
+	}
 	var lines string
 	for _, it := range ordered {
 		lines += fmt.Sprintf("  %s: %s\n", it.ID, FirstLine(it.Description))
