@@ -67,6 +67,14 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_order",
 		Description: "Set or clear optional backlog order for an item (lower = earlier when dependencies don't define order).",
 	}, handleWnOrder)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_depend",
+		Description: "Mark a work item as depending on another (add to depends_on). If id is omitted, uses current task.",
+	}, handleWnDepend)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_rmdepend",
+		Description: "Remove a dependency from a work item. If id is omitted, uses current task.",
+	}, handleWnRmdepend)
 
 	return server
 }
@@ -479,5 +487,93 @@ func handleWnOrder(ctx context.Context, req *mcp.CallToolRequest, in wnOrderIn) 
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	text := fmt.Sprintf("order updated for %s", id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnDependIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id that will depend on another; omit for current task"`
+	On   string `json:"on" jsonschema:"ID of the item this one will depend on"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnDepend(ctx context.Context, req *mcp.CallToolRequest, in wnDependIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.On == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (dependency id) is required"}}, IsError: true}, nil, nil
+	}
+	items, err := store.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	if WouldCreateCycle(items, id, in.On) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("circular dependency detected, could not mark %s dependent on %s", id, in.On)}}, IsError: true}, nil, nil
+	}
+	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+		for _, d := range it.DependsOn {
+			if d == in.On {
+				return it, nil
+			}
+		}
+		it.DependsOn = append(it.DependsOn, in.On)
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_added", Msg: in.On})
+		return it, nil
+	})
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("%s now depends on %s", id, in.On)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnRmdependIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id to remove dependency from; omit for current task"`
+	On   string `json:"on" jsonschema:"ID of the dependency to remove"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnRmdepend(ctx context.Context, req *mcp.CallToolRequest, in wnRmdependIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.On == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (dependency id to remove) is required"}}, IsError: true}, nil, nil
+	}
+	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+		var newDeps []string
+		for _, d := range it.DependsOn {
+			if d != in.On {
+				newDeps = append(newDeps, d)
+			}
+		}
+		it.DependsOn = newDeps
+		it.Updated = time.Now().UTC()
+		it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_removed", Msg: in.On})
+		return it, nil
+	})
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("removed dependency %s from %s", in.On, id)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
