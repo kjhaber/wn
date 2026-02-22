@@ -52,6 +52,10 @@ func NewMCPServer() *mcp.Server {
 		Description: "Fetch full work item as JSON by id (tags, deps, notes, log, etc.). If id is omitted, uses current task.",
 	}, handleWnShow)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_item",
+		Description: "Get full work item JSON by id (tags, deps, notes, log, etc.). Id is required—use when you only have an item id (e.g. from wn_next or a subagent). No current-task fallback.",
+	}, handleWnItem)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_claim",
 		Description: "Mark a work item in progress for a duration. Item leaves the undone list until expiry or release.",
 	}, handleWnClaim)
@@ -310,6 +314,58 @@ func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	// Use showOutput so tags, log, notes, depends_on are always present in JSON for agents
+	out := showOutput{
+		ID:              item.ID,
+		Description:     item.Description,
+		Created:         item.Created,
+		Updated:         item.Updated,
+		Done:            item.Done,
+		DoneMessage:     item.DoneMessage,
+		InProgressUntil: item.InProgressUntil,
+		InProgressBy:    item.InProgressBy,
+		Tags:            item.Tags,
+		DependsOn:       item.DependsOn,
+		Order:           item.Order,
+		Log:             item.Log,
+		Notes:           item.Notes,
+	}
+	if out.Tags == nil {
+		out.Tags = []string{}
+	}
+	if out.Log == nil {
+		out.Log = []LogEntry{}
+	}
+	if out.Notes == nil {
+		out.Notes = []Note{}
+	}
+	if out.DependsOn == nil {
+		out.DependsOn = []string{}
+	}
+	raw, err := json.MarshalIndent(&out, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+}
+
+type wnItemIn struct {
+	ID   string `json:"id" jsonschema:"Work item id (required)"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+// handleWnItem returns full item JSON by id. Id is required (no current-task fallback), for use by subagents that only have an item id.
+func handleWnItem(ctx context.Context, req *mcp.CallToolRequest, in wnItemIn) (*mcp.CallToolResult, any, error) {
+	if in.ID == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "id is required"}}, IsError: true}, nil, nil
+	}
+	store, _, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	item, err := store.Get(in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
 	out := showOutput{
 		ID:              item.ID,
 		Description:     item.Description,

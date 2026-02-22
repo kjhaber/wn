@@ -208,6 +208,48 @@ func TestMCP_wn_show(t *testing.T) {
 	}
 }
 
+func TestMCP_wn_item(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	// wn_item with id returns full item JSON (for subagents that only have an id)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_item", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_item: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_item IsError true: %s", textContent(res))
+	}
+	text := textContent(res)
+	var out showOutput
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("wn_item result not valid JSON: %v\ncontent: %s", err, text)
+	}
+	if out.ID != "abc123" {
+		t.Errorf("wn_item id = %q, want abc123", out.ID)
+	}
+	if out.Description != "first line\nbody for prompt" {
+		t.Errorf("wn_item description = %q", out.Description)
+	}
+	if out.Notes == nil {
+		t.Error("wn_item notes missing (agents need notes)")
+	}
+	if out.Log == nil {
+		t.Error("wn_item log missing")
+	}
+
+	// wn_item without id must not succeed (schema may require id, or handler returns error)
+	res2, err2 := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_item", Arguments: map[string]any{}})
+	if err2 == nil && !res2.IsError {
+		t.Fatalf("wn_item without id: expected validation/handler error or IsError, got success: %s", textContent(res2))
+	}
+	if err2 == nil && res2.IsError {
+		if msg := textContent(res2); !strings.Contains(msg, "id") {
+			t.Errorf("wn_item without id: message should mention id, got %q", msg)
+		}
+	}
+}
+
 func TestMCP_wn_done(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()
