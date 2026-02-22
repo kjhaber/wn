@@ -51,10 +51,10 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
 | `wn release [id]` | Clear in progress (return item to undone list) |
 | `wn log <id>` | Show history for an item |
-| `wn note add [id] -m "..."` | Add a note (attachment) to an item; omit id for current task, omit `-m` to use `$EDITOR` |
-| `wn note list [id]` | List notes on an item, ordered by create time |
-| `wn note edit [id] <index> [-m "..."]` | Edit a note by 1-based index; omit `-m` to use `$EDITOR` with current body |
-| `wn note rm [id] <index>` | Remove a note by 1-based index |
+| `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars |
+| `wn note list [id]` | List notes on an item (name, created, body), ordered by create time |
+| `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body |
+| `wn note rm [id] <name>` | Remove a note by name |
 | `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
 | `wn next` | Set “next” task (first available undone in dependency order) as current |

@@ -1289,13 +1289,13 @@ func listSortSpec() []wn.SortOption {
 var noteCmd = &cobra.Command{
 	Use:   "note",
 	Short: "Add, list, edit, or remove notes (attachments) on a work item",
-	Long:  "Notes attach text (e.g. \"I wrote this in file X\" or a link) without editing the item description. Use 'wn note add [id] -m \"...\"', 'wn note list [id]', 'wn note edit [id] <index> -m \"...\"', and 'wn note rm [id] <index>'.",
+	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note edit [id] <name> -m \"...\"', and 'wn note rm [id] <name>'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
 }
 
 var noteAddCmd = &cobra.Command{
-	Use:   "add [id]",
-	Short: "Add a note to a work item",
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "add <name> [id]",
+	Short: "Add or update a note by name on a work item",
+	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runNoteAdd,
 }
 var noteAddMessage string
@@ -1306,6 +1306,10 @@ func init() {
 }
 
 func runNoteAdd(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if !wn.ValidNoteName(name) {
+		return fmt.Errorf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars)", name)
+	}
 	body := noteAddMessage
 	if body == "" {
 		var err error
@@ -1326,8 +1330,8 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
+	if len(args) > 1 {
+		explicitID = args[1]
 	}
 	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
 	if err != nil {
@@ -1342,9 +1346,14 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 		if it.Notes == nil {
 			it.Notes = []wn.Note{}
 		}
-		it.Notes = append(it.Notes, wn.Note{Created: now, Body: strings.TrimSpace(body)})
+		idx := it.NoteIndexByName(name)
+		trimmed := strings.TrimSpace(body)
+		if idx >= 0 {
+			it.Notes[idx].Body = trimmed
+		} else {
+			it.Notes = append(it.Notes, wn.Note{Name: name, Created: now, Body: trimmed})
+		}
 		it.Updated = now
-		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "note_added"})
 		return it, nil
 	})
 }
@@ -1381,15 +1390,15 @@ func runNoteList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
-	for i, n := range item.Notes {
-		fmt.Printf("%d\t%s\t%s\n", i+1, n.Created.Format("2006-01-02 15:04:05"), n.Body)
+	for _, n := range item.Notes {
+		fmt.Printf("%s\t%s\t%s\n", n.Name, n.Created.Format("2006-01-02 15:04:05"), n.Body)
 	}
 	return nil
 }
 
 var noteEditCmd = &cobra.Command{
-	Use:   "edit [id] <index>",
-	Short: "Edit a note by index (1-based)",
+	Use:   "edit [id] <name>",
+	Short: "Edit a note by name",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runNoteEdit,
 }
@@ -1409,19 +1418,15 @@ func runNoteEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	var id string
-	var indexArg string
+	nameArg := ""
 	if len(args) == 2 {
-		id, indexArg = args[0], args[1]
+		id, nameArg = args[0], args[1]
 	} else {
 		id, err = wn.ResolveItemID(meta.CurrentID, "")
 		if err != nil {
 			return fmt.Errorf("no id provided and no current task")
 		}
-		indexArg = args[0]
-	}
-	var index int
-	if _, err := fmt.Sscanf(indexArg, "%d", &index); err != nil || index < 1 {
-		return fmt.Errorf("invalid index %q (must be 1-based integer)", indexArg)
+		nameArg = args[0]
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -1433,11 +1438,12 @@ func runNoteEdit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("item %s not found", id)
 		}
-		if item.Notes == nil || index > len(item.Notes) {
-			return fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(item.Notes))
+		idx := item.NoteIndexByName(nameArg)
+		if idx < 0 {
+			return fmt.Errorf("no note named %q", nameArg)
 		}
 		var errEdit error
-		body, errEdit = wn.EditWithEditor(item.Notes[index-1].Body)
+		body, errEdit = wn.EditWithEditor(item.Notes[idx].Body)
 		if errEdit != nil {
 			return errEdit
 		}
@@ -1450,19 +1456,19 @@ func runNoteEdit(cmd *cobra.Command, args []string) error {
 	}
 	now := time.Now().UTC()
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
-		if it.Notes == nil || index > len(it.Notes) {
-			return nil, fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(it.Notes))
+		idx := it.NoteIndexByName(nameArg)
+		if idx < 0 {
+			return nil, fmt.Errorf("no note named %q", nameArg)
 		}
-		it.Notes[index-1].Body = body
+		it.Notes[idx].Body = body
 		it.Updated = now
-		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "note_edited", Msg: indexArg})
 		return it, nil
 	})
 }
 
 var noteRmCmd = &cobra.Command{
-	Use:   "rm [id] <index>",
-	Short: "Remove a note by index (1-based)",
+	Use:   "rm [id] <name>",
+	Short: "Remove a note by name",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runNoteRm,
 }
@@ -1477,31 +1483,27 @@ func runNoteRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	var id string
-	var indexArg string
+	nameArg := ""
 	if len(args) == 2 {
-		id, indexArg = args[0], args[1]
+		id, nameArg = args[0], args[1]
 	} else {
 		id, err = wn.ResolveItemID(meta.CurrentID, "")
 		if err != nil {
 			return fmt.Errorf("no id provided and no current task")
 		}
-		indexArg = args[0]
-	}
-	var index int
-	if _, err := fmt.Sscanf(indexArg, "%d", &index); err != nil || index < 1 {
-		return fmt.Errorf("invalid index %q (must be 1-based integer)", indexArg)
+		nameArg = args[0]
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
 	}
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
-		if it.Notes == nil || index > len(it.Notes) {
-			return nil, fmt.Errorf("note index %d out of range (item has %d note(s))", index, len(it.Notes))
+		idx := it.NoteIndexByName(nameArg)
+		if idx < 0 {
+			return nil, fmt.Errorf("no note named %q", nameArg)
 		}
-		it.Notes = append(it.Notes[:index-1], it.Notes[index:]...)
+		it.Notes = append(it.Notes[:idx], it.Notes[idx+1:]...)
 		it.Updated = time.Now().UTC()
-		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "note_removed", Msg: indexArg})
 		return it, nil
 	})
 }

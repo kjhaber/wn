@@ -797,8 +797,8 @@ func TestNoteAddAndList(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	// Add a note
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "I wrote this in file X"})
+	// Add a note with a name
+	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "I wrote this in file X"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
@@ -812,11 +812,11 @@ func TestNoteAddAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get after add: %v", err)
 	}
-	if len(item.Notes) != 1 || item.Notes[0].Body != "I wrote this in file X" {
-		t.Fatalf("after note add: item.Notes = %v, want one note with body", item.Notes)
+	if len(item.Notes) != 1 || item.Notes[0].Name != "pr-url" || item.Notes[0].Body != "I wrote this in file X" {
+		t.Fatalf("after note add: item.Notes = %v, want one note with name pr-url and body", item.Notes)
 	}
 
-	// List notes: should show one note (index 1, body)
+	// List notes: should show name and body
 	out := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"note", "list", itemID})
 		if err := rootCmd.Execute(); err != nil {
@@ -826,8 +826,8 @@ func TestNoteAddAndList(t *testing.T) {
 	if !strings.Contains(out, "I wrote this in file X") {
 		t.Errorf("note list should contain note body; got %q", out)
 	}
-	if !strings.Contains(out, "1") {
-		t.Errorf("note list should show index 1; got %q", out)
+	if !strings.Contains(out, "pr-url") {
+		t.Errorf("note list should show note name pr-url; got %q", out)
 	}
 }
 
@@ -839,11 +839,11 @@ func TestNoteListOrderedByCreateTime(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "first note"})
+	rootCmd.SetArgs([]string{"note", "add", "first", itemID, "-m", "first note"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add 1: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "second note"})
+	rootCmd.SetArgs([]string{"note", "add", "second", itemID, "-m", "second note"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add 2: %v", err)
 	}
@@ -873,12 +873,12 @@ func TestNoteEdit(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "original"})
+	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "original"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "edit", itemID, "1", "-m", "edited body"})
+	rootCmd.SetArgs([]string{"note", "edit", itemID, "pr-url", "-m", "edited body"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note edit: %v", err)
 	}
@@ -905,12 +905,12 @@ func TestNoteRm(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "to be removed"})
+	rootCmd.SetArgs([]string{"note", "add", "to-remove", itemID, "-m", "to be removed"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "rm", itemID, "1"})
+	rootCmd.SetArgs([]string{"note", "rm", itemID, "to-remove"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note rm: %v", err)
 	}
@@ -934,7 +934,7 @@ func TestShowIncludesNotes(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", itemID, "-m", "see file X"})
+	rootCmd.SetArgs([]string{"note", "add", "see-file", itemID, "-m", "see file X"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
@@ -949,8 +949,59 @@ func TestShowIncludesNotes(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &item); err != nil {
 		t.Fatalf("Unmarshal show: %v", err)
 	}
-	if len(item.Notes) != 1 || item.Notes[0].Body != "see file X" {
-		t.Errorf("show should include notes; got Notes = %v", item.Notes)
+	if len(item.Notes) != 1 || item.Notes[0].Name != "see-file" || item.Notes[0].Body != "see file X" {
+		t.Errorf("show should include notes with name; got Notes = %v", item.Notes)
+	}
+}
+
+func TestNoteAddInvalidName(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "bad name", itemID, "-m", "body"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("note add with invalid name (space) should fail")
+	}
+	if !strings.Contains(err.Error(), "name") && !strings.Contains(err.Error(), "invalid") {
+		t.Errorf("error should mention name/invalid; got %v", err)
+	}
+}
+
+func TestNoteAddUpsert(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "first"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add 1: %v", err)
+	}
+	rootCmd.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "second"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add 2 (same name): %v", err)
+	}
+
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	item, err := store.Get(itemID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(item.Notes) != 1 {
+		t.Fatalf("upsert should keep one note; got %d notes", len(item.Notes))
+	}
+	if item.Notes[0].Body != "second" {
+		t.Errorf("upsert should update body; got %q", item.Notes[0].Body)
 	}
 }
 

@@ -1,6 +1,9 @@
 package wn
 
-import "time"
+import (
+	"regexp"
+	"time"
+)
 
 // Item is a single work item. IDs are 6-character UUID prefixes (lowercase hex).
 type Item struct {
@@ -26,9 +29,29 @@ type LogEntry struct {
 	Msg  string    `json:"msg,omitempty"`
 }
 
-// Note is an attachment on an item (e.g. "I wrote this in file X" or a link), without editing the description.
+// Note is an attachment on an item with a logical name (e.g. "pr-url", "issue-number").
 // Item.Notes are listed ordered by Created (oldest first).
 type Note struct {
+	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
 	Body    string    `json:"body"`
+}
+
+// ValidNoteName returns true if name is valid: alphanumeric, slash, underscore, or hyphen, 1–32 chars.
+func ValidNoteName(name string) bool {
+	if len(name) < 1 || len(name) > 32 {
+		return false
+	}
+	validName := regexp.MustCompile(`^[a-zA-Z0-9/_-]+$`)
+	return validName.MatchString(name)
+}
+
+// NoteIndexByName returns the 0-based index of the first note with the given name, or -1 if not found.
+func (it *Item) NoteIndexByName(name string) int {
+	for i, n := range it.Notes {
+		if n.Name == name {
+			return i
+		}
+	}
+	return -1
 }
