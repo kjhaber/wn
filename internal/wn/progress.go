@@ -2,6 +2,20 @@ package wn
 
 import "time"
 
+// ItemListStatus returns "done", "undone", "claimed", or "review-ready" for list/JSON output.
+func ItemListStatus(it *Item, now time.Time) string {
+	if it.Done {
+		return "done"
+	}
+	if IsInProgress(it, now) {
+		return "claimed"
+	}
+	if it.ReviewReady {
+		return "review-ready"
+	}
+	return "undone"
+}
+
 // IsInProgress returns true if the item is currently in progress (has a future InProgressUntil).
 func IsInProgress(it *Item, now time.Time) bool {
 	if it.InProgressUntil.IsZero() {

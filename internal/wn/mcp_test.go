@@ -73,6 +73,44 @@ func textContent(res *mcp.CallToolResult) string {
 	return ""
 }
 
+// listItem is the JSON shape returned by wn_list for each item.
+type listItem struct {
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+	Status      string   `json:"status"`
+}
+
+func TestMCP_wn_list_returns_structured_json(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("CallTool wn_list: %v", err)
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list result must be valid JSON: %v\ncontent: %s", err, text)
+	}
+	if len(items) != 1 {
+		t.Fatalf("wn_list want 1 item, got %d", len(items))
+	}
+	if items[0].ID != "abc123" {
+		t.Errorf("wn_list items[0].id = %q, want abc123", items[0].ID)
+	}
+	if items[0].Description != "first line" {
+		t.Errorf("wn_list items[0].description = %q, want first line", items[0].Description)
+	}
+	if items[0].Tags == nil {
+		t.Error("wn_list items[0].tags must be present (array)")
+	}
+	if items[0].Status != "undone" && items[0].Status != "review-ready" {
+		t.Errorf("wn_list items[0].status = %q, want undone or review-ready", items[0].Status)
+	}
+}
+
 func TestMCP_wn_list(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()
@@ -82,7 +120,11 @@ func TestMCP_wn_list(t *testing.T) {
 		t.Fatalf("CallTool wn_list: %v", err)
 	}
 	text := textContent(res)
-	if !strings.Contains(text, "abc123") || !strings.Contains(text, "first line") {
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if len(items) < 1 || items[0].ID != "abc123" || items[0].Description != "first line" {
 		t.Errorf("wn_list content = %q", text)
 	}
 }
@@ -112,8 +154,12 @@ func TestMCP_wn_list_empty(t *testing.T) {
 		t.Fatalf("CallTool: %v", err)
 	}
 	text := textContent(res)
-	if text != "No undone tasks.\n" {
-		t.Errorf("wn_list empty = %q, want No undone tasks.\\n", text)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list empty must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if len(items) != 0 {
+		t.Errorf("wn_list empty = %d items, want 0", len(items))
 	}
 }
 
@@ -129,7 +175,11 @@ func TestMCP_wn_add(t *testing.T) {
 		t.Fatalf("CallTool wn_add: %v", err)
 	}
 	text := textContent(res)
-	if !strings.HasPrefix(text, "added ") {
+	var out map[string]string
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("wn_add must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if out["id"] == "" {
 		t.Errorf("wn_add content = %q", text)
 	}
 	if res.IsError {
@@ -340,7 +390,11 @@ func TestMCP_wn_next(t *testing.T) {
 		t.Fatalf("CallTool wn_next: %v", err)
 	}
 	text := textContent(res)
-	if !strings.HasPrefix(text, "abc123:") {
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("wn_next must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if out["id"] != "abc123" {
 		t.Errorf("wn_next content = %q", text)
 	}
 }
@@ -370,8 +424,12 @@ func TestMCP_wn_next_empty(t *testing.T) {
 		t.Fatalf("CallTool: %v", err)
 	}
 	text := textContent(res)
-	if text != "No next task." {
-		t.Errorf("wn_next empty = %q, want No next task.", text)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("wn_next empty must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if out["id"] != nil {
+		t.Errorf("wn_next empty = %q, want id:null", text)
 	}
 }
 
@@ -390,7 +448,11 @@ func TestMCP_wn_next_with_claim_for(t *testing.T) {
 		t.Fatalf("wn_next claim_for: %s", textContent(res))
 	}
 	text := textContent(res)
-	if !strings.HasPrefix(text, "abc123:") || !strings.Contains(text, "claimed") {
+	var nextOut map[string]any
+	if err := json.Unmarshal([]byte(text), &nextOut); err != nil {
+		t.Fatalf("wn_next claim_for must return valid JSON: %v", err)
+	}
+	if nextOut["id"] != "abc123" || nextOut["claimed"] != true {
 		t.Errorf("wn_next claim_for content = %q", text)
 	}
 	// Claimed item should not appear in wn_list (undone list excludes in-progress)
@@ -399,8 +461,15 @@ func TestMCP_wn_next_with_claim_for(t *testing.T) {
 		t.Fatalf("CallTool wn_list: %v", err)
 	}
 	listText := textContent(res2)
-	if strings.Contains(listText, "abc123") {
-		t.Errorf("claimed item should not be in wn_list; got %q", listText)
+	var listItems []listItem
+	if err := json.Unmarshal([]byte(listText), &listItems); err != nil {
+		t.Fatalf("wn_list after claim must be valid JSON: %v", err)
+	}
+	for _, it := range listItems {
+		if it.ID == "abc123" {
+			t.Errorf("claimed item should not be in wn_list; got %q", listText)
+			break
+		}
 	}
 	// wn_show should show in_progress_until
 	res3, err := cs.CallTool(ctx, &mcp.CallToolParams{
@@ -504,8 +573,12 @@ func TestMCP_wn_list_with_root(t *testing.T) {
 		t.Fatalf("wn_list with root: %s", textContent(res))
 	}
 	text := textContent(res)
-	if !strings.Contains(text, "x1y2z3") || !strings.Contains(text, "item via root param") {
-		t.Errorf("wn_list with root: expected item in output, got %q", text)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list with root must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if len(items) != 1 || items[0].ID != "x1y2z3" || items[0].Description != "item via root param" {
+		t.Errorf("wn_list with root: expected one item x1y2z3, got %q", text)
 	}
 }
 
@@ -556,11 +629,22 @@ func TestMCP_fixed_root_guardrail(t *testing.T) {
 		t.Fatalf("wn_list: %s", textContent(res))
 	}
 	text := textContent(res)
-	if !strings.Contains(text, "aaaaaa") || !strings.Contains(text, "only in A") {
-		t.Errorf("fixed root guardrail: expected A's item, got %q", text)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list fixed root must return valid JSON: %v", err)
 	}
-	if strings.Contains(text, "bbbbbb") {
-		t.Errorf("fixed root guardrail: should not see B's item when fixed to A, got %q", text)
+	var foundA bool
+	for _, it := range items {
+		if it.ID == "bbbbbb" {
+			t.Errorf("fixed root guardrail: should not see B's item when fixed to A, got %q", text)
+			break
+		}
+		if it.ID == "aaaaaa" && it.Description == "only in A" {
+			foundA = true
+		}
+	}
+	if !foundA {
+		t.Errorf("fixed root guardrail: expected A's item (aaaaaa, only in A), got %q", text)
 	}
 }
 

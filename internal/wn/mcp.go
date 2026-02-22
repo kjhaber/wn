@@ -33,7 +33,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
-		Description: "List available undone work items (id and first line of description). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high').",
+		Description: "List available undone work items. Returns a JSON array of objects with id, description (first line), tags, and status (undone, review-ready). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high').",
 	}, handleWnList)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_done",
@@ -150,13 +150,23 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 	}); err != nil {
 		return nil, nil, err
 	}
-	text := fmt.Sprintf("added %s", id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": id}, nil
+	// Structured JSON so agents can parse id without scraping text.
+	out := map[string]string{"id": id}
+	raw, _ := json.Marshal(out)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, out, nil
 }
 
 type wnListIn struct {
 	Tag  string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
 	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+// listItemOut is the JSON shape for each item returned by wn_list (id, description, tags, status).
+type listItemOut struct {
+	ID          string   `json:"id"`
+	Description string   `json:"description"`
+	Tags        []string `json:"tags"`
+	Status      string   `json:"status"`
 }
 
 func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*mcp.CallToolResult, any, error) {
@@ -187,14 +197,25 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 	} else {
 		ordered, _ = TopoOrder(items)
 	}
-	var lines string
-	for _, it := range ordered {
-		lines += fmt.Sprintf("  %s: %s\n", it.ID, FirstLine(it.Description))
+	now := time.Now().UTC()
+	out := make([]listItemOut, len(ordered))
+	for i, it := range ordered {
+		tags := it.Tags
+		if tags == nil {
+			tags = []string{}
+		}
+		out[i] = listItemOut{
+			ID:          it.ID,
+			Description: FirstLine(it.Description),
+			Tags:        tags,
+			Status:      ItemListStatus(it, now),
+		}
 	}
-	if lines == "" {
-		lines = "No undone tasks.\n"
+	raw, err := json.MarshalIndent(&out, "", "  ")
+	if err != nil {
+		return nil, nil, err
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: lines}}}, nil, nil
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 }
 
 type wnDoneIn struct {
@@ -491,7 +512,10 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 	}
 	ordered, acyclic := TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "No next task."}}}, nil, nil
+		// Empty: return JSON so agents can distinguish "no task" from "task with empty description".
+		emptyOut := map[string]any{"id": nil, "description": nil}
+		raw, _ := json.Marshal(emptyOut)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 	}
 	next := ordered[0]
 	if err := WithMetaLock(root, func(m Meta) (Meta, error) {
@@ -517,11 +541,13 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 		if err != nil {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 		}
-		text := fmt.Sprintf("%s: %s (claimed for %s)", next.ID, FirstLine(next.Description), in.ClaimFor)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
+		nextOut := map[string]any{"id": next.ID, "description": FirstLine(next.Description), "claimed": true, "claim_for": in.ClaimFor}
+		raw, _ := json.Marshal(nextOut)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
 	}
-	text := fmt.Sprintf("%s: %s", next.ID, FirstLine(next.Description))
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
+	nextOut := map[string]any{"id": next.ID, "description": FirstLine(next.Description)}
+	raw, _ := json.Marshal(nextOut)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
 }
 
 type wnOrderIn struct {
