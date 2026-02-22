@@ -2,6 +2,7 @@ package wn
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -168,6 +169,42 @@ func TestMCP_wn_desc(t *testing.T) {
 	// PromptBody("first line\nbody for prompt") = "body for prompt"
 	if text != "body for prompt" {
 		t.Errorf("wn_desc = %q, want body for prompt", text)
+	}
+}
+
+func TestMCP_wn_show(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_show IsError true: %s", textContent(res))
+	}
+	text := textContent(res)
+	var item Item
+	if err := json.Unmarshal([]byte(text), &item); err != nil {
+		t.Fatalf("wn_show result not valid JSON: %v\ncontent: %s", err, text)
+	}
+	if item.ID != "abc123" {
+		t.Errorf("wn_show item.id = %q, want abc123", item.ID)
+	}
+	if item.Description != "first line\nbody for prompt" {
+		t.Errorf("wn_show item.description = %q", item.Description)
+	}
+	if item.Tags == nil {
+		t.Error("wn_show item.tags missing (agents need tags)")
+	}
+	if item.Log == nil {
+		t.Error("wn_show item.log missing (agents need log)")
+	}
+	if item.Notes == nil {
+		t.Error("wn_show item.notes missing (agents need notes)")
+	}
+	if item.DependsOn == nil {
+		t.Error("wn_show item.depends_on missing (agents need depends_on)")
 	}
 }
 

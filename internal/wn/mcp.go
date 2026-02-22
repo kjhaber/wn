@@ -2,6 +2,7 @@ package wn
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -46,6 +47,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_desc",
 		Description: "Get the description (prompt-ready body) for a work item. If id is omitted, uses current task.",
 	}, handleWnDesc)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_show",
+		Description: "Fetch full work item as JSON by id (tags, deps, notes, log, etc.). If id is omitted, uses current task.",
+	}, handleWnShow)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_claim",
 		Description: "Mark a work item in progress for a duration. Item leaves the undone list until expiry or release.",
@@ -255,6 +260,80 @@ func handleWnDesc(ctx context.Context, req *mcp.CallToolRequest, in wnDescIn) (*
 	}
 	body := PromptBody(item.Description)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: body}}}, nil, nil
+}
+
+// showOutput is the JSON shape for wn_show; all slice fields have no omitempty so agents always see tags, log, notes, depends_on.
+type showOutput struct {
+	ID              string     `json:"id"`
+	Description     string     `json:"description"`
+	Created         time.Time  `json:"created"`
+	Updated         time.Time  `json:"updated"`
+	Done            bool       `json:"done"`
+	DoneMessage     string     `json:"done_message,omitempty"`
+	InProgressUntil time.Time  `json:"in_progress_until,omitempty"`
+	InProgressBy    string     `json:"in_progress_by,omitempty"`
+	Tags            []string   `json:"tags"`
+	DependsOn       []string   `json:"depends_on"`
+	Order           *int       `json:"order,omitempty"`
+	Log             []LogEntry `json:"log"`
+	Notes           []Note     `json:"notes"`
+}
+
+type wnShowIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	// Use showOutput so tags, log, notes, depends_on are always present in JSON for agents
+	out := showOutput{
+		ID:              item.ID,
+		Description:     item.Description,
+		Created:         item.Created,
+		Updated:         item.Updated,
+		Done:            item.Done,
+		DoneMessage:     item.DoneMessage,
+		InProgressUntil: item.InProgressUntil,
+		InProgressBy:    item.InProgressBy,
+		Tags:            item.Tags,
+		DependsOn:       item.DependsOn,
+		Order:           item.Order,
+		Log:             item.Log,
+		Notes:           item.Notes,
+	}
+	if out.Tags == nil {
+		out.Tags = []string{}
+	}
+	if out.Log == nil {
+		out.Log = []LogEntry{}
+	}
+	if out.Notes == nil {
+		out.Notes = []Note{}
+	}
+	if out.DependsOn == nil {
+		out.DependsOn = []string{}
+	}
+	raw, err := json.MarshalIndent(&out, "", "  ")
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 }
 
 type wnClaimIn struct {

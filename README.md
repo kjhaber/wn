@@ -101,7 +101,7 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 ```
 
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`.
 
 ## Sort order
 
