@@ -57,7 +57,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note rm [id] <name>` | Remove a note by name |
 | `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
-| `wn next` | Set “next” task (first available undone in dependency order) as current |
+| `wn next` | Set “next” task (first available undone in dependency order) as current. Use `--claim 30m` to also claim it in the same step (optional `--claim-by` for logging) |
 | `wn pick` | Interactively choose current task (fzf if available) |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR`. Set `"sort": "updated:desc,priority,tags"` for default list/fzf order |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
@@ -101,7 +101,7 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 ```
 
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`.
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`. For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign.
 
 ## Sort order
 

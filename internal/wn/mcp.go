@@ -61,7 +61,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRelease)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_next",
-		Description: "Set the next available task as current and return its id and description.",
+		Description: "Set the next available task as current and return its id and description. Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
 	}, handleWnNext)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_order",
@@ -418,7 +418,9 @@ func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnRelease
 }
 
 type wnNextIn struct {
-	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+	Root     string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+	ClaimFor string `json:"claim_for,omitempty" jsonschema:"If set, atomically claim the returned item for this duration (e.g. 30m, 1h)"`
+	ClaimBy  string `json:"claim_by,omitempty" jsonschema:"Optional worker id when claim_for is set"`
 }
 
 func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*mcp.CallToolResult, any, error) {
@@ -440,6 +442,26 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 		return m, nil
 	}); err != nil {
 		return nil, nil, err
+	}
+	if in.ClaimFor != "" {
+		d, err := time.ParseDuration(in.ClaimFor)
+		if err != nil || d <= 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive claim_for duration"}}, IsError: true}, nil, nil
+		}
+		now := time.Now().UTC()
+		until := now.Add(d)
+		err = store.UpdateItem(next.ID, func(it *Item) (*Item, error) {
+			it.InProgressUntil = until
+			it.InProgressBy = in.ClaimBy
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: in.ClaimFor})
+			return it, nil
+		})
+		if err != nil {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+		}
+		text := fmt.Sprintf("%s: %s (claimed for %s)", next.ID, FirstLine(next.Description), in.ClaimFor)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
 	}
 	text := fmt.Sprintf("%s: %s", next.ID, FirstLine(next.Description))
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil

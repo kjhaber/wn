@@ -988,7 +988,15 @@ func runLog(cmd *cobra.Command, args []string) error {
 var nextCmd = &cobra.Command{
 	Use:   "next",
 	Short: "Pick the next task (first undone in dependency order) and set as current",
+	Long:  "Optionally use --claim <duration> to also claim the task for that duration in the same step (e.g. wn next --claim 30m).",
 	RunE:  runNext,
+}
+var nextClaimFor string
+var nextClaimBy string
+
+func init() {
+	nextCmd.Flags().StringVar(&nextClaimFor, "claim", "", "Also claim the task for this duration (e.g. 30m, 1h)")
+	nextCmd.Flags().StringVar(&nextClaimBy, "claim-by", "", "Optional worker ID when using --claim")
 }
 
 func runNext(cmd *cobra.Command, args []string) error {
@@ -1015,6 +1023,28 @@ func runNext(cmd *cobra.Command, args []string) error {
 		return m, nil
 	}); err != nil {
 		return err
+	}
+	if nextClaimFor != "" {
+		d, err := time.ParseDuration(nextClaimFor)
+		if err != nil {
+			return fmt.Errorf("invalid --claim duration %q: %w", nextClaimFor, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("--claim duration must be positive, got %v", d)
+		}
+		now := time.Now().UTC()
+		until := now.Add(d)
+		if err := store.UpdateItem(next.ID, func(it *wn.Item) (*wn.Item, error) {
+			it.InProgressUntil = until
+			it.InProgressBy = nextClaimBy
+			it.Updated = now
+			it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: nextClaimFor})
+			return it, nil
+		}); err != nil {
+			return err
+		}
+		fmt.Printf("  %s: %s (claimed for %s)\n", next.ID, next.Description, nextClaimFor)
+		return nil
 	}
 	fmt.Printf("  %s: %s\n", next.ID, next.Description)
 	return nil

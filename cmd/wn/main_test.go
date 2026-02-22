@@ -380,6 +380,33 @@ func TestCurrentTaskShowsState(t *testing.T) {
 	})
 }
 
+func TestNextWithClaim(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"next", "--claim", "30m"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn next --claim: %v", err)
+		}
+	})
+	if !strings.Contains(out, itemID) || !strings.Contains(out, "claimed") {
+		t.Errorf("wn next --claim output should contain id and claimed; got %q", out)
+	}
+	// Verify item is actually claimed: show should have in_progress_until set
+	showOut := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", itemID})
+		_ = rootCmd.Execute()
+	})
+	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
+		t.Errorf("wn show after next --claim should show in_progress_until; got %s", showOut)
+	}
+}
+
 func TestCurrentTaskShowsTags(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {

@@ -333,6 +333,52 @@ func TestMCP_wn_next_empty(t *testing.T) {
 	}
 }
 
+func TestMCP_wn_next_with_claim_for(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_next",
+		Arguments: map[string]any{"claim_for": "30m"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_next claim_for: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_next claim_for: %s", textContent(res))
+	}
+	text := textContent(res)
+	if !strings.HasPrefix(text, "abc123:") || !strings.Contains(text, "claimed") {
+		t.Errorf("wn_next claim_for content = %q", text)
+	}
+	// Claimed item should not appear in wn_list (undone list excludes in-progress)
+	res2, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("CallTool wn_list: %v", err)
+	}
+	listText := textContent(res2)
+	if strings.Contains(listText, "abc123") {
+		t.Errorf("claimed item should not be in wn_list; got %q", listText)
+	}
+	// wn_show should show in_progress_until
+	res3, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_show",
+		Arguments: map[string]any{"id": "abc123"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	var out struct {
+		InProgressUntil string `json:"in_progress_until"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res3)), &out); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	if out.InProgressUntil == "" || out.InProgressUntil == "0001-01-01T00:00:00Z" {
+		t.Errorf("wn_show: expected in_progress_until set after claim, got %q", out.InProgressUntil)
+	}
+}
+
 func TestMCP_no_wn_root_returns_error(t *testing.T) {
 	dir := t.TempDir()
 	cwd, _ := os.Getwd()
