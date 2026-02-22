@@ -27,7 +27,7 @@ func Export(store Store, path string) error {
 		ExportedAt: time.Now().UTC(),
 		Items:      items,
 	}
-	out, err := json.MarshalIndent(data, "", "  ")
+	out, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}

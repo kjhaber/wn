@@ -180,7 +180,6 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetEscapeHTML(false)
-	enc.SetIndent("", "  ")
 	return enc.Encode(item)
 }
 
