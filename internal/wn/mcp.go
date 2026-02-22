@@ -29,11 +29,11 @@ func NewMCPServer() *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_add",
-		Description: "Add a work item. Returns the new item's id.",
+		Description: "Add a work item. Returns the new item's id. Priority: pass optional order (lower number = higher priority) when dependencies don't define order.",
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
-		Description: "List available undone work items (id and first line of description). Optionally filter by tag.",
+		Description: "List available undone work items (id and first line of description). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high').",
 	}, handleWnList)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_done",
@@ -61,11 +61,11 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRelease)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_next",
-		Description: "Set the next available task as current and return its id and description. Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
+		Description: "Set the next available task as current and return its id and description. Next is chosen by dependency order, then by order field (lower = higher priority). Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
 	}, handleWnNext)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_order",
-		Description: "Set or clear optional backlog order for an item (lower = earlier when dependencies don't define order).",
+		Description: "Set or clear optional backlog order for an item. Priority convention: lower number = higher priority (earlier when dependencies don't define order).",
 	}, handleWnOrder)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_depend",
@@ -110,7 +110,7 @@ func getStoreWithRoot(ctx context.Context, projectRoot string) (Store, string, e
 type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
-	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order (lower = earlier)"`
+	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order: lower number = higher priority (earlier when deps don't define order)"`
 	Root        string   `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
@@ -470,7 +470,7 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 
 type wnOrderIn struct {
 	ID    string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
-	Order *int   `json:"order,omitempty" jsonschema:"Set order to this number (lower = earlier)"`
+	Order *int   `json:"order,omitempty" jsonschema:"Set order to this number (lower = higher priority)"`
 	Unset bool   `json:"unset,omitempty" jsonschema:"If true, clear the order field"`
 	Root  string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }

@@ -105,6 +105,13 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 
 Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`. For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign.
 
+### Priority / order (for agents)
+
+When choosing what to work on, agents should use this convention:
+
+- **Order field:** Lower value = higher priority. The optional `order` field on each item is used when dependencies don't define order (e.g. in `wn next`, list order, and fzf). Set via `wn order [id] --set <n>` or MCP `wn_order`; when adding, use `wn add` then set order, or MCP `wn_add` with the `order` parameter (e.g. `order: 1` for high priority).
+- **Tags (optional):** You can use tags like `priority:high` or `priority:low` for filtering. The tool does not interpret these; use `wn list --tag priority:high` or MCP `wn_list` with `tag: "priority:high"` to show only items with that tag. Useful when multiple agents or humans want to mark items without changing numeric order.
+
 ## Sort order
 
 List order and fzf pick order can be controlled by:
