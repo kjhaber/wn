@@ -766,3 +766,84 @@ func TestMCP_wn_depend_and_wn_rmdepend(t *testing.T) {
 		t.Errorf("wn_show after rmdepend: depends_on = %v, want []", out.DependsOn)
 	}
 }
+
+func TestMCP_wn_note_add_edit_rm(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	// wn_note_add: add a note on current item (abc123)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_add",
+		Arguments: map[string]any{"id": "abc123", "name": "pr-url", "body": "https://github.com/org/repo/pull/1"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_add: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_add: %s", textContent(res))
+	}
+
+	// wn_show: notes should contain pr-url with that body
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	var show struct {
+		Notes []struct {
+			Name string `json:"name"`
+			Body string `json:"body"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &show); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	if len(show.Notes) != 1 || show.Notes[0].Name != "pr-url" || show.Notes[0].Body != "https://github.com/org/repo/pull/1" {
+		t.Errorf("after note_add: notes = %v", show.Notes)
+	}
+
+	// wn_note_edit: update the note body
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_edit",
+		Arguments: map[string]any{"id": "abc123", "name": "pr-url", "body": "updated url"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_edit: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_edit: %s", textContent(res))
+	}
+
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &show); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	if len(show.Notes) != 1 || show.Notes[0].Body != "updated url" {
+		t.Errorf("after note_edit: notes = %v", show.Notes)
+	}
+
+	// wn_note_rm: remove the note
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_rm",
+		Arguments: map[string]any{"id": "abc123", "name": "pr-url"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_rm: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_rm: %s", textContent(res))
+	}
+
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &show); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	if len(show.Notes) != 0 {
+		t.Errorf("after note_rm: notes = %v, want []", show.Notes)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -79,6 +80,18 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_rmdepend",
 		Description: "Remove a dependency from a work item. If id is omitted, uses current task.",
 	}, handleWnRmdepend)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_note_add",
+		Description: "Add or update a note on a work item by name. Note name: alphanumeric, slash, underscore, hyphen, 1–32 chars (e.g. pr-url, issue-number). If id is omitted, uses current task.",
+	}, handleWnNoteAdd)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_note_edit",
+		Description: "Edit an existing note's body on a work item by name. If id is omitted, uses current task.",
+	}, handleWnNoteEdit)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_note_rm",
+		Description: "Remove a note by name from a work item. If id is omitted, uses current task.",
+	}, handleWnNoteRm)
 
 	return server
 }
@@ -680,5 +693,134 @@ func handleWnRmdepend(ctx context.Context, req *mcp.CallToolRequest, in wnRmdepe
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	text := fmt.Sprintf("removed dependency %s from %s", in.On, id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnNoteAddIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Name string `json:"name" jsonschema:"Note name (alphanumeric, slash, underscore, hyphen, 1-32 chars)"`
+	Body string `json:"body" jsonschema:"Note text (add or update)"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAddIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if !ValidNoteName(in.Name) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars)", in.Name)}}, IsError: true}, nil, nil
+	}
+	trimmed := strings.TrimSpace(in.Body)
+	if trimmed == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "body is required and cannot be empty"}}, IsError: true}, nil, nil
+	}
+	now := time.Now().UTC()
+	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+		if it.Notes == nil {
+			it.Notes = []Note{}
+		}
+		idx := it.NoteIndexByName(in.Name)
+		if idx >= 0 {
+			it.Notes[idx].Body = trimmed
+		} else {
+			it.Notes = append(it.Notes, Note{Name: in.Name, Created: now, Body: trimmed})
+		}
+		it.Updated = now
+		return it, nil
+	})
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("note %q added/updated on %s", in.Name, id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnNoteEditIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Name string `json:"name" jsonschema:"Note name to edit"`
+	Body string `json:"body" jsonschema:"New note text"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnNoteEdit(ctx context.Context, req *mcp.CallToolRequest, in wnNoteEditIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.Name == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "name is required"}}, IsError: true}, nil, nil
+	}
+	trimmed := strings.TrimSpace(in.Body)
+	if trimmed == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "body is required and cannot be empty"}}, IsError: true}, nil, nil
+	}
+	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+		idx := it.NoteIndexByName(in.Name)
+		if idx < 0 {
+			return nil, fmt.Errorf("no note named %q", in.Name)
+		}
+		it.Notes[idx].Body = trimmed
+		it.Updated = time.Now().UTC()
+		return it, nil
+	})
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("note %q updated on %s", in.Name, id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnNoteRmIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
+	Name string `json:"name" jsonschema:"Note name to remove"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnNoteRm(ctx context.Context, req *mcp.CallToolRequest, in wnNoteRmIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.Name == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "name is required"}}, IsError: true}, nil, nil
+	}
+	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
+		idx := it.NoteIndexByName(in.Name)
+		if idx < 0 {
+			return nil, fmt.Errorf("no note named %q", in.Name)
+		}
+		it.Notes = append(it.Notes[:idx], it.Notes[idx+1:]...)
+		it.Updated = time.Now().UTC()
+		return it, nil
+	})
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("note %q removed from %s", in.Name, id)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }

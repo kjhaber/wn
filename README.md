@@ -103,7 +103,7 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 ```
 
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign.
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
 
 ### Priority / order (for agents)
 
