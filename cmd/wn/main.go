@@ -936,6 +936,7 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.InProgressUntil = time.Time{}
 		it.InProgressBy = ""
+		it.ReviewReady = true
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "released"})
 		return it, nil
@@ -1237,7 +1238,7 @@ func runList(cmd *cobra.Command, args []string) error {
 			}
 		}
 	} else {
-		items, err = wn.UndoneItems(store)
+		items, err = wn.ListableUndoneItems(store)
 		if err != nil {
 			return err
 		}
@@ -1546,13 +1547,16 @@ func formatTags(tags []string) string {
 	return "[" + strings.Join(tags, ", ") + "]"
 }
 
-// itemListStatus returns "done", "undone", or "claimed" for list and JSON output.
+// itemListStatus returns "done", "undone", "claimed", or "review-ready" for list and JSON output.
 func itemListStatus(it *wn.Item, now time.Time) string {
 	if it.Done {
 		return "done"
 	}
 	if wn.IsInProgress(it, now) {
 		return "claimed"
+	}
+	if it.ReviewReady {
+		return "review-ready"
 	}
 	return "undone"
 }

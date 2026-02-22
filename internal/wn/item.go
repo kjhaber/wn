@@ -15,6 +15,7 @@ type Item struct {
 	DoneMessage     string     `json:"done_message,omitempty"`
 	InProgressUntil time.Time  `json:"in_progress_until,omitempty"` // zero = not in progress
 	InProgressBy    string     `json:"in_progress_by,omitempty"`    // optional worker id for logging
+	ReviewReady     bool       `json:"review_ready,omitempty"`      // undone but excluded from agent next/claim; set on release, cleared when user marks done
 	Tags            []string   `json:"tags"`
 	DependsOn       []string   `json:"depends_on"`
 	Order           *int       `json:"order,omitempty"` // optional backlog order when deps don't define it; lower = earlier

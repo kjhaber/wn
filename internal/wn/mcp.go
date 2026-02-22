@@ -160,7 +160,7 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	items, err := UndoneItems(store)
+	items, err := ListableUndoneItems(store)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -406,6 +406,7 @@ func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnRelease
 	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
 		it.InProgressUntil = time.Time{}
 		it.InProgressBy = ""
+		it.ReviewReady = true
 		it.Updated = now
 		it.Log = append(it.Log, LogEntry{At: now, Kind: "released"})
 		return it, nil

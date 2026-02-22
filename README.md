@@ -42,14 +42,14 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
-| `wn list` | List items (default: available undone, dependency order; in-progress excluded until expiry). Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
+| `wn list` | List items (default: undone including review-ready, dependency order; in-progress excluded until expiry). Status column: undone, review-ready, claimed, done. Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
 | `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
 | `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
 | `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
-| `wn release [id]` | Clear in progress (return item to undone list) |
+| `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done) |
 | `wn log <id>` | Show history for an item |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars |
 | `wn note list [id]` | List notes on an item (name, created, body), ordered by create time |
@@ -57,7 +57,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note rm [id] <name>` | Remove a note by name |
 | `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
-| `wn next` | Set “next” task (first available undone in dependency order) as current. Use `--claim 30m` to also claim it in the same step (optional `--claim-by` for logging) |
+| `wn next` | Set “next” task (first **available** undone in dependency order) as current; excludes review-ready and in-progress. Use `--claim 30m` to also claim it in the same step (optional `--claim-by` for logging) |
 | `wn pick` | Interactively choose current task (fzf if available) |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR`. Set `"sort": "updated:desc,priority,tags"` for default list/fzf order |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
@@ -66,6 +66,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients) |
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
+
+**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (and from MCP `wn_next`), so it won't be picked again. It still appears in `wn list` for human review. Mark it done when the work is merged or accepted (e.g. merge to main).
 
 ## Shell completion
 
