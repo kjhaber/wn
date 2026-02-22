@@ -8,7 +8,21 @@ import (
 
 // Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
 type Settings struct {
-	Sort string `json:"sort,omitempty"` // e.g. "updated:desc,priority,tags"
+	Sort      string    `json:"sort,omitempty"`       // e.g. "updated:desc,priority,tags"
+	AgentOrch AgentOrch `json:"agent_orch,omitempty"` // defaults for wn agent-orch
+}
+
+// AgentOrch holds user-level defaults for the agent orchestrator (wn agent-orch).
+// Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
+type AgentOrch struct {
+	Claim         string `json:"claim,omitempty"`          // claim duration per item, e.g. "2h"
+	Delay         string `json:"delay,omitempty"`          // delay between runs, e.g. "5m"
+	Poll          string `json:"poll,omitempty"`           // poll interval when queue empty, e.g. "60s"
+	AgentCmd      string `json:"agent_cmd,omitempty"`      // command template, e.g. "cursor agent --print --trust \"{{.Prompt}}\""
+	PromptTpl     string `json:"prompt_tpl,omitempty"`     // prompt template, e.g. "{{.Description}}"
+	Worktrees     string `json:"worktrees,omitempty"`      // worktree base path, e.g. "./.wn/worktrees"
+	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // true = leave worktree after run (default)
+	Branch        string `json:"branch,omitempty"`         // default branch override, e.g. "main"
 }
 
 // SettingsPath returns the path to the user's wn settings file.

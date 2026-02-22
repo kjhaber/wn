@@ -64,6 +64,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn import <file>` | Import items (use `--replace` if store already has items) |
 | `wn help` / `wn completion` | Help and shell completion |
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients) |
+| `wn agent-orch` | Run the agent orchestrator loop: claim next item, create worktree, run subagent (e.g. Cursor/Claude Code), release. See [Agent workflow runner](#agent-workflow-runner-wn-agent-orch) below. |
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
 
@@ -104,6 +105,28 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 
 
 Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
+
+## Agent workflow runner (wn agent-orch)
+
+`wn agent-orch` runs a loop that picks the next available work item, creates a git worktree and branch, runs a configurable CLI subagent (e.g. Cursor or Claude Code) with the item prompt, then releases the claim. You run it from the **main worktree** where `.wn` is initialized. All commands (git, agent CLI) are logged with **timestamps** to stderr for visibility and auditability.
+
+**Flow per item:** (1) Atomically claim the next undone item. (2) Create a git worktree and branch (e.g. `wn-<id>-<slug>` from the description, or reuse a branch from the item’s `branch` note). (3) Add a `branch` note to the item with the branch name. (4) Run your configured agent command in the worktree with `WN_ROOT` set to the main repo so the subagent’s `wn mcp` uses the same queue. (5) When the subagent exits, the item is released (and marked review-ready so it won’t be claimed again until you merge and mark done). (6) Optionally leave the worktree for you to open a PR, or remove it with `--cleanup-worktree`. (7) After a configurable delay, the loop continues. When the queue is empty, it waits and polls.
+
+**Configuration:** Set defaults in `~/.config/wn/settings.json` under `"agent_orch"` (e.g. `claim`, `delay`, `poll`, `agent_cmd`, `prompt_tpl`, `worktrees`, `leave_worktree`, `branch`). Flags override settings. You must set `agent_cmd` (or `WN_AGENT_CMD`) to a **command template** where `{{.Prompt}}` is replaced by the prompt (e.g. `cursor agent --print --trust "{{.Prompt}}"` or `claude -p "{{.Prompt}}"`). The prompt is produced by a **prompt template** (default `{{.Description}}`); fields include `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`.
+
+**Subagent contract:** The subagent runs in the worktree with `WN_ROOT` pointing at the main repo. It should implement the work, add follow-up items via `wn` MCP if needed, commit on the worktree branch, then call **`wn_release`** (or `wn release`) to mark the item review-ready and clear the claim, and add a note (e.g. `commit` or `commit-info`) with commit hash/message using **MCP `wn_note_add`**. You mark the item done after merging to main.
+
+**Note conventions:** The runner sets the `branch` note on each item with the worktree branch name. To reuse an existing branch (e.g. for a follow-up item), set the item’s `branch` note to that branch name before the runner picks it. The subagent adds `commit` or `commit-info` with the commit details.
+
+**Example:** Run one orchestrator per tmux panel; each will claim one item at a time. In `~/.config/wn/settings.json`: 
+```json
+"agent_orch": {
+  "agent_cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"",
+  "claim": "2h",
+  "poll": "60s"
+}
+```
+Then: `wn agent-orch` (or `wn agent-orch --claim 1h` to override).
 
 ### Priority / order (for agents)
 

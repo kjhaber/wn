@@ -33,3 +33,41 @@ func TestReadSettings_withSort(t *testing.T) {
 		t.Errorf("Sort = %q, want updated:desc,priority", got.Sort)
 	}
 }
+
+func TestReadSettings_withAgentOrch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	body := `{
+		"sort": "updated:desc",
+		"agent_orch": {
+			"claim": "2h",
+			"delay": "5m",
+			"poll": "60s",
+			"agent_cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
+			"prompt_tpl": "{{.Description}}",
+			"worktrees": "./.wn/worktrees",
+			"leave_worktree": true,
+			"branch": "main"
+		}
+	}`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.Sort != "updated:desc" {
+		t.Errorf("Sort = %q, want updated:desc", got.Sort)
+	}
+	ao := got.AgentOrch
+	if ao.Claim != "2h" || ao.Delay != "5m" || ao.Poll != "60s" {
+		t.Errorf("AgentOrch claim/delay/poll = %q / %q / %q", ao.Claim, ao.Delay, ao.Poll)
+	}
+	if ao.AgentCmd == "" || ao.PromptTpl != "{{.Description}}" {
+		t.Errorf("AgentOrch agent_cmd or prompt_tpl wrong: %q, %q", ao.AgentCmd, ao.PromptTpl)
+	}
+	if ao.Worktrees != "./.wn/worktrees" || !ao.LeaveWorktree || ao.Branch != "main" {
+		t.Errorf("AgentOrch worktrees/leave_worktree/branch = %q / %v / %q", ao.Worktrees, ao.LeaveWorktree, ao.Branch)
+	}
+}

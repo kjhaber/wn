@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1107,6 +1107,137 @@ func runMCP(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	return nil
+}
+
+var agentOrchCmd = &cobra.Command{
+	Use:   "agent-orch",
+	Short: "Run the agent orchestrator loop (claim next item, worktree, run subagent, release)",
+	Long:  "Loops: atomically claim the next work item, create a git worktree and branch, run a configurable CLI subagent (e.g. Cursor or Claude Code) with the item prompt and WN_ROOT set to this repo, then release the claim. When the queue is empty, waits and polls. Run from the main worktree where .wn is initialized. All commands (git, agent CLI) are logged with timestamps to stderr.",
+	RunE:  runAgentOrch,
+}
+
+var (
+	agentOrchClaim           string
+	agentOrchDelay           string
+	agentOrchPoll            string
+	agentOrchCmdTpl          string
+	agentOrchPromptTpl       string
+	agentOrchWorktrees       string
+	agentOrchLeaveWorktree   bool
+	agentOrchCleanupWorktree bool
+	agentOrchBranch          string
+)
+
+func init() {
+	agentOrchCmd.Flags().StringVar(&agentOrchClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
+	agentOrchCmd.Flags().StringVar(&agentOrchDelay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
+	agentOrchCmd.Flags().StringVar(&agentOrchPoll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
+	agentOrchCmd.Flags().StringVar(&agentOrchCmdTpl, "agent-cmd", "", "Command template (e.g. cursor agent --print --trust \"{{.Prompt}}\"). Overrides settings. Env: WN_AGENT_CMD.")
+	agentOrchCmd.Flags().StringVar(&agentOrchPromptTpl, "prompt-tpl", "", "Prompt template (e.g. {{.Description}}). Overrides settings.")
+	agentOrchCmd.Flags().StringVar(&agentOrchWorktrees, "worktrees", "", "Worktree base path. Overrides settings.")
+	agentOrchCmd.Flags().BoolVar(&agentOrchLeaveWorktree, "leave-worktree", true, "Leave worktree after run for human to open PR")
+	agentOrchCmd.Flags().BoolVar(&agentOrchCleanupWorktree, "cleanup-worktree", false, "Remove worktree after run (overrides leave-worktree if set)")
+	agentOrchCmd.Flags().StringVar(&agentOrchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
+}
+
+func runAgentOrch(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	settings, err := wn.ReadSettings()
+	if err != nil {
+		return err
+	}
+	opts := wn.AgentOrchOpts{
+		Root:          root,
+		Audit:         os.Stderr,
+		LeaveWorktree: true,
+	}
+	// Apply settings defaults
+	ao := settings.AgentOrch
+	if ao.Claim != "" {
+		if d, err := time.ParseDuration(ao.Claim); err == nil {
+			opts.ClaimFor = d
+		}
+	}
+	if ao.Delay != "" {
+		if d, err := time.ParseDuration(ao.Delay); err == nil {
+			opts.Delay = d
+		}
+	}
+	if ao.Poll != "" {
+		if d, err := time.ParseDuration(ao.Poll); err == nil {
+			opts.Poll = d
+		}
+	}
+	if ao.AgentCmd != "" {
+		opts.AgentCmd = ao.AgentCmd
+	}
+	if ao.PromptTpl != "" {
+		opts.PromptTpl = ao.PromptTpl
+	}
+	if ao.Worktrees != "" {
+		opts.WorktreesBase = ao.Worktrees
+	}
+	opts.LeaveWorktree = ao.LeaveWorktree
+	if ao.Branch != "" {
+		opts.DefaultBranch = ao.Branch
+	}
+	// Flags override
+	if agentOrchClaim != "" {
+		d, err := time.ParseDuration(agentOrchClaim)
+		if err != nil {
+			return fmt.Errorf("--claim: %w", err)
+		}
+		opts.ClaimFor = d
+	}
+	if agentOrchDelay != "" {
+		d, err := time.ParseDuration(agentOrchDelay)
+		if err != nil {
+			return fmt.Errorf("--delay: %w", err)
+		}
+		opts.Delay = d
+	}
+	if agentOrchPoll != "" {
+		d, err := time.ParseDuration(agentOrchPoll)
+		if err != nil {
+			return fmt.Errorf("--poll: %w", err)
+		}
+		opts.Poll = d
+	}
+	if agentOrchCmdTpl != "" {
+		opts.AgentCmd = agentOrchCmdTpl
+	}
+	if envCmd := os.Getenv("WN_AGENT_CMD"); opts.AgentCmd == "" && envCmd != "" {
+		opts.AgentCmd = envCmd
+	}
+	if agentOrchPromptTpl != "" {
+		opts.PromptTpl = agentOrchPromptTpl
+	}
+	if agentOrchWorktrees != "" {
+		opts.WorktreesBase = agentOrchWorktrees
+	}
+	if agentOrchCleanupWorktree {
+		opts.LeaveWorktree = false
+	} else {
+		opts.LeaveWorktree = agentOrchLeaveWorktree
+	}
+	if agentOrchBranch != "" {
+		opts.DefaultBranch = agentOrchBranch
+	}
+	// Defaults when still zero
+	if opts.ClaimFor == 0 {
+		opts.ClaimFor = 2 * time.Hour
+	}
+	if opts.Poll == 0 {
+		opts.Poll = 60 * time.Second
+	}
+	if opts.AgentCmd == "" {
+		return fmt.Errorf("agent_cmd is required (set in settings, --agent-cmd, or WN_AGENT_CMD)")
+	}
+	ctx := context.Background()
+	return wn.RunAgentOrch(ctx, opts)
 }
 
 var settingsCmd = &cobra.Command{
