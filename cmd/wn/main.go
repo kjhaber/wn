@@ -1120,6 +1120,7 @@ var (
 	agentOrchClaim           string
 	agentOrchDelay           string
 	agentOrchPoll            string
+	agentOrchMaxTasks        int
 	agentOrchCmdTpl          string
 	agentOrchPromptTpl       string
 	agentOrchWorktrees       string
@@ -1132,6 +1133,7 @@ func init() {
 	agentOrchCmd.Flags().StringVar(&agentOrchClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchDelay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchPoll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
+	agentOrchCmd.Flags().IntVarP(&agentOrchMaxTasks, "max-tasks", "n", 0, "Process at most N tasks then exit (0 = run indefinitely). Useful for demos and testing.")
 	agentOrchCmd.Flags().StringVar(&agentOrchCmdTpl, "agent-cmd", "", "Command template (e.g. cursor agent --print --trust \"{{.Prompt}}\"). Overrides settings. Env: WN_AGENT_CMD.")
 	agentOrchCmd.Flags().StringVar(&agentOrchPromptTpl, "prompt-tpl", "", "Prompt template (e.g. {{.Description}}). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchWorktrees, "worktrees", "", "Worktree base path. Overrides settings.")
@@ -1206,6 +1208,10 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 		}
 		opts.Poll = d
 	}
+	if agentOrchMaxTasks < 0 {
+		return fmt.Errorf("--max-tasks must be >= 0")
+	}
+	opts.MaxTasks = agentOrchMaxTasks
 	if agentOrchCmdTpl != "" {
 		opts.AgentCmd = agentOrchCmdTpl
 	}

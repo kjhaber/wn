@@ -78,6 +78,7 @@ type AgentOrchOpts struct {
 	ClaimBy       string        // optional worker id
 	Delay         time.Duration // delay between runs (after each item)
 	Poll          time.Duration // poll interval when queue empty
+	MaxTasks      int           // max tasks to process before exiting (0 = indefinite)
 	AgentCmd      string        // command template, e.g. `cursor agent --print "{{.Prompt}}"`
 	PromptTpl     string        // prompt template, e.g. "{{.Description}}"
 	WorktreesBase string        // base path for worktrees
@@ -222,6 +223,7 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		return fmt.Errorf("agent_cmd is required")
 	}
 
+	processed := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -281,6 +283,10 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 					fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
 				}
 			}
+		}
+		processed++
+		if opts.MaxTasks > 0 && processed >= opts.MaxTasks {
+			return nil
 		}
 		select {
 		case <-ctx.Done():

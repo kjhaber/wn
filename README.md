@@ -126,6 +126,8 @@ Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_it
   "poll": "60s"
 }
 ```
+**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`.
+
 Then: `wn agent-orch` (or `wn agent-orch --claim 1h` to override).
 
 ### Priority / order (for agents)
