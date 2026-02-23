@@ -64,6 +64,46 @@ func TestEnsureWorktree_newBranch(t *testing.T) {
 	_ = RemoveWorktree(dir, path, &audit)
 }
 
+func TestCommitWorktreeChanges(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	base := filepath.Join(dir, "worktrees")
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatal(err)
+	}
+	var audit bytes.Buffer
+	worktreePath := filepath.Join(base, "wn-commit-test")
+	path, err := EnsureWorktree(dir, worktreePath, "wn-commit-test", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+	writeFile(t, filepath.Join(path, "newfile"), "content")
+	err = CommitWorktreeChanges(path, "wn abc123: Add feature", &audit)
+	if err != nil {
+		t.Fatalf("CommitWorktreeChanges: %v", err)
+	}
+	cmd := exec.Command("git", "log", "-1", "--oneline")
+	cmd.Dir = path
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git log: %v", err)
+	}
+	if !strings.Contains(string(out), "wn abc123") {
+		t.Errorf("git log -1 = %q, want commit message containing 'wn abc123'", out)
+	}
+	_ = RemoveWorktree(dir, path, &audit)
+}
+
+func TestCommitWorktreeChanges_noChanges(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	var audit bytes.Buffer
+	err := CommitWorktreeChanges(dir, "nothing", &audit)
+	if err != nil {
+		t.Fatalf("CommitWorktreeChanges(clean): %v", err)
+	}
+}
+
 func TestRemoveWorktree(t *testing.T) {
 	dir := t.TempDir()
 	setupGitRepo(t, dir)

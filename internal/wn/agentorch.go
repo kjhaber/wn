@@ -279,6 +279,13 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		_ = cmd.Run() // ignore exit code; we release claim either way
+		// Commit any uncommitted changes in the worktree with a useful message
+		commitMsg := "wn " + item.ID + ": " + FirstLine(item.Description)
+		if err := CommitWorktreeChanges(worktreePath, commitMsg, opts.Audit); err != nil {
+			if opts.Audit != nil {
+				fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
+			}
+		}
 		_ = releaseItemClaim(store, item.ID)
 		if !opts.LeaveWorktree {
 			if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {

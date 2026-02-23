@@ -1,6 +1,7 @@
 package wn
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -68,6 +69,34 @@ func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool
 		return "", fmt.Errorf("git worktree add: %w\n%s", err, out)
 	}
 	return absPath, nil
+}
+
+// CommitWorktreeChanges stages all changes in the worktree and commits with the given message.
+// If there are no changes (git status --porcelain is empty), no-op and return nil.
+// audit is written to with timestamped git commands (can be nil).
+func CommitWorktreeChanges(worktreePath, message string, audit io.Writer) error {
+	statusCmd := exec.Command("git", "status", "--porcelain")
+	statusCmd.Dir = worktreePath
+	out, err := statusCmd.Output()
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	if len(bytes.TrimSpace(out)) == 0 {
+		return nil
+	}
+	auditLog(audit, "git add -A (Dir=%s)", worktreePath)
+	addCmd := exec.Command("git", "add", "-A")
+	addCmd.Dir = worktreePath
+	if out, err := addCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add -A: %w\n%s", err, out)
+	}
+	auditLog(audit, "git commit -m %q (Dir=%s)", message, worktreePath)
+	commitCmd := exec.Command("git", "commit", "-m", message)
+	commitCmd.Dir = worktreePath
+	if out, err := commitCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit: %w\n%s", err, out)
+	}
+	return nil
 }
 
 // RemoveWorktree removes the worktree at worktreePath. mainRoot is the repo root (where .git is).
