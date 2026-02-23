@@ -112,11 +112,13 @@ Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_it
 
 **Worktrees:** By default the worktree base is the **parent** of the main worktree directory (peer directories, not under `.wn`). Each worktree directory is named **`<main-dirname>-<branch>`** (e.g. `main-wn-abc123-add-feature`) so multiple projects under the same parent don't collide. Override with `--worktrees` or `worktrees` in settings.
 
-**Flow per item:** (1) Atomically claim the next undone item. (2) Create a git worktree and branch (e.g. `wn-<id>-<slug>` from the description, or reuse a branch from the item’s `branch` note). (3) Add a `branch` note to the item with the branch name. (4) Run your configured agent command in the worktree with `WN_ROOT` set to the main repo so the subagent’s `wn mcp` uses the same queue. (5) When the subagent exits, the item is released (and marked review-ready so it won’t be claimed again until you merge and mark done). (6) The item is released (and marked review-ready). (7) Optionally leave the worktree for you to open a PR, or remove it with `--cleanup-worktree`. (8) After a configurable delay, the loop continues. When the queue is empty, it waits and polls.
+**Selection:** The runner picks the next work item from the undone queue. **Dependencies** are honored (prerequisites first); within each tier, the **Order** field is the tiebreaker (lower = earlier). You can restrict candidates with an optional **tag**: only items that have that tag are considered. Use `--tag <tag>` or set `agent_orch.tag` in settings (e.g. `"tag": "agent"` to process only items tagged `agent`).
+
+**Flow per item:** (1) Atomically claim the next undone item (subject to tag filter if set). (2) Create a git worktree and branch (e.g. `wn-<id>-<slug>` from the description, or reuse a branch from the item’s `branch` note). (3) Add a `branch` note to the item with the branch name. (4) Run your configured agent command in the worktree with `WN_ROOT` set to the main repo so the subagent’s `wn mcp` uses the same queue. (5) When the subagent exits, the item is released (and marked review-ready so it won’t be claimed again until you merge and mark done). (6) The item is released (and marked review-ready). (7) Optionally leave the worktree for you to open a PR, or remove it with `--cleanup-worktree`. (8) After a configurable delay, the loop continues. When the queue is empty, it waits and polls.
 
 After the subagent exits, any uncommitted changes in the worktree are staged and committed by the runner with message `wn <id>: <first line of description>`.
 
-**Configuration:** Set defaults in `~/.config/wn/settings.json` under `"agent_orch"` (e.g. `claim`, `delay`, `poll`, `agent_cmd`, `prompt_tpl`, `worktrees`, `leave_worktree`, `branch`). Flags override settings. You must set `agent_cmd` (or `WN_AGENT_CMD`) to a **command template** where `{{.Prompt}}` is replaced by the prompt (e.g. `cursor agent --print --trust "{{.Prompt}}"` or `claude -p "{{.Prompt}}"`). The prompt is produced by a **prompt template** (default `{{.Description}}`); fields include `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`.
+**Configuration:** Set defaults in `~/.config/wn/settings.json` under `"agent_orch"` (e.g. `claim`, `delay`, `poll`, `agent_cmd`, `prompt_tpl`, `worktrees`, `leave_worktree`, `branch`, `tag`). Flags override settings. Use `--tag <tag>` (or `agent_orch.tag`) to only consider items that have that tag. You must set `agent_cmd` (or `WN_AGENT_CMD`) to a **command template** where `{{.Prompt}}` is replaced by the prompt (e.g. `cursor agent --print --trust "{{.Prompt}}"` or `claude -p "{{.Prompt}}"`). The prompt is produced by a **prompt template** (default `{{.Description}}`); fields include `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`.
 
 **Subagent contract:** The subagent runs in the worktree with `WN_ROOT` pointing at the main repo. It should implement the work, add follow-up items via `wn` MCP if needed, commit on the worktree branch, then call **`wn_release`** (or `wn release`) to mark the item review-ready and clear the claim, and add a note (e.g. `commit` or `commit-info`) with commit hash/message using **MCP `wn_note_add`**. You mark the item done after merging to main.
 
@@ -127,10 +129,11 @@ After the subagent exits, any uncommitted changes in the worktree are staged and
 "agent_orch": {
   "agent_cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"",
   "claim": "2h",
+  "delay": "60s",
   "poll": "60s"
 }
 ```
-**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`.
+**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`. To run a **single item** then exit: `wn agent-orch --work-id <id>` or `wn agent-orch --current` (uses the currently selected work item).
 
 Then: `wn agent-orch` (or `wn agent-orch --claim 1h` to override).
 

@@ -23,6 +23,7 @@ type AgentOrch struct {
 	Worktrees     string `json:"worktrees,omitempty"`      // worktree base path, e.g. "./.wn/worktrees"
 	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // true = leave worktree after run (default)
 	Branch        string `json:"branch,omitempty"`         // default branch override, e.g. "main"
+	Tag           string `json:"tag,omitempty"`            // only consider items that have this tag
 }
 
 // SettingsPath returns the path to the user's wn settings file.

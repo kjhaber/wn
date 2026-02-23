@@ -36,14 +36,34 @@ func BranchSlug(description string) string {
 	return slug
 }
 
-// ClaimNextItem atomically selects the next available item (by UndoneItems + TopoOrder),
+// filterByTag returns items that have the given tag. If tag is empty, returns items unchanged.
+func filterByTag(items []*Item, tag string) []*Item {
+	if tag == "" {
+		return items
+	}
+	filtered := make([]*Item, 0, len(items))
+	for _, it := range items {
+		for _, t := range it.Tags {
+			if t == tag {
+				filtered = append(filtered, it)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+// ClaimNextItem atomically selects the next available item (by UndoneItems, optional tag filter, then TopoOrder),
 // sets it as current under the meta lock, and claims it for the given duration.
-// Returns the claimed item, or nil if the queue is empty. claimBy is optional (e.g. worker id).
-func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy string) (*Item, error) {
+// Selection: dependencies are honored (prerequisites first); within each tier, Order field is the tiebreaker (lower = earlier).
+// If tag is non-empty, only items that have that tag are considered. claimBy is optional (e.g. worker id).
+// Returns the claimed item, or nil if the queue is empty.
+func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy string, tag string) (*Item, error) {
 	undone, err := UndoneItems(store)
 	if err != nil {
 		return nil, err
 	}
+	undone = filterByTag(undone, tag)
 	ordered, acyclic := TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
 		return nil, nil
@@ -71,6 +91,30 @@ func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy str
 	return store.Get(next.ID)
 }
 
+// ClaimItem claims the given item by id (sets current and InProgressUntil/InProgressBy).
+// Use when running a specific item (e.g. --work-id or --current) instead of claiming next.
+func ClaimItem(store Store, root string, itemID string, claimFor time.Duration, claimBy string) error {
+	_, err := store.Get(itemID)
+	if err != nil {
+		return err
+	}
+	if err := WithMetaLock(root, func(m Meta) (Meta, error) {
+		m.CurrentID = itemID
+		return m, nil
+	}); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	until := now.Add(claimFor)
+	return store.UpdateItem(itemID, func(it *Item) (*Item, error) {
+		it.InProgressUntil = until
+		it.InProgressBy = claimBy
+		it.Updated = now
+		it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: claimFor.String()})
+		return it, nil
+	})
+}
+
 // AgentOrchOpts configures the agent orchestrator loop.
 type AgentOrchOpts struct {
 	Root          string        // project root (contains .wn)
@@ -79,11 +123,13 @@ type AgentOrchOpts struct {
 	Delay         time.Duration // delay between runs (after each item)
 	Poll          time.Duration // poll interval when queue empty
 	MaxTasks      int           // max tasks to process before exiting (0 = indefinite)
+	WorkID        string        // if non-empty, run only this item then exit (use with --work-id or --current)
 	AgentCmd      string        // command template, e.g. `cursor agent --print "{{.Prompt}}"`
 	PromptTpl     string        // prompt template, e.g. "{{.Description}}"
 	WorktreesBase string        // base path for worktrees
 	LeaveWorktree bool          // if true, leave worktree after run; else remove
 	DefaultBranch string        // override default branch (empty = detect)
+	Tag           string        // if non-empty, only consider items that have this tag
 	Audit         io.Writer     // timestamped command log (can be nil)
 }
 
@@ -195,7 +241,59 @@ func releaseItemClaim(store Store, itemID string) error {
 	})
 }
 
-// RunAgentOrch runs the orchestrator loop until ctx is cancelled.
+// runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
+func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
+	branchName := resolveBranchName(item)
+	reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
+	createBranch := !reuseBranch
+	worktreeDirName := mainDirname + "-" + branchName
+	worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
+
+	worktreePath, err := EnsureWorktree(opts.Root, worktreePathArg, branchName, createBranch, opts.Audit)
+	if err != nil {
+		_ = releaseItemClaim(store, item.ID)
+		return fmt.Errorf("worktree %s: %w", branchName, err)
+	}
+	if err := addItemNote(store, item.ID, "branch", branchName); err != nil {
+		_ = releaseItemClaim(store, item.ID)
+		return fmt.Errorf("add branch note: %w", err)
+	}
+	prompt, err := ExpandPromptTemplate(promptTpl, item, worktreePath, branchName)
+	if err != nil {
+		_ = releaseItemClaim(store, item.ID)
+		return fmt.Errorf("prompt template: %w", err)
+	}
+	expandedCmd, err := ExpandCommandTemplate(agentCmd, prompt, item.ID, worktreePath, branchName)
+	if err != nil {
+		_ = releaseItemClaim(store, item.ID)
+		return fmt.Errorf("command template: %w", err)
+	}
+	auditLogAgent(opts.Audit, mainRoot, worktreePath, expandedCmd)
+	cmd := exec.Command("sh", "-c", expandedCmd)
+	cmd.Dir = worktreePath
+	cmd.Env = append(os.Environ(), "WN_ROOT="+mainRoot)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run() // ignore exit code; we release claim either way
+	commitMsg := "wn " + item.ID + ": " + FirstLine(item.Description)
+	if err := CommitWorktreeChanges(worktreePath, commitMsg, opts.Audit); err != nil {
+		if opts.Audit != nil {
+			fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
+		}
+	}
+	_ = releaseItemClaim(store, item.ID)
+	if !opts.LeaveWorktree {
+		if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {
+			if opts.Audit != nil {
+				fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
+			}
+		}
+	}
+	return nil
+}
+
+// RunAgentOrch runs the orchestrator loop until ctx is cancelled, or runs a single item and exits if opts.WorkID is set.
 func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 	store, err := NewFileStore(opts.Root)
 	if err != nil {
@@ -224,6 +322,21 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		return fmt.Errorf("agent_cmd is required")
 	}
 
+	// Single item mode: run one item then exit
+	if opts.WorkID != "" {
+		item, err := store.Get(opts.WorkID)
+		if err != nil {
+			return fmt.Errorf("work item %s: %w", opts.WorkID, err)
+		}
+		if item.Done {
+			return fmt.Errorf("work item %s is already done", opts.WorkID)
+		}
+		if err := ClaimItem(store, opts.Root, item.ID, opts.ClaimFor, opts.ClaimBy); err != nil {
+			return err
+		}
+		return runOneItem(store, opts, item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd)
+	}
+
 	processed := 0
 	for {
 		select {
@@ -231,12 +344,11 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 			return ctx.Err()
 		default:
 		}
-		item, err := ClaimNextItem(store, opts.Root, opts.ClaimFor, opts.ClaimBy)
+		item, err := ClaimNextItem(store, opts.Root, opts.ClaimFor, opts.ClaimBy, opts.Tag)
 		if err != nil {
 			return err
 		}
 		if item == nil {
-			// Queue empty: wait then retry
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -244,56 +356,8 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 			}
 			continue
 		}
-		// One iteration: worktree, note, run agent, release, optional cleanup, delay
-		branchName := resolveBranchName(item)
-		reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
-		createBranch := !reuseBranch
-		// Worktree dir name includes project dir so multiple projects under same parent don't collide.
-		worktreeDirName := mainDirname + "-" + branchName
-		worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
-
-		worktreePath, err := EnsureWorktree(opts.Root, worktreePathArg, branchName, createBranch, opts.Audit)
-		if err != nil {
-			_ = releaseItemClaim(store, item.ID)
-			return fmt.Errorf("worktree %s: %w", branchName, err)
-		}
-		if err := addItemNote(store, item.ID, "branch", branchName); err != nil {
-			_ = releaseItemClaim(store, item.ID)
-			return fmt.Errorf("add branch note: %w", err)
-		}
-		prompt, err := ExpandPromptTemplate(promptTpl, item, worktreePath, branchName)
-		if err != nil {
-			_ = releaseItemClaim(store, item.ID)
-			return fmt.Errorf("prompt template: %w", err)
-		}
-		expandedCmd, err := ExpandCommandTemplate(agentCmd, prompt, item.ID, worktreePath, branchName)
-		if err != nil {
-			_ = releaseItemClaim(store, item.ID)
-			return fmt.Errorf("command template: %w", err)
-		}
-		auditLogAgent(opts.Audit, mainRoot, worktreePath, expandedCmd)
-		cmd := exec.Command("sh", "-c", expandedCmd)
-		cmd.Dir = worktreePath
-		cmd.Env = append(os.Environ(), "WN_ROOT="+mainRoot)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		_ = cmd.Run() // ignore exit code; we release claim either way
-		// Commit any uncommitted changes in the worktree with a useful message
-		commitMsg := "wn " + item.ID + ": " + FirstLine(item.Description)
-		if err := CommitWorktreeChanges(worktreePath, commitMsg, opts.Audit); err != nil {
-			if opts.Audit != nil {
-				fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
-			}
-		}
-		_ = releaseItemClaim(store, item.ID)
-		if !opts.LeaveWorktree {
-			if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {
-				// Log but don't fail the loop
-				if opts.Audit != nil {
-					fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
-				}
-			}
+		if err := runOneItem(store, opts, item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd); err != nil {
+			return err
 		}
 		processed++
 		if opts.MaxTasks > 0 && processed >= opts.MaxTasks {
