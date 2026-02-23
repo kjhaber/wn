@@ -1404,13 +1404,21 @@ func runSettings(cmd *cobra.Command, args []string) error {
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export all work items to JSON",
+	Short: "Export work items to JSON (optionally filtered by criteria)",
 	RunE:  runExport,
 }
 var exportOutput string
+var exportAll bool
+var exportUndone bool
+var exportDone bool
+var exportTag string
 
 func init() {
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Write to file (default: stdout)")
+	exportCmd.Flags().BoolVar(&exportAll, "all", false, "Export all items (default when no status filter)")
+	exportCmd.Flags().BoolVar(&exportUndone, "undone", false, "Export only undone items")
+	exportCmd.Flags().BoolVar(&exportDone, "done", false, "Export only done items")
+	exportCmd.Flags().StringVar(&exportTag, "tag", "", "Export only items with this tag")
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
@@ -1422,7 +1430,46 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	return wn.Export(store, exportOutput)
+	useCriteria := exportAll || exportUndone || exportDone || exportTag != ""
+	if !useCriteria {
+		return wn.Export(store, exportOutput)
+	}
+	var items []*wn.Item
+	if exportUndone {
+		items, err = wn.ListableUndoneItems(store)
+		if err != nil {
+			return err
+		}
+	} else if exportDone {
+		all, err := store.List()
+		if err != nil {
+			return err
+		}
+		for _, it := range all {
+			if it.Done {
+				items = append(items, it)
+			}
+		}
+	} else {
+		// --all or only --tag
+		items, err = store.List()
+		if err != nil {
+			return err
+		}
+	}
+	if exportTag != "" {
+		var filtered []*wn.Item
+		for _, it := range items {
+			for _, t := range it.Tags {
+				if t == exportTag {
+					filtered = append(filtered, it)
+					break
+				}
+			}
+		}
+		items = filtered
+	}
+	return wn.ExportItems(items, exportOutput)
 }
 
 var importCmd = &cobra.Command{

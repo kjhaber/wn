@@ -174,3 +174,50 @@ func TestImportReplace_InvalidJSON(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+func TestExportItems_ExportsSubset(t *testing.T) {
+	now := time.Now().UTC()
+	items := []*Item{
+		{ID: "aaa111", Description: "first", Created: now, Updated: now, Tags: []string{"x"}, Log: []LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "second", Created: now, Updated: now, Done: true, Log: []LogEntry{{At: now, Kind: "created"}}},
+	}
+	path := filepath.Join(t.TempDir(), "subset.json")
+	if err := ExportItems(items, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exp ExportData
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if exp.Version != ExportSchemaVersion {
+		t.Errorf("version = %d, want %d", exp.Version, ExportSchemaVersion)
+	}
+	if len(exp.Items) != 2 {
+		t.Fatalf("len(Items) = %d, want 2", len(exp.Items))
+	}
+	if exp.Items[0].ID != "aaa111" || exp.Items[1].ID != "bbb222" {
+		t.Errorf("Items = %v, %v", exp.Items[0].ID, exp.Items[1].ID)
+	}
+}
+
+func TestExportItems_EmptyList(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.json")
+	if err := ExportItems(nil, path); err != nil {
+		t.Fatalf("ExportItems(nil): %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var exp ExportData
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(exp.Items) != 0 {
+		t.Errorf("len(Items) = %d, want 0", len(exp.Items))
+	}
+}

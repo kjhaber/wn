@@ -423,6 +423,58 @@ func TestPickWithAllFlag(t *testing.T) {
 	}
 }
 
+func TestExportWithCriteria(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa111", Description: "tagged", Created: now, Updated: now, Tags: []string{"prio"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "untagged", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outPath := dir + "/out.json"
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"export", "--tag", "prio", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --tag prio: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var exp struct {
+		Version int        `json:"version"`
+		Items   []*wn.Item `json:"items"`
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 1 || exp.Items[0].ID != "aaa111" {
+		t.Errorf("export --tag prio: got %d items (ids %v), want 1 [aaa111]", len(exp.Items), itemIDs(exp.Items))
+	}
+}
+
+func itemIDs(items []*wn.Item) []string {
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	return ids
+}
 func TestListShowsStatusWithAlignment(t *testing.T) {
 	listJson = false // reset in case a previous test set --json
 	dir := t.TempDir()

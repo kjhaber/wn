@@ -22,6 +22,15 @@ func Export(store Store, path string) error {
 	if err != nil {
 		return err
 	}
+	return ExportItems(items, path)
+}
+
+// ExportItems writes the given items to a single JSON file (or stdout if path is "").
+// Callers can pass a filtered subset of items from the store (e.g. by tag or status).
+func ExportItems(items []*Item, path string) error {
+	if items == nil {
+		items = []*Item{}
+	}
 	data := ExportData{
 		Version:    ExportSchemaVersion,
 		ExportedAt: time.Now().UTC(),
