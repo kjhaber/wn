@@ -58,7 +58,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
 | `wn next` | Set “next” task (first **available** undone in dependency order) as current; excludes review-ready and in-progress. Use `--claim 30m` to also claim it in the same step (optional `--claim-by` for logging) |
-| `wn pick` | Interactively choose current task (fzf if available) |
+| `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Use `--done` or `--all` to pick from done or all items. |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR`. Set `"sort": "updated:desc,priority,tags"` for default list/fzf order |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
 | `wn import <file>` | Import items (use `--replace` if store already has items) |

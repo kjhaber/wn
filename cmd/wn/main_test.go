@@ -251,6 +251,149 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 	}
 }
 
+func TestPickWithID_SetsCurrent(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: ""}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"pick", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick %s: %v", itemID, err)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != itemID {
+		t.Errorf("after pick %s: CurrentID = %q, want %q", itemID, meta.CurrentID, itemID)
+	}
+}
+
+func TestPickWithID_NotFound(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"pick", "badid"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("pick badid: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Errorf("pick badid: error = %v, want containing \"not found\"", err)
+	}
+}
+
+func TestPickWithDoneFlag(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	doneItem := &wn.Item{ID: "done1", Description: "done task", Done: true, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(doneItem); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"pick", "--done"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick --done: %v", err)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "done1" {
+		t.Errorf("after pick --done and choose 1: CurrentID = %q, want done1", meta.CurrentID)
+	}
+}
+
+func TestPickWithAllFlag(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("2\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "done1", Description: "done", Created: now, Updated: now, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "undone1", Description: "undone", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"pick", "--all"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick --all: %v", err)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	// Order with --all is from store.List() then ApplySort; we chose "2" so we get second item (id depends on sort)
+	if meta.CurrentID != "done1" && meta.CurrentID != "undone1" {
+		t.Errorf("after pick --all and choose 2: CurrentID = %q, want done1 or undone1", meta.CurrentID)
+	}
+}
+
 func TestListShowsStatusWithAlignment(t *testing.T) {
 	listJson = false // reset in case a previous test set --json
 	dir := t.TempDir()

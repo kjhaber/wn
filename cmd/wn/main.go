@@ -1058,9 +1058,19 @@ func runNext(cmd *cobra.Command, args []string) error {
 }
 
 var pickCmd = &cobra.Command{
-	Use:   "pick",
+	Use:   "pick [id]",
 	Short: "Interactively pick a current task (uses fzf if available)",
+	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Use --done or --all to pick from done or all items instead of undone only.",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runPick,
+}
+
+var pickDone bool
+var pickAll bool
+
+func initPick() {
+	pickCmd.Flags().BoolVar(&pickDone, "done", false, "Pick from done items only")
+	pickCmd.Flags().BoolVar(&pickAll, "all", false, "Pick from all items")
 }
 
 func runPick(cmd *cobra.Command, args []string) error {
@@ -1072,16 +1082,54 @@ func runPick(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	undone, err := wn.UndoneItems(store)
-	if err != nil {
-		return err
+
+	// If id passed, set current to that item (must exist)
+	if len(args) == 1 {
+		id := args[0]
+		if _, err := store.Get(id); err != nil {
+			return fmt.Errorf("item %s not found", id)
+		}
+		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			m.CurrentID = id
+			return m, nil
+		})
 	}
-	if len(undone) == 0 {
-		fmt.Println("No undone tasks.")
+
+	var items []*wn.Item
+	if pickAll {
+		items, err = store.List()
+		if err != nil {
+			return err
+		}
+	} else if pickDone {
+		all, err := store.List()
+		if err != nil {
+			return err
+		}
+		for _, it := range all {
+			if it.Done {
+				items = append(items, it)
+			}
+		}
+	} else {
+		items, err = wn.UndoneItems(store)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(items) == 0 {
+		msg := "No undone tasks."
+		if pickDone {
+			msg = "No done tasks."
+		} else if pickAll {
+			msg = "No tasks."
+		}
+		fmt.Println(msg)
 		return nil
 	}
-	undone = wn.ApplySort(undone, interactiveSortSpec())
-	id, err := wn.PickInteractive(undone)
+	items = wn.ApplySort(items, interactiveSortSpec())
+	id, err := wn.PickInteractive(items)
 	if err != nil {
 		return err
 	}
@@ -1353,6 +1401,7 @@ func init() {
 	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
 	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (array of id and description)")
+	initPick()
 }
 
 func runList(cmd *cobra.Command, args []string) error {
