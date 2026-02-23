@@ -1,0 +1,16 @@
+---
+description: Require 'make all' to succeed before reporting a code change complete
+alwaysApply: true
+---
+
+# Code change completion
+
+Before reporting that a code change is complete, you **must** run:
+
+```bash
+make all
+```
+
+and it must succeed. Do not tell the user the change is done until `make all` has passed.
+
+`make all` runs format check, lint, coverage, and build. If it fails, fix the issues (or inform the user what failed and what they need to do), then run `make all` again until it succeeds.
