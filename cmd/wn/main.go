@@ -1128,6 +1128,8 @@ var (
 	agentOrchDelay           string
 	agentOrchPoll            string
 	agentOrchMaxTasks        int
+	agentOrchWorkID          string
+	agentOrchCurrent         bool
 	agentOrchCmdTpl          string
 	agentOrchPromptTpl       string
 	agentOrchWorktrees       string
@@ -1141,6 +1143,8 @@ func init() {
 	agentOrchCmd.Flags().StringVar(&agentOrchDelay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchPoll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
 	agentOrchCmd.Flags().IntVarP(&agentOrchMaxTasks, "max-tasks", "n", 0, "Process at most N tasks then exit (0 = run indefinitely). Useful for demos and testing.")
+	agentOrchCmd.Flags().StringVar(&agentOrchWorkID, "work-id", "", "Run a single work item by id, then exit.")
+	agentOrchCmd.Flags().BoolVar(&agentOrchCurrent, "current", false, "Run the currently selected work item, then exit.")
 	agentOrchCmd.Flags().StringVar(&agentOrchCmdTpl, "agent-cmd", "", "Command template (e.g. cursor agent --print --trust \"{{.Prompt}}\"). Overrides settings. Env: WN_AGENT_CMD.")
 	agentOrchCmd.Flags().StringVar(&agentOrchPromptTpl, "prompt-tpl", "", "Prompt template (e.g. {{.Description}}). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchWorktrees, "worktrees", "", "Worktree base path. Overrides settings.")
@@ -1248,6 +1252,21 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 	}
 	if opts.AgentCmd == "" {
 		return fmt.Errorf("agent_cmd is required (set in settings, --agent-cmd, or WN_AGENT_CMD)")
+	}
+	if agentOrchCurrent {
+		if agentOrchWorkID != "" {
+			return fmt.Errorf("use either --work-id or --current, not both")
+		}
+		meta, err := wn.ReadMeta(root)
+		if err != nil {
+			return err
+		}
+		if meta.CurrentID == "" {
+			return fmt.Errorf("no current task (use wn pick or wn next first)")
+		}
+		opts.WorkID = meta.CurrentID
+	} else if agentOrchWorkID != "" {
+		opts.WorkID = agentOrchWorkID
 	}
 	ctx := context.Background()
 	return wn.RunAgentOrch(ctx, opts)

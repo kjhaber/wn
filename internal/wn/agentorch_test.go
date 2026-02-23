@@ -154,6 +154,39 @@ func TestResolveBranchName(t *testing.T) {
 	}
 }
 
+func TestClaimItem(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "single task",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	err = ClaimItem(store, root, "abc123", 30*time.Minute, "runner1")
+	if err != nil {
+		t.Fatalf("ClaimItem: %v", err)
+	}
+	updated, err := store.Get("abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.InProgressUntil.IsZero() {
+		t.Error("item should be claimed (InProgressUntil set)")
+	}
+	if updated.InProgressBy != "runner1" {
+		t.Errorf("InProgressBy = %q, want runner1", updated.InProgressBy)
+	}
+}
+
 func TestClaimNextItem_topoOrder(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)

@@ -127,10 +127,11 @@ After the subagent exits, any uncommitted changes in the worktree are staged and
 "agent_orch": {
   "agent_cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"",
   "claim": "2h",
+  "delay": "60s",
   "poll": "60s"
 }
 ```
-**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`.
+**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`. To run a **single item** then exit: `wn agent-orch --work-id <id>` or `wn agent-orch --current` (uses the currently selected work item).
 
 Then: `wn agent-orch` (or `wn agent-orch --claim 1h` to override).
 
