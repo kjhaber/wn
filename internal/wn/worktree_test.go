@@ -41,7 +41,8 @@ func TestEnsureWorktree_newBranch(t *testing.T) {
 	}
 	var audit bytes.Buffer
 
-	path, err := EnsureWorktree(dir, base, "wn-abc-add-feature", true, &audit)
+	worktreePath := filepath.Join(base, "wn-abc-add-feature")
+	path, err := EnsureWorktree(dir, worktreePath, "wn-abc-add-feature", true, &audit)
 	if err != nil {
 		t.Fatalf("EnsureWorktree: %v", err)
 	}
@@ -71,7 +72,8 @@ func TestRemoveWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	var audit bytes.Buffer
-	path, err := EnsureWorktree(dir, base, "wn-rm-test", true, &audit)
+	worktreePath := filepath.Join(base, "wn-rm-test")
+	path, err := EnsureWorktree(dir, worktreePath, "wn-rm-test", true, &audit)
 	if err != nil {
 		t.Fatalf("EnsureWorktree: %v", err)
 	}

@@ -207,8 +207,9 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 	}
 	worktreesBase := opts.WorktreesBase
 	if worktreesBase == "" {
-		worktreesBase = filepath.Join(opts.Root, ".wn", "worktrees")
+		worktreesBase = filepath.Dir(opts.Root) // default: sibling of main worktree (peer dirs)
 	}
+	mainDirname := filepath.Base(opts.Root)
 	if opts.DefaultBranch == "" {
 		if _, err = DefaultBranch(opts.Root); err != nil {
 			return fmt.Errorf("default branch: %w", err)
@@ -247,8 +248,11 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		branchName := resolveBranchName(item)
 		reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
 		createBranch := !reuseBranch
+		// Worktree dir name includes project dir so multiple projects under same parent don't collide.
+		worktreeDirName := mainDirname + "-" + branchName
+		worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
 
-		worktreePath, err := EnsureWorktree(opts.Root, worktreesBase, branchName, createBranch, opts.Audit)
+		worktreePath, err := EnsureWorktree(opts.Root, worktreePathArg, branchName, createBranch, opts.Audit)
 		if err != nil {
 			_ = releaseItemClaim(store, item.ID)
 			return fmt.Errorf("worktree %s: %w", branchName, err)

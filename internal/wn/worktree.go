@@ -35,17 +35,16 @@ func DefaultBranch(mainRoot string) (string, error) {
 	return branch, nil
 }
 
-// EnsureWorktree creates a worktree at worktreeBase/branchName (or a path derived from it).
+// EnsureWorktree creates a worktree at worktreePath (full path) for the given branchName.
 // If createBranch is true, creates a new branch from the default branch and adds the worktree;
 // otherwise the branch must already exist. audit is written to with timestamped git commands (can be nil).
 // Returns the absolute path to the new worktree.
-func EnsureWorktree(mainRoot, worktreeBase, branchName string, createBranch bool, audit io.Writer) (string, error) {
-	absBase, err := filepath.Abs(worktreeBase)
+func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool, audit io.Writer) (string, error) {
+	absPath, err := filepath.Abs(worktreePath)
 	if err != nil {
 		return "", err
 	}
-	worktreePath := filepath.Join(absBase, branchName)
-	if err := os.MkdirAll(absBase, 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(absPath), 0755); err != nil {
 		return "", err
 	}
 
@@ -62,15 +61,11 @@ func EnsureWorktree(mainRoot, worktreeBase, branchName string, createBranch bool
 		}
 	}
 
-	auditLog(audit, "git worktree add %s %s", worktreePath, branchName)
-	cmd := exec.Command("git", "worktree", "add", worktreePath, branchName)
+	auditLog(audit, "git worktree add %s %s", absPath, branchName)
+	cmd := exec.Command("git", "worktree", "add", absPath, branchName)
 	cmd.Dir = mainRoot
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("git worktree add: %w\n%s", err, out)
-	}
-	absPath, err := filepath.Abs(worktreePath)
-	if err != nil {
-		return worktreePath, nil
 	}
 	return absPath, nil
 }
