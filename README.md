@@ -48,7 +48,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
-| `wn claim [id] --for 30m` | Mark in progress (item leaves undone list until expiry or release; optional `--by` for logging) |
+| `wn claim [id] [--for 30m]` | Mark in progress (item leaves undone list until expiry or release). Omit `--for` to use default 1h so you can renew with just `wn claim`; optional `--by` for logging |
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done) |
 | `wn log <id>` | Show history for an item |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars |
@@ -104,7 +104,7 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 ```
 
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_claim`, omit `for` to use default 1h so agents can renew (extend) without losing context. For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
 
 ## Agent workflow runner (wn agent-orch)
 

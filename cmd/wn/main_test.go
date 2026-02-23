@@ -407,6 +407,30 @@ func TestNextWithClaim(t *testing.T) {
 	}
 }
 
+// TestClaimWithoutForUsesDefault verifies that "wn claim" without --for uses the default duration
+// so agents can renew (extend) a claim without passing a duration.
+func TestClaimWithoutForUsesDefault(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"claim"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn claim (no --for): %v", err)
+	}
+
+	showOut := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", itemID})
+		_ = rootCmd.Execute()
+	})
+	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
+		t.Errorf("wn claim without --for should set in_progress_until (default duration); got %s", showOut)
+	}
+}
+
 func TestCurrentTaskShowsTags(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {

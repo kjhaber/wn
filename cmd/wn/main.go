@@ -850,7 +850,7 @@ func runUndone(cmd *cobra.Command, args []string) error {
 var claimCmd = &cobra.Command{
 	Use:   "claim [id]",
 	Short: "Mark a work item in progress (exclusive until expiration)",
-	Long:  "Claims the item so it leaves the undone list until --for duration expires or you run wn done/release. If id is omitted, uses current task.",
+	Long:  "Claims the item so it leaves the undone list until --for duration expires or you run wn done/release. If id is omitted, uses current task. Omit --for to use default (1h) and renew/extend a claim without losing context.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runClaim,
 }
@@ -858,18 +858,25 @@ var claimFor string
 var claimBy string
 
 func init() {
-	claimCmd.Flags().StringVar(&claimFor, "for", "", "Duration the claim is held (e.g. 30m, 1h); required")
-	_ = claimCmd.MarkFlagRequired("for")
+	claimCmd.Flags().StringVar(&claimFor, "for", "", "Duration the claim is held (e.g. 30m, 1h); default 1h so you can renew with just wn claim")
 	claimCmd.Flags().StringVar(&claimBy, "by", "", "Optional worker ID for logging")
 }
 
 func runClaim(cmd *cobra.Command, args []string) error {
-	d, err := time.ParseDuration(claimFor)
-	if err != nil {
-		return fmt.Errorf("invalid --for duration %q: %w", claimFor, err)
+	d := wn.DefaultClaimDuration
+	if claimFor != "" {
+		var err error
+		d, err = time.ParseDuration(claimFor)
+		if err != nil {
+			return fmt.Errorf("invalid --for duration %q: %w", claimFor, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("--for duration must be positive, got %v", d)
+		}
 	}
-	if d <= 0 {
-		return fmt.Errorf("--for duration must be positive, got %v", d)
+	claimForMsg := claimFor
+	if claimForMsg == "" {
+		claimForMsg = d.String()
 	}
 	root, err := wn.FindRoot()
 	if err != nil {
@@ -897,7 +904,7 @@ func runClaim(cmd *cobra.Command, args []string) error {
 		it.InProgressUntil = until
 		it.InProgressBy = claimBy
 		it.Updated = now
-		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: claimFor})
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: claimForMsg})
 		return it, nil
 	})
 }

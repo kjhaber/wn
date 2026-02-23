@@ -381,6 +381,92 @@ func TestMCP_wn_claim_invalid_duration(t *testing.T) {
 	}
 }
 
+// TestMCP_wn_claim_omitted_for_uses_default verifies that wn_claim with no "for" uses the default duration
+// so agents can renew (extend) a claim without passing a duration.
+func TestMCP_wn_claim_omitted_for_uses_default(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_claim",
+		Arguments: map[string]any{"id": "abc123"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_claim (no for): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_claim with omitted for should succeed: %s", textContent(res))
+	}
+	text := textContent(res)
+	if !strings.Contains(text, "claimed abc123") {
+		t.Errorf("wn_claim content = %q", text)
+	}
+
+	// Should have set in_progress_until to approximately now + DefaultClaimDuration
+	res2, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	var out struct {
+		InProgressUntil string `json:"in_progress_until"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res2)), &out); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	if out.InProgressUntil == "" || out.InProgressUntil == "0001-01-01T00:00:00Z" {
+		t.Errorf("wn_show: expected in_progress_until set after claim, got %q", out.InProgressUntil)
+	}
+	until, _ := time.Parse(time.RFC3339, out.InProgressUntil)
+	now := time.Now().UTC()
+	expectedMin := now.Add(DefaultClaimDuration - 2*time.Minute) // allow clock skew
+	expectedMax := now.Add(DefaultClaimDuration + 2*time.Minute)
+	if until.Before(expectedMin) || until.After(expectedMax) {
+		t.Errorf("wn_claim default: in_progress_until %v expected near now+%v (between %v and %v)", until, DefaultClaimDuration, expectedMin, expectedMax)
+	}
+}
+
+// TestMCP_wn_claim_renew_extends_claim verifies that calling wn_claim again on an already-claimed item
+// (e.g. with omitted "for") renews the claim from now, so agents can extend without losing context.
+func TestMCP_wn_claim_renew_extends_claim(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	// First claim for 5m
+	_, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_claim",
+		Arguments: map[string]any{"id": "abc123", "for": "5m"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_claim: %v", err)
+	}
+
+	// Simulate time passing: renew with omitted "for" (default duration)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_claim",
+		Arguments: map[string]any{"id": "abc123"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_claim renew: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_claim renew: %s", textContent(res))
+	}
+
+	// in_progress_until should now be ~now+DefaultClaimDuration (renewed from now), not the old 5m expiry
+	res2, _ := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	var out struct {
+		InProgressUntil string `json:"in_progress_until"`
+	}
+	_ = json.Unmarshal([]byte(textContent(res2)), &out)
+	until, _ := time.Parse(time.RFC3339, out.InProgressUntil)
+	now := time.Now().UTC()
+	// Renewed claim should be ~now+DefaultClaimDuration (e.g. 1h), not ~now+5m
+	minExpected := now.Add(30 * time.Minute)
+	if until.Before(minExpected) {
+		t.Errorf("wn_claim renew: in_progress_until %v should be at least ~30m from now (renewed with default), got %v", until, until.Sub(now))
+	}
+}
+
 func TestMCP_wn_next(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()

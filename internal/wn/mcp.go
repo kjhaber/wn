@@ -12,6 +12,9 @@ import (
 
 const mcpVersion = "0.1.0"
 
+// DefaultClaimDuration is used when claim "for" (MCP) or --for (CLI) is omitted so agents can renew without passing a duration.
+const DefaultClaimDuration = 1 * time.Hour
+
 // mcpFixedRoot, when set by SetMCPFixedRoot, locks the server to that project root:
 // all tools use it and the per-request "root" parameter is ignored (guardrail).
 var mcpFixedRoot string
@@ -58,7 +61,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnItem)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_claim",
-		Description: "Mark a work item in progress for a duration. Item leaves the undone list until expiry or release.",
+		Description: "Mark a work item in progress for a duration. Item leaves the undone list until expiry or release. For is optional—when omitted, uses default (1h) so agents can renew (extend) without losing context.",
 	}, handleWnClaim)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_release",
@@ -436,15 +439,25 @@ func handleWnItem(ctx context.Context, req *mcp.CallToolRequest, in wnItemIn) (*
 
 type wnClaimIn struct {
 	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
-	For  string `json:"for" jsonschema:"Duration (e.g. 30m, 1h)"`
+	For  string `json:"for,omitempty" jsonschema:"Duration (e.g. 30m, 1h). Optional; when omitted, uses default (1h) so agents can renew without losing context"`
 	By   string `json:"by,omitempty" jsonschema:"Optional worker id for logging"`
 	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) (*mcp.CallToolResult, any, error) {
-	d, err := time.ParseDuration(in.For)
-	if err != nil || d <= 0 {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive duration for 'for'"}}, IsError: true}, nil, nil
+	var d time.Duration
+	if in.For == "" {
+		d = DefaultClaimDuration
+	} else {
+		var err error
+		d, err = time.ParseDuration(in.For)
+		if err != nil || d <= 0 {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive duration for 'for'"}}, IsError: true}, nil, nil
+		}
+	}
+	forMsg := in.For
+	if forMsg == "" {
+		forMsg = d.String()
 	}
 	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
@@ -464,13 +477,13 @@ func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) 
 		it.InProgressUntil = until
 		it.InProgressBy = in.By
 		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: in.For})
+		it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: forMsg})
 		return it, nil
 	})
 	if err != nil {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
-	text := fmt.Sprintf("claimed %s for %s", id, in.For)
+	text := fmt.Sprintf("claimed %s for %s", id, forMsg)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
