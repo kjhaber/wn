@@ -1136,6 +1136,7 @@ var (
 	agentOrchLeaveWorktree   bool
 	agentOrchCleanupWorktree bool
 	agentOrchBranch          string
+	agentOrchTag             string
 )
 
 func init() {
@@ -1151,6 +1152,7 @@ func init() {
 	agentOrchCmd.Flags().BoolVar(&agentOrchLeaveWorktree, "leave-worktree", true, "Leave worktree after run for human to open PR")
 	agentOrchCmd.Flags().BoolVar(&agentOrchCleanupWorktree, "cleanup-worktree", false, "Remove worktree after run (overrides leave-worktree if set)")
 	agentOrchCmd.Flags().StringVar(&agentOrchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
+	agentOrchCmd.Flags().StringVar(&agentOrchTag, "tag", "", "Only consider work items that have this tag. Overrides settings.")
 }
 
 func runAgentOrch(cmd *cobra.Command, args []string) error {
@@ -1197,6 +1199,9 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 	if ao.Branch != "" {
 		opts.DefaultBranch = ao.Branch
 	}
+	if ao.Tag != "" {
+		opts.Tag = ao.Tag
+	}
 	// Flags override
 	if agentOrchClaim != "" {
 		d, err := time.ParseDuration(agentOrchClaim)
@@ -1242,6 +1247,9 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 	}
 	if agentOrchBranch != "" {
 		opts.DefaultBranch = agentOrchBranch
+	}
+	if agentOrchTag != "" {
+		opts.Tag = agentOrchTag
 	}
 	// Defaults when still zero
 	if opts.ClaimFor == 0 {

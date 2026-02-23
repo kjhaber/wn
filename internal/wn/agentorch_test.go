@@ -35,7 +35,7 @@ func TestClaimNextItem_emptyReturnsNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewFileStore: %v", err)
 	}
-	got, err := ClaimNextItem(store, root, 30*time.Minute, "")
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "", "")
 	if err != nil {
 		t.Fatalf("ClaimNextItem: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestClaimNextItem_claimsFirstUndone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ClaimNextItem(store, root, 30*time.Minute, "runner1")
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "runner1", "")
 	if err != nil {
 		t.Fatalf("ClaimNextItem: %v", err)
 	}
@@ -106,7 +106,7 @@ func TestClaimNextItem_skipsReviewReady(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ClaimNextItem(store, root, 30*time.Minute, "")
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "", "")
 	if err != nil {
 		t.Fatalf("ClaimNextItem: %v", err)
 	}
@@ -210,7 +210,7 @@ func TestClaimNextItem_topoOrder(t *testing.T) {
 	put("first", "no deps", nil)
 	put("second", "depends on first", []string{"first"})
 
-	got, err := ClaimNextItem(store, root, 30*time.Minute, "")
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "", "")
 	if err != nil {
 		t.Fatalf("ClaimNextItem: %v", err)
 	}
@@ -220,5 +220,79 @@ func TestClaimNextItem_topoOrder(t *testing.T) {
 	}
 	if got.ID != "first" {
 		t.Errorf("ClaimNextItem returned %q (first in topo order), want first", got.ID)
+	}
+}
+
+func TestClaimNextItem_tagFilter(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	put := func(id, desc string, tags []string) {
+		it := &Item{
+			ID:          id,
+			Description: desc,
+			Created:     now,
+			Updated:     now,
+			Tags:        tags,
+			Log:         []LogEntry{{At: now, Kind: "created"}},
+		}
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("a", "item a", []string{"agent"})
+	put("b", "item b", nil)
+	put("c", "item c", []string{"agent"})
+
+	// No tag: should get first in topo order (a, b, c by id/order)
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "", "")
+	if err != nil {
+		t.Fatalf("ClaimNextItem(no tag): %v", err)
+	}
+	if got == nil || got.ID != "a" {
+		t.Errorf("ClaimNextItem(no tag) = %v, want item a", got)
+	}
+	// Release so we can claim again
+	_ = store.UpdateItem("a", func(it *Item) (*Item, error) {
+		it.InProgressUntil = time.Time{}
+		it.InProgressBy = ""
+		return it, nil
+	})
+
+	// With tag "agent": only a and c are candidates; first in topo order is a
+	got, err = ClaimNextItem(store, root, 30*time.Minute, "", "agent")
+	if err != nil {
+		t.Fatalf("ClaimNextItem(tag=agent): %v", err)
+	}
+	if got == nil || got.ID != "a" {
+		t.Errorf("ClaimNextItem(tag=agent) = %v, want item a", got)
+	}
+	// Mark a as review-ready so it's no longer in UndoneItems; then only c has tag "agent"
+	_ = store.UpdateItem("a", func(it *Item) (*Item, error) {
+		it.InProgressUntil = time.Time{}
+		it.InProgressBy = ""
+		it.ReviewReady = true
+		return it, nil
+	})
+
+	// With tag "agent" again: only c left in undone with that tag
+	got, err = ClaimNextItem(store, root, 30*time.Minute, "", "agent")
+	if err != nil {
+		t.Fatalf("ClaimNextItem(tag=agent) 2nd: %v", err)
+	}
+	if got == nil || got.ID != "c" {
+		t.Errorf("ClaimNextItem(tag=agent) 2nd = %v, want item c", got)
+	}
+
+	// Tag that no item has: no candidate (c is in progress; undone = b only, b has no tag)
+	got, err = ClaimNextItem(store, root, 30*time.Minute, "", "nonexistent")
+	if err != nil {
+		t.Fatalf("ClaimNextItem(tag=nonexistent): %v", err)
+	}
+	if got != nil {
+		t.Errorf("ClaimNextItem(tag=nonexistent) = %v, want nil", got)
 	}
 }

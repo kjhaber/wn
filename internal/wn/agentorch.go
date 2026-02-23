@@ -36,14 +36,34 @@ func BranchSlug(description string) string {
 	return slug
 }
 
-// ClaimNextItem atomically selects the next available item (by UndoneItems + TopoOrder),
+// filterByTag returns items that have the given tag. If tag is empty, returns items unchanged.
+func filterByTag(items []*Item, tag string) []*Item {
+	if tag == "" {
+		return items
+	}
+	filtered := make([]*Item, 0, len(items))
+	for _, it := range items {
+		for _, t := range it.Tags {
+			if t == tag {
+				filtered = append(filtered, it)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+// ClaimNextItem atomically selects the next available item (by UndoneItems, optional tag filter, then TopoOrder),
 // sets it as current under the meta lock, and claims it for the given duration.
-// Returns the claimed item, or nil if the queue is empty. claimBy is optional (e.g. worker id).
-func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy string) (*Item, error) {
+// Selection: dependencies are honored (prerequisites first); within each tier, Order field is the tiebreaker (lower = earlier).
+// If tag is non-empty, only items that have that tag are considered. claimBy is optional (e.g. worker id).
+// Returns the claimed item, or nil if the queue is empty.
+func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy string, tag string) (*Item, error) {
 	undone, err := UndoneItems(store)
 	if err != nil {
 		return nil, err
 	}
+	undone = filterByTag(undone, tag)
 	ordered, acyclic := TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
 		return nil, nil
@@ -109,6 +129,7 @@ type AgentOrchOpts struct {
 	WorktreesBase string        // base path for worktrees
 	LeaveWorktree bool          // if true, leave worktree after run; else remove
 	DefaultBranch string        // override default branch (empty = detect)
+	Tag           string        // if non-empty, only consider items that have this tag
 	Audit         io.Writer     // timestamped command log (can be nil)
 }
 
@@ -323,7 +344,7 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 			return ctx.Err()
 		default:
 		}
-		item, err := ClaimNextItem(store, opts.Root, opts.ClaimFor, opts.ClaimBy)
+		item, err := ClaimNextItem(store, opts.Root, opts.ClaimFor, opts.ClaimBy, opts.Tag)
 		if err != nil {
 			return err
 		}
