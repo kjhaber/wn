@@ -130,7 +130,7 @@ func TestShowOutputsFullItemJSON(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
+		rootCmd.SetArgs([]string{"show", "--json", itemID})
 		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -154,6 +154,35 @@ func TestShowOutputsFullItemJSON(t *testing.T) {
 	}
 }
 
+func TestShowDefaultIsHumanReadable(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Cobra does not reset flags between Execute() calls; reset so default is human-readable.
+	_ = showCmd.Flags().Set("json", "false")
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// Default show should be human-readable, not JSON.
+	if strings.HasPrefix(strings.TrimSpace(out), "{") {
+		t.Errorf("show (default) should be human-readable, not JSON; got: %s", out)
+	}
+	if !strings.Contains(out, "id:") || !strings.Contains(out, "description:") {
+		t.Errorf("show (default) should contain id: and description:; got: %s", out)
+	}
+	if !strings.Contains(out, itemID) || !strings.Contains(out, "first line") {
+		t.Errorf("show (default) should contain item id and description text; got: %s", out)
+	}
+}
+
 func TestShowCurrentWhenNoArg(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()
@@ -163,7 +192,7 @@ func TestShowCurrentWhenNoArg(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show"})
+		rootCmd.SetArgs([]string{"show", "--json"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
@@ -540,9 +569,9 @@ func TestNextWithClaim(t *testing.T) {
 	if !strings.Contains(out, itemID) || !strings.Contains(out, "claimed") {
 		t.Errorf("wn next --claim output should contain id and claimed; got %q", out)
 	}
-	// Verify item is actually claimed: show should have in_progress_until set
+	// Verify item is actually claimed: show --json should have in_progress_until set
 	showOut := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
+		rootCmd.SetArgs([]string{"show", "--json", itemID})
 		_ = rootCmd.Execute()
 	})
 	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
@@ -566,7 +595,7 @@ func TestClaimWithoutForUsesDefault(t *testing.T) {
 	}
 
 	showOut := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
+		rootCmd.SetArgs([]string{"show", "--json", itemID})
 		_ = rootCmd.Execute()
 	})
 	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
@@ -1134,7 +1163,7 @@ func TestShowIncludesNotes(t *testing.T) {
 	}
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
+		rootCmd.SetArgs([]string{"show", "--json", itemID})
 		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("show: %v", err)
 		}

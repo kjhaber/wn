@@ -147,10 +147,15 @@ func runDesc(cmd *cobra.Command, args []string) error {
 
 var showCmd = &cobra.Command{
 	Use:   "show [id]",
-	Short: "Output one work item as JSON",
-	Long:  "Prints the full work item (id, description, done, tags, dependencies, log, etc.) as JSON. If id is omitted, uses current task. For agents and scripts.",
+	Short: "Show one work item (human-readable by default)",
+	Long:  "Prints the full work item. If id is omitted, uses current task. Default output is human-readable; use --json for machine-readable JSON.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runShow,
+}
+var showJson bool
+
+func init() {
+	showCmd.Flags().BoolVar(&showJson, "json", false, "Output as JSON")
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
@@ -178,9 +183,54 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetEscapeHTML(false)
-	return enc.Encode(item)
+	if showJson {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetEscapeHTML(false)
+		return enc.Encode(item)
+	}
+	// Human-readable format
+	const timeFmt = "2006-01-02 15:04:05"
+	fmt.Printf("id: %s\n", item.ID)
+	fmt.Printf("description:\n%s\n", item.Description)
+	status := "undone"
+	if item.Done {
+		status = "done"
+		if item.DoneMessage != "" {
+			status += " (" + item.DoneMessage + ")"
+		}
+	} else if !item.InProgressUntil.IsZero() && item.InProgressUntil.After(time.Now().UTC()) {
+		status = "in progress until " + item.InProgressUntil.Format(timeFmt)
+		if item.InProgressBy != "" {
+			status += " (by " + item.InProgressBy + ")"
+		}
+	}
+	fmt.Printf("status: %s\n", status)
+	if len(item.Tags) > 0 {
+		fmt.Printf("tags: %s\n", strings.Join(item.Tags, ", "))
+	}
+	if len(item.DependsOn) > 0 {
+		fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
+	}
+	if item.Order != nil {
+		fmt.Printf("order: %d\n", *item.Order)
+	}
+	if len(item.Log) > 0 {
+		fmt.Println("log:")
+		for _, e := range item.Log {
+			fmt.Printf("  %s %s", e.At.Format(timeFmt), e.Kind)
+			if e.Msg != "" {
+				fmt.Printf(" %s", e.Msg)
+			}
+			fmt.Println()
+		}
+	}
+	if len(item.Notes) > 0 {
+		fmt.Println("notes:")
+		for _, n := range item.Notes {
+			fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
+		}
+	}
+	return nil
 }
 
 var initCmd = &cobra.Command{
