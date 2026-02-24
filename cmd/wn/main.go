@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1295,6 +1295,25 @@ func init() {
 	agentOrchCmd.Flags().BoolVar(&agentOrchCleanupWorktree, "cleanup-worktree", false, "Remove worktree after run (overrides leave-worktree if set)")
 	agentOrchCmd.Flags().StringVar(&agentOrchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
 	agentOrchCmd.Flags().StringVar(&agentOrchTag, "tag", "", "Only consider work items that have this tag. Overrides settings.")
+}
+
+var doCmd = &cobra.Command{
+	Use:   "do [id]",
+	Short: "Run agent orchestrator on a work item (alias for agent-orch --work-id <id> or --current)",
+	Long:  "Runs the agent orchestrator for one work item, then exits. With id: wn agent-orch --work-id <id>. Without id: uses current task (wn agent-orch --current).",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runDo,
+}
+
+func runDo(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		agentOrchWorkID = ""
+		agentOrchCurrent = true
+	} else {
+		agentOrchCurrent = false
+		agentOrchWorkID = args[0]
+	}
+	return runAgentOrch(cmd, nil)
 }
 
 func runAgentOrch(cmd *cobra.Command, args []string) error {

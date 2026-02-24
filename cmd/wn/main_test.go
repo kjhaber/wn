@@ -1338,3 +1338,63 @@ func TestReviewReadySetsState(t *testing.T) {
 		})
 	}
 }
+
+func TestDoWithoutArgNoCurrent(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	// No current task set
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"do"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do without arg and no current task should fail")
+	}
+	if !strings.Contains(err.Error(), "no current task") {
+		t.Errorf("want 'no current task' error; got: %v", err)
+	}
+}
+
+func TestDoWithArgInvokesAgentOrch(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn do <id> should invoke agent-orch logic. It fails before running (agent_cmd, default branch, or similar).
+	rootCmd.SetArgs([]string{"do", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do without full setup should fail")
+	}
+	if strings.Contains(err.Error(), "unknown command") {
+		t.Errorf("wn do should reach agent-orch; got: %v", err)
+	}
+}
+
+func TestDoWithoutArgUsesCurrent(t *testing.T) {
+	dir, _ := setupWnRoot(t) // has current task set
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn do with no arg should use current task and reach agent-orch. Fails before running.
+	rootCmd.SetArgs([]string{"do"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do without full setup should fail")
+	}
+	if strings.Contains(err.Error(), "unknown command") || strings.Contains(err.Error(), "no current task") {
+		t.Errorf("wn do (no arg) should use current and reach agent-orch; got: %v", err)
+	}
+}

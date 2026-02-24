@@ -66,6 +66,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn help` / `wn completion` | Help and shell completion |
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients) |
 | `wn agent-orch` | Run the agent orchestrator loop: claim next item, create worktree, run subagent (e.g. Cursor/Claude Code), release. See [Agent workflow runner](#agent-workflow-runner-wn-agent-orch) below. |
+| `wn do [id]` | Shorthand: run agent orchestrator on a work item and exit. With id: `agent-orch --work-id <id>`. Without id: uses current task (`agent-orch --current`). |
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
 
@@ -134,7 +135,7 @@ After the subagent exits, any uncommitted changes in the worktree are staged and
   "poll": "60s"
 }
 ```
-**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`. To run a **single item** then exit: `wn agent-orch --work-id <id>` or `wn agent-orch --current` (uses the currently selected work item).
+**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N tasks then exit (default 0 = run indefinitely). Handy for demos and testing config changes, e.g. `wn agent-orch -n 1`. To run a **single item** then exit: `wn do` (uses current task) or `wn do <id>` (or `wn agent-orch --work-id <id>`) or `wn agent-orch --current`.
 
 Then: `wn agent-orch` (or `wn agent-orch --claim 1h` to override).
 
