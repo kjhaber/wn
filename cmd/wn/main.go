@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -106,6 +106,59 @@ var descJson bool
 
 func init() {
 	descCmd.Flags().BoolVar(&descJson, "json", false, "Output as JSON object with description field")
+}
+
+const (
+	defaultPromptTplOneLine = "Please implement the following work item: {}"
+	defaultPromptTplBody    = "Please implement the following:\n\n{}"
+)
+
+var promptCmd = &cobra.Command{
+	Use:   "prompt [id]",
+	Short: "Output work item in a prompt template (for pasting into an agent)",
+	Long:  "Prints the work item wrapped in a template. If id is omitted, uses current task. Use --template for title-only one-liners and --template-body for items with a longer description (title + body). The placeholder {} in the template is replaced by the item content.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runPrompt,
+}
+var promptTpl, promptTplBody string
+
+func init() {
+	promptCmd.Flags().StringVar(&promptTpl, "template", defaultPromptTplOneLine, "Template for title-only work items; {} is replaced by the title")
+	promptCmd.Flags().StringVar(&promptTplBody, "template-body", defaultPromptTplBody, "Template for work items with title and description; {} is replaced by the full description")
+}
+
+func runPrompt(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	tpl := promptTpl
+	if wn.HasDescriptionBody(item.Description) {
+		tpl = promptTplBody
+	}
+	content := wn.PromptContent(item.Description)
+	fmt.Println(wn.FormatPrompt(tpl, content))
+	return nil
 }
 
 func runDesc(cmd *cobra.Command, args []string) error {

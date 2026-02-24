@@ -145,6 +145,71 @@ func TestDescJSON(t *testing.T) {
 	}
 }
 
+func TestPromptMultiLineUsesTemplateBody(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"prompt", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// Default template-body is "Please implement the following:\n\n{}"; item has "first line\nsecond line"
+	want := "Please implement the following:\n\nfirst line\nsecond line"
+	if out != want+"\n" {
+		t.Errorf("prompt (multi-line) = %q, want %q", out, want+"\n")
+	}
+}
+
+func TestPromptOneLineUsesTemplate(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	// Add a one-line item and set as current
+	rootCmd.SetArgs([]string{"add", "-m", "add a prompt template feature"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"prompt"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	want := "Please implement the following work item: add a prompt template feature\n"
+	if out != want {
+		t.Errorf("prompt (one-line) = %q, want %q", out, want)
+	}
+}
+
+func TestPromptCustomTemplate(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"prompt", "--template-body", "Task: {}", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	want := "Task: first line\nsecond line"
+	if out != want+"\n" {
+		t.Errorf("prompt (custom template-body) = %q, want %q", out, want+"\n")
+	}
+}
+
 func TestShowOutputsFullItemJSON(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()

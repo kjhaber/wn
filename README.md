@@ -57,6 +57,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body |
 | `wn note rm [id] <name>` | Remove a note by name |
 | `wn desc [id]` | Print prompt-ready description (use `--json` for machine-readable) |
+| `wn prompt [id]` | Output work item wrapped in a prompt template (for pasting into an agent). Omit id for current task. Use `--template` for title-only one-liners, `--template-body` for items with description; placeholder `{}` is replaced by content. |
 | `wn show [id]` | Output one work item as JSON (full item; omit id for current) |
 | `wn next` | Set “next” task (first **available** undone in dependency order) as current; excludes review-ready and in-progress. Use `--claim 30m` to also claim it in the same step (optional `--claim-by` for logging) |
 | `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter by state: `--undone` (default), `--done`, `--all`, or `--rr`/`--review-ready`. |
