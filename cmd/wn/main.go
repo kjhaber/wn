@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -937,6 +937,50 @@ func runDone(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	fmt.Printf("  %s: %s\n", next.ID, next.Description)
+	return nil
+}
+
+var duplicateCmd = &cobra.Command{
+	Use:   "duplicate [id] --of <id>",
+	Short: "Mark a work item as a duplicate of another",
+	Long:  "Adds the standard note 'duplicate-of' with the original item's id and marks the item done so it leaves the queue. If id is omitted, uses the current task. Use --of to specify the canonical work item id.",
+	Args:  cobra.MaximumNArgs(1),
+	RunE:  runDuplicate,
+}
+var duplicateOf string
+
+func init() {
+	duplicateCmd.Flags().StringVar(&duplicateOf, "of", "", "ID of the canonical/original work item (required)")
+}
+
+func runDuplicate(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	if duplicateOf == "" {
+		return fmt.Errorf("required flag \"of\" not set")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	if err := wn.MarkDuplicateOf(store, id, duplicateOf); err != nil {
+		return err
+	}
+	fmt.Printf("marked %s as duplicate of %s\n", id, duplicateOf)
 	return nil
 }
 

@@ -95,6 +95,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_note_rm",
 		Description: "Remove a note by name from a work item. If id is omitted, uses current task.",
 	}, handleWnNoteRm)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_duplicate",
+		Description: "Mark a work item as a duplicate of another. Appends the standard note 'duplicate-of' with the original item's id and marks the item done so it leaves the queue. Id is the item to mark (omit for current task); on is the id of the canonical/original work item.",
+	}, handleWnDuplicate)
 
 	return server
 }
@@ -910,5 +914,34 @@ func handleWnNoteRm(ctx context.Context, req *mcp.CallToolRequest, in wnNoteRmIn
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	text := fmt.Sprintf("note %q removed from %s", in.Name, id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnDuplicateIn struct {
+	ID   string `json:"id,omitempty" jsonschema:"Work item id to mark as duplicate; omit for current task"`
+	On   string `json:"on" jsonschema:"ID of the canonical/original work item"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnDuplicate(ctx context.Context, req *mcp.CallToolRequest, in wnDuplicateIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if in.On == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (original item id) is required"}}, IsError: true}, nil, nil
+	}
+	if err := MarkDuplicateOf(store, id, in.On); err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	text := fmt.Sprintf("marked %s as duplicate of %s", id, in.On)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }

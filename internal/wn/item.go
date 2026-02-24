@@ -30,6 +30,10 @@ type LogEntry struct {
 	Msg  string    `json:"msg,omitempty"`
 }
 
+// NoteNameDuplicateOf is the standard note name for marking an item as a duplicate of another.
+// The note body is the ID of the canonical/original work item.
+const NoteNameDuplicateOf = "duplicate-of"
+
 // Note is an attachment on an item with a logical name (e.g. "pr-url", "issue-number").
 // Item.Notes are listed ordered by Created (oldest first).
 type Note struct {

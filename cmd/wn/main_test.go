@@ -921,6 +921,59 @@ func TestDoneNext_twoItems(t *testing.T) {
 	}
 }
 
+// TestDuplicate_adds_note_and_marks_done verifies that "wn duplicate <id> --of <orig>" adds the standard duplicate-of note and marks the item done.
+func TestDuplicate_adds_note_and_marks_done(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "abc123", Description: "original", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "def456", Description: "duplicate", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "abc123"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"duplicate", "def456", "--of", "abc123"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn duplicate: %v", err)
+		}
+	})
+	if !strings.Contains(out, "marked def456 as duplicate of abc123") {
+		t.Errorf("wn duplicate should print confirmation; got %q", out)
+	}
+	item, err := store.Get("def456")
+	if err != nil {
+		t.Fatalf("Get def456: %v", err)
+	}
+	if !item.Done {
+		t.Error("item should be done after duplicate")
+	}
+	idx := item.NoteIndexByName(wn.NoteNameDuplicateOf)
+	if idx < 0 {
+		t.Fatalf("note %q not found", wn.NoteNameDuplicateOf)
+	}
+	if item.Notes[idx].Body != "abc123" {
+		t.Errorf("duplicate-of body = %q, want abc123", item.Notes[idx].Body)
+	}
+}
+
 // TestClaimWithoutForUsesDefault verifies that "wn claim" without --for uses the default duration
 // so agents can renew (extend) a claim without passing a duration.
 func TestClaimWithoutForUsesDefault(t *testing.T) {
