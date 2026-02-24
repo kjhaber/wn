@@ -38,7 +38,7 @@ func init() {
 }
 
 func runCurrent(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func init() {
 }
 
 func runPrompt(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 }
 
 func runDesc(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -212,7 +212,7 @@ func init() {
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -329,7 +329,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("empty description")
 		}
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -373,7 +373,7 @@ var rmCmd = &cobra.Command{
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -412,7 +412,7 @@ var editCmd = &cobra.Command{
 }
 
 func runEdit(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -470,7 +470,7 @@ func runTag(cmd *cobra.Command, args []string) error {
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -510,7 +510,7 @@ func runTagInteractive(args []string) error {
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -578,7 +578,7 @@ func runUntag(cmd *cobra.Command, args []string) error {
 	} else {
 		tag = args[0]
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -627,7 +627,7 @@ func init() {
 }
 
 func runDepend(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -716,7 +716,7 @@ func init() {
 }
 
 func runRmdepend(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -810,7 +810,7 @@ func init() {
 }
 
 func runOrder(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -869,7 +869,7 @@ func init() {
 }
 
 func runDone(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -924,7 +924,7 @@ var undoneCmd = &cobra.Command{
 }
 
 func runUndone(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -986,7 +986,7 @@ func runClaim(cmd *cobra.Command, args []string) error {
 	if claimForMsg == "" {
 		claimForMsg = d.String()
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1026,7 +1026,7 @@ var releaseCmd = &cobra.Command{
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1067,7 +1067,7 @@ var reviewReadyCmd = &cobra.Command{
 }
 
 func runReviewReady(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1108,7 +1108,7 @@ var logCmd = &cobra.Command{
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1157,7 +1157,7 @@ func init() {
 }
 
 func runNext(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1229,7 +1229,7 @@ func initPick() {
 }
 
 func runPick(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1403,7 +1403,7 @@ func runDo(cmd *cobra.Command, args []string) error {
 }
 
 func runAgentOrch(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1571,7 +1571,7 @@ func init() {
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1635,7 +1635,7 @@ func init() {
 
 func runImport(cmd *cobra.Command, args []string) error {
 	path := args[0]
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1682,7 +1682,7 @@ func init() {
 }
 
 func runList(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1832,7 +1832,7 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("empty note")
 		}
 	}
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1877,7 +1877,7 @@ var noteListCmd = &cobra.Command{
 }
 
 func runNoteList(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1920,7 +1920,7 @@ func init() {
 }
 
 func runNoteEdit(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
@@ -1985,7 +1985,7 @@ var noteRmCmd = &cobra.Command{
 }
 
 func runNoteRm(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRoot()
+	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}

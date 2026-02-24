@@ -93,6 +93,42 @@ func TestFindRootFromDir_NoWn(t *testing.T) {
 	}
 }
 
+func TestFindRootForCLI_UsesWN_ROOT(t *testing.T) {
+	tmp := t.TempDir()
+	wnDir := filepath.Join(tmp, ".wn")
+	itemsDir := filepath.Join(wnDir, "items")
+	if err := os.MkdirAll(itemsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run from a directory with no .wn (e.g. worktree), but WN_ROOT points to project
+	otherDir := t.TempDir()
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Setenv("WN_ROOT", tmp)
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(otherDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := FindRootForCLI()
+	if err != nil {
+		t.Fatalf("FindRootForCLI() err = %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normTmp, _ := filepath.EvalSymlinks(tmp)
+	if normRoot != normTmp {
+		t.Errorf("FindRootForCLI() = %q (norm %q), want %q (norm %q)", root, normRoot, tmp, normTmp)
+	}
+}
+
 func TestFindRootFromDir_Empty(t *testing.T) {
 	_, err := FindRootFromDir("")
 	if err == nil {

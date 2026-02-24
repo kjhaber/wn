@@ -8,6 +8,17 @@ import (
 
 var ErrNoRoot = errors.New("wn root not found: no .wn directory in current or parent directories")
 
+// FindRootForCLI resolves the wn project root for CLI use. If WN_ROOT is set
+// (e.g. by agent-orch when running a subagent in a worktree), uses that path
+// so subagent commands like wn list and wn export find the main repo's .wn.
+// Otherwise falls back to FindRoot() (walking up from cwd).
+func FindRootForCLI() (string, error) {
+	if r := os.Getenv("WN_ROOT"); r != "" {
+		return FindRootFromDir(r)
+	}
+	return FindRoot()
+}
+
 // FindRoot walks up from the current directory until it finds a directory
 // containing .wn, or hits the user's home. Returns the directory that
 // contains .wn (the project root), or ErrNoRoot if not found.
