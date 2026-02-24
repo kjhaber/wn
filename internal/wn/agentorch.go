@@ -246,6 +246,15 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	branchName := resolveBranchName(item)
 	reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
 	createBranch := !reuseBranch
+	if reuseBranch {
+		exists, err := BranchExists(opts.Root, branchName)
+		if err != nil {
+			return fmt.Errorf("check branch %s: %w", branchName, err)
+		}
+		if !exists {
+			createBranch = true // branch was deleted (e.g. cleanup); recreate it
+		}
+	}
 	worktreeDirName := mainDirname + "-" + branchName
 	worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
 

@@ -21,6 +21,20 @@ func auditLog(w io.Writer, format string, args ...interface{}) {
 	_, _ = io.WriteString(w, line)
 }
 
+// BranchExists returns true if the branch exists in the repo at mainRoot.
+func BranchExists(mainRoot, branchName string) (bool, error) {
+	cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branchName)
+	cmd.Dir = mainRoot
+	err := cmd.Run()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil // branch does not exist
+		}
+		return false, fmt.Errorf("git rev-parse: %w", err)
+	}
+	return true, nil
+}
+
 // DefaultBranch returns the default branch name for the repo at mainRoot (e.g. "main" or "master").
 func DefaultBranch(mainRoot string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
