@@ -1300,3 +1300,41 @@ func TestNoteListEmpty(t *testing.T) {
 		t.Logf("note list (empty) output: %q", out)
 	}
 }
+
+func TestReviewReadySetsState(t *testing.T) {
+	for _, cmdName := range []string{"review-ready", "rr"} {
+		t.Run(cmdName, func(t *testing.T) {
+			dir, itemID := setupWnRoot(t)
+			cwd, _ := os.Getwd()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatalf("Chdir: %v", err)
+			}
+			defer func() { _ = os.Chdir(cwd) }()
+
+			rootCmd.SetArgs([]string{cmdName, itemID})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("%s: %v", cmdName, err)
+			}
+
+			out := captureStdout(t, func() {
+				rootCmd.SetArgs([]string{"list", "--json"})
+				if err := rootCmd.Execute(); err != nil {
+					t.Errorf("list: %v", err)
+				}
+			})
+			var list []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			}
+			if err := json.Unmarshal([]byte(out), &list); err != nil {
+				t.Fatalf("Unmarshal list: %v\noutput: %s", err, out)
+			}
+			if len(list) != 1 {
+				t.Fatalf("list want 1 item, got %d", len(list))
+			}
+			if list[0].Status != "review-ready" {
+				t.Errorf("after wn %s, status = %q, want review-ready", cmdName, list[0].Status)
+			}
+		})
+	}
+}

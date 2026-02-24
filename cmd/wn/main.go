@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -852,6 +852,7 @@ func runDone(cmd *cobra.Command, args []string) error {
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
 		it.DoneMessage = doneMessage
+		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
 		return it, nil
@@ -891,6 +892,7 @@ func runUndone(cmd *cobra.Command, args []string) error {
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = false
 		it.DoneMessage = ""
+		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "undone"})
 		return it, nil
@@ -995,6 +997,48 @@ func runRelease(cmd *cobra.Command, args []string) error {
 		it.ReviewReady = true
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "released"})
+		return it, nil
+	})
+}
+
+var reviewReadyCmd = &cobra.Command{
+	Use:     "review-ready [id]",
+	Aliases: []string{"rr"},
+	Short:   "Set work item to review-ready (excluded from wn next until marked done)",
+	Long:    "If id is omitted, uses the current task. Clears in-progress and marks the item review-ready.",
+	Args:    cobra.MaximumNArgs(1),
+	RunE:    runReviewReady,
+}
+
+func runReviewReady(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRoot()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.Done = false
+		it.InProgressUntil = time.Time{}
+		it.InProgressBy = ""
+		it.ReviewReady = true
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "review_ready"})
 		return it, nil
 	})
 }

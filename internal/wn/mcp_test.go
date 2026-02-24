@@ -336,6 +336,35 @@ func TestMCP_wn_undone(t *testing.T) {
 	}
 }
 
+// TestMCP_wn_undone_clears_review_ready verifies that done→undone clears ReviewReady,
+// so the item returns to "undone" status (available for next/claim) rather than "review-ready".
+func TestMCP_wn_undone_clears_review_ready(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+	// release sets review-ready, then done, then undone
+	_, _ = cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_release", Arguments: map[string]any{"id": "abc123"}})
+	_, _ = cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_done", Arguments: map[string]any{"id": "abc123"}})
+	_, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_undone", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("wn_undone: %v", err)
+	}
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("wn_list: %v", err)
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list result: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("wn_list want 1 item, got %d", len(items))
+	}
+	if items[0].Status != "undone" {
+		t.Errorf("after release→done→undone, status = %q, want undone", items[0].Status)
+	}
+}
+
 func TestMCP_wn_claim_and_release(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()
