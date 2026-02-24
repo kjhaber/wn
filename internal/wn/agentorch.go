@@ -129,6 +129,7 @@ type AgentOrchOpts struct {
 	WorktreesBase string        // base path for worktrees
 	LeaveWorktree bool          // if true, leave worktree after run; else remove
 	DefaultBranch string        // override default branch (empty = detect)
+	BranchPrefix  string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
 	Tag           string        // if non-empty, only consider items that have this tag
 	Audit         io.Writer     // timestamped command log (can be nil)
 }
@@ -218,16 +219,18 @@ func auditLogAgent(w io.Writer, mainRoot, worktreePath, expandedCmd string) {
 	fmt.Fprintf(w, "%s exec (Dir=%s WN_ROOT=%s): %s\n", ts, worktreePath, mainRoot, cmdForLog)
 }
 
-// resolveBranchName returns the branch name for the item: note "branch" if set, else wn-<id>-<slug>.
-func resolveBranchName(item *Item) string {
+// resolveBranchName returns the branch name for the item: note "branch" if set, else prefix+wn-<id>-<slug>.
+// branchPrefix is applied only when generating a new name (e.g. "keith/" -> "keith/wn-abc123-add-feature").
+func resolveBranchName(item *Item, branchPrefix string) string {
 	if idx := item.NoteIndexByName("branch"); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
 		return strings.TrimSpace(item.Notes[idx].Body)
 	}
 	slug := BranchSlug(item.Description)
-	if slug == "" {
-		return "wn-" + item.ID
+	base := "wn-" + item.ID
+	if slug != "" {
+		base = base + "-" + slug
 	}
-	return "wn-" + item.ID + "-" + slug
+	return branchPrefix + base
 }
 
 // addItemNote adds or updates a note by name on the item via the store.
@@ -264,7 +267,7 @@ func releaseItemClaim(store Store, itemID string) error {
 
 // runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
 func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
-	branchName := resolveBranchName(item)
+	branchName := resolveBranchName(item, opts.BranchPrefix)
 	reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
 	createBranch := !reuseBranch
 	if reuseBranch {

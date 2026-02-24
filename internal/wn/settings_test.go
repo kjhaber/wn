@@ -47,7 +47,8 @@ func TestReadSettings_withAgentOrch(t *testing.T) {
 			"prompt_tpl": "{{.Description}}",
 			"worktrees": "./.wn/worktrees",
 			"leave_worktree": true,
-			"branch": "main"
+			"branch": "main",
+			"branch_prefix": "keith/"
 		}
 	}`
 	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
@@ -69,5 +70,8 @@ func TestReadSettings_withAgentOrch(t *testing.T) {
 	}
 	if ao.Worktrees != "./.wn/worktrees" || !ao.LeaveWorktree || ao.Branch != "main" {
 		t.Errorf("AgentOrch worktrees/leave_worktree/branch = %q / %v / %q", ao.Worktrees, ao.LeaveWorktree, ao.Branch)
+	}
+	if ao.BranchPrefix != "keith/" {
+		t.Errorf("AgentOrch branch_prefix = %q, want keith/", ao.BranchPrefix)
 	}
 }

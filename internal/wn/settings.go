@@ -23,6 +23,7 @@ type AgentOrch struct {
 	Worktrees     string `json:"worktrees,omitempty"`      // worktree base path, e.g. "./.wn/worktrees"
 	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // true = leave worktree after run (default)
 	Branch        string `json:"branch,omitempty"`         // default branch override, e.g. "main"
+	BranchPrefix  string `json:"branch_prefix,omitempty"`  // prefix for generated branch names, e.g. "keith/"
 	Tag           string `json:"tag,omitempty"`            // only consider items that have this tag
 }
 

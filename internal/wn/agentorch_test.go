@@ -197,12 +197,15 @@ func TestExpandCommandTemplate_escapesItemIDWorktreeBranch(t *testing.T) {
 }
 func TestResolveBranchName(t *testing.T) {
 	item := &Item{ID: "abc123", Description: "Add feature"}
-	if got := resolveBranchName(item); got != "wn-abc123-add-feature" {
-		t.Errorf("resolveBranchName = %q, want wn-abc123-add-feature", got)
+	if got := resolveBranchName(item, ""); got != "wn-abc123-add-feature" {
+		t.Errorf("resolveBranchName(no prefix) = %q, want wn-abc123-add-feature", got)
+	}
+	if got := resolveBranchName(item, "keith/"); got != "keith/wn-abc123-add-feature" {
+		t.Errorf("resolveBranchName(keith/) = %q, want keith/wn-abc123-add-feature", got)
 	}
 	item.Notes = []Note{{Name: "branch", Body: "reuse-me"}}
-	if got := resolveBranchName(item); got != "reuse-me" {
-		t.Errorf("resolveBranchName with note = %q, want reuse-me", got)
+	if got := resolveBranchName(item, "keith/"); got != "reuse-me" {
+		t.Errorf("resolveBranchName with note (prefix ignored) = %q, want reuse-me", got)
 	}
 }
 
