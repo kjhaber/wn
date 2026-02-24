@@ -64,6 +64,39 @@ func TestEnsureWorktree_newBranch(t *testing.T) {
 	_ = RemoveWorktree(dir, path, &audit)
 }
 
+func TestEnsureWorktree_alreadyExists_sameBranch(t *testing.T) {
+	// Simulate restart after Ctrl-C: worktree and branch already exist; should reuse path and continue.
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	base := filepath.Join(dir, "worktrees")
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatal(err)
+	}
+	var audit bytes.Buffer
+	worktreePath := filepath.Join(base, "wn-reuse-test")
+	path1, err := EnsureWorktree(dir, worktreePath, "wn-reuse-test", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree first time: %v", err)
+	}
+	// Second call with same path and branch (e.g. restart after Ctrl-C): should succeed and return same path.
+	path2, err := EnsureWorktree(dir, worktreePath, "wn-reuse-test", false, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree when worktree already exists: %v", err)
+	}
+	if path1 != path2 {
+		t.Errorf("reuse returned path %q, want %q", path2, path1)
+	}
+	// Third call with createBranch true (e.g. restart before branch note was saved): branch already exists, worktree exists; should still reuse.
+	path3, err := EnsureWorktree(dir, worktreePath, "wn-reuse-test", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree when branch and worktree already exist: %v", err)
+	}
+	if path1 != path3 {
+		t.Errorf("reuse with createBranch true returned path %q, want %q", path3, path1)
+	}
+	_ = RemoveWorktree(dir, path1, &audit)
+}
+
 func TestCommitWorktreeChanges(t *testing.T) {
 	dir := t.TempDir()
 	setupGitRepo(t, dir)

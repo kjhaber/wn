@@ -58,7 +58,18 @@ func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool
 		cmd := exec.Command("git", "branch", branchName, def)
 		cmd.Dir = mainRoot
 		if out, err := cmd.CombinedOutput(); err != nil {
-			return "", fmt.Errorf("git branch %s %s: %w\n%s", branchName, def, err, out)
+			// Branch may already exist (e.g. restart after Ctrl-C); continue so we can reuse worktree.
+			if !strings.Contains(string(out), "already exists") {
+				return "", fmt.Errorf("git branch %s %s: %w\n%s", branchName, def, err, out)
+			}
+		}
+	}
+
+	// If worktree path already exists and is checked out to this branch, reuse it (e.g. restart after Ctrl-C).
+	if _, err := os.Stat(absPath); err == nil {
+		if current, err := worktreeBranch(absPath); err == nil && current == branchName {
+			auditLog(audit, "reuse existing worktree %s (branch %s)", absPath, branchName)
+			return absPath, nil
 		}
 	}
 
@@ -69,6 +80,17 @@ func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool
 		return "", fmt.Errorf("git worktree add: %w\n%s", err, out)
 	}
 	return absPath, nil
+}
+
+// worktreeBranch returns the current branch name in the given worktree path, or error if not a valid worktree.
+func worktreeBranch(worktreePath string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
+	cmd.Dir = worktreePath
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
 }
 
 // CommitWorktreeChanges stages all changes in the worktree and commits with the given message.
