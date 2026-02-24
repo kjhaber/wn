@@ -805,7 +805,7 @@ var orderSet int
 var orderUnset bool
 
 func init() {
-	orderCmd.Flags().IntVar(&orderSet, "set", 0, "Set order to this number (lower = earlier in backlog)")
+	orderCmd.Flags().IntVar(&orderSet, "set", 0, "Set order to this number (0..255; lower = earlier in backlog; default when unset is 99)")
 	orderCmd.Flags().BoolVar(&orderUnset, "unset", false, "Clear the order field")
 }
 
@@ -842,6 +842,9 @@ func runOrder(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("use --set <n> or --unset")
 	}
 	n := orderSet
+	if !wn.ValidOrder(n) {
+		return fmt.Errorf("order must be 0..%d (got %d)", wn.MaxOrder, n)
+	}
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Order = &n
 		it.Updated = time.Now().UTC()

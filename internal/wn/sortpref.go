@@ -102,7 +102,7 @@ func orderLess(a, b *int) bool {
 
 func orderKeyFromPtr(p *int) int {
 	if p == nil {
-		return 1<<31 - 1
+		return DefaultOrder
 	}
 	return *p
 }

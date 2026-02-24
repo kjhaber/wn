@@ -2,18 +2,30 @@ package wn
 
 import "sort"
 
-// orderVal returns the effective sort key for an item: lower = earlier in backlog.
-// Nil Order is treated as "no preference" and sorts after any set value (stable).
+// DefaultOrder is the effective priority when Item.Order is nil (lower = higher priority).
+// Use order values > DefaultOrder (e.g. 100+) to place items below default-priority items.
+const DefaultOrder = 99
+
+// MaxOrder is the maximum allowed order value (0..MaxOrder). Values above this are rejected when setting order.
+const MaxOrder = 255
+
+// ValidOrder reports whether n is a valid order value (0 <= n <= MaxOrder).
+func ValidOrder(n int) bool {
+	return n >= 0 && n <= MaxOrder
+}
+
+// orderKey returns the effective sort key for an item: lower = earlier in backlog.
+// Nil Order uses DefaultOrder so items can use order > DefaultOrder to sort lower than default.
 func orderKey(it *Item) int {
 	if it.Order == nil {
-		return 1<<31 - 1
+		return DefaultOrder
 	}
 	return *it.Order
 }
 
 // TopoOrder returns items in dependency order: prerequisites first.
 // Among items that are ready in the same round, Order is used as tiebreaker
-// (lower Order = earlier). Items with no Order sort after those with Order.
+// (lower Order = earlier). Items with no Order use DefaultOrder (99); use order > DefaultOrder to place items lower.
 // If there is a cycle, the second return value is false and order is undefined.
 func TopoOrder(items []*Item) ([]*Item, bool) {
 	byID := make(map[string]*Item)

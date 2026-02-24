@@ -81,7 +81,7 @@ func TestTopoOrder_OrderWithDeps(t *testing.T) {
 }
 
 func TestTopoOrder_OrderNilLast(t *testing.T) {
-	// Items with no Order (nil) appear after items with Order, in stable iteration order.
+	// Items with no Order (nil) use DefaultOrder (99), so they appear after low explicit values (1, 2).
 	now := time.Now().UTC()
 	items := []*Item{
 		{ID: "a", DependsOn: nil, Order: orderVal(1), Created: now, Updated: now},
@@ -94,5 +94,34 @@ func TestTopoOrder_OrderNilLast(t *testing.T) {
 	}
 	if ordered[0].ID != "a" || ordered[1].ID != "c" || ordered[2].ID != "b" {
 		t.Errorf("order = %v (expected a, c, b)", ordered)
+	}
+}
+
+func TestTopoOrder_OrderAboveDefault(t *testing.T) {
+	// Order 100 is below default (99), so item with 100 appears after item with nil.
+	now := time.Now().UTC()
+	items := []*Item{
+		{ID: "default", DependsOn: nil, Order: nil, Created: now, Updated: now},
+		{ID: "low", DependsOn: nil, Order: orderVal(100), Created: now, Updated: now},
+	}
+	ordered, acyclic := TopoOrder(items)
+	if !acyclic {
+		t.Fatal("expected acyclic")
+	}
+	if ordered[0].ID != "default" || ordered[1].ID != "low" {
+		t.Errorf("order = %v (expected default then low)", ordered)
+	}
+}
+
+func TestValidOrder(t *testing.T) {
+	for _, n := range []int{0, 1, 99, 255} {
+		if !ValidOrder(n) {
+			t.Errorf("ValidOrder(%d) = false, want true", n)
+		}
+	}
+	for _, n := range []int{-1, 256, 1000} {
+		if ValidOrder(n) {
+			t.Errorf("ValidOrder(%d) = true, want false", n)
+		}
 	}
 }

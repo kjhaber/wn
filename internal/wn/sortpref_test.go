@@ -104,6 +104,20 @@ func TestApplySort_priority(t *testing.T) {
 	}
 }
 
+func TestApplySort_priorityBelowDefault(t *testing.T) {
+	// Order 100 is below default (99), so "backlog" sorts after "default".
+	now := time.Now().UTC()
+	items := []*Item{
+		{ID: "backlog", Order: sortprefOrderVal(100), Created: now, Updated: now},
+		{ID: "default", Order: nil, Created: now, Updated: now},
+	}
+	spec, _ := ParseSortSpec("priority")
+	got := ApplySort(items, spec)
+	if got[0].ID != "default" || got[1].ID != "backlog" {
+		t.Errorf("priority asc (default then below): got %v", ids(got))
+	}
+}
+
 func TestApplySort_empty_spec(t *testing.T) {
 	items := []*Item{{ID: "a"}, {ID: "b"}}
 	got := ApplySort(items, nil)

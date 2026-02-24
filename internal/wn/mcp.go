@@ -142,6 +142,9 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 	if in.Description == "" {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: description is required"}}, IsError: true}, nil, nil
 	}
+	if in.Order != nil && !ValidOrder(*in.Order) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("order must be 0..%d (got %d)", MaxOrder, *in.Order)}}, IsError: true}, nil, nil
+	}
 	id, err := GenerateID(store)
 	if err != nil {
 		return nil, nil, err
@@ -631,6 +634,9 @@ func handleWnOrder(ctx context.Context, req *mcp.CallToolRequest, in wnOrderIn) 
 		})
 	} else if in.Order != nil {
 		n := *in.Order
+		if !ValidOrder(n) {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("order must be 0..%d (got %d)", MaxOrder, n)}}, IsError: true}, nil, nil
+		}
 		err = store.UpdateItem(id, func(it *Item) (*Item, error) {
 			it.Order = &n
 			it.Updated = time.Now().UTC()
