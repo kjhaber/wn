@@ -42,7 +42,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
-| `wn list` | List items (default: undone including review-ready, dependency order; in-progress excluded until expiry). Status column: undone, review-ready, claimed, done. Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output |
+| `wn list` | List items (default: undone including review-ready, dependency order; in-progress excluded until expiry). Status column: undone, review-ready, claimed, done. Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output. Use `--limit N` and optional `--offset N` to return a bounded window (e.g. next 20 for pagination). |
 | `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
 | `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
@@ -106,7 +106,7 @@ TL;DR: For Cursor set `~/.cursor/mcp.json` to
 ```
 
 
-Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_claim`, omit `for` to use default 1h so agents can renew (extend) without losing context. For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
+Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_item`, `wn_claim`, `wn_release`, `wn_next`, `wn_order`, `wn_depend`, `wn_rmdepend`, `wn_note_add`, `wn_note_edit`, `wn_note_rm`. Use `wn_item` with a required id to get full item JSON and notes (e.g. when a subagent only has an item id). For `wn_claim`, omit `for` to use default 1h so agents can renew (extend) without losing context. For `wn_next`, pass optional `claim_for` (e.g. `30m`) to atomically claim the returned item so concurrent workers don't double-assign. For `wn_list`, pass `limit` (max items) and optional `offset` or `cursor` (item id to start after) for a bounded window and smaller context. Notes: `wn_note_add` adds or updates a note by name (e.g. `pr-url`, `issue-number`); `wn_note_edit` changes an existing note's body; `wn_note_rm` removes a note. All note tools accept optional `id` (omit for current task) and use the same name rules as the CLI (alphanumeric, `/`, `_`, `-`, 1–32 chars).
 
 ## Agent workflow runner (wn agent-orch)
 

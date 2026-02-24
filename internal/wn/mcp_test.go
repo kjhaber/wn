@@ -163,6 +163,134 @@ func TestMCP_wn_list_empty(t *testing.T) {
 	}
 }
 
+// setupMCPSessionThreeItems creates a temp wn root with three items (aaa, bbb, ccc) in dependency order (Order 0,1,2).
+func setupMCPSessionThreeItems(t *testing.T) (context.Context, *mcp.ClientSession, func()) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for i, id := range []string{"aaa", "bbb", "ccc"} {
+		ord := i
+		item := &Item{
+			ID:          id,
+			Description: "item " + id,
+			Created:     now,
+			Updated:     now,
+			Order:       &ord,
+			Log:         []LogEntry{{At: now, Kind: "created"}},
+		}
+		if err := store.Put(item); err != nil {
+			t.Fatalf("Put %s: %v", id, err)
+		}
+	}
+	if err := WriteMeta(dir, Meta{CurrentID: "aaa"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		_ = os.Chdir(cwd)
+		t.Fatalf("server.Connect: %v", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		_ = os.Chdir(cwd)
+		t.Fatalf("client.Connect: %v", err)
+	}
+	cleanup := func() {
+		clientSession.Close()
+		_ = serverSession.Wait()
+		_ = os.Chdir(cwd)
+	}
+	return ctx, clientSession, cleanup
+}
+
+func TestMCP_wn_list_limit(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSessionThreeItems(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_list",
+		Arguments: map[string]any{"limit": 2},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_list: %v", err)
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list limit 2 must return valid JSON: %v\ncontent: %s", err, text)
+	}
+	if len(items) != 2 {
+		t.Fatalf("wn_list limit 2: got %d items, want 2", len(items))
+	}
+	if items[0].ID != "aaa" || items[1].ID != "bbb" {
+		t.Errorf("wn_list limit 2 = %v, %v; want aaa, bbb", items[0].ID, items[1].ID)
+	}
+}
+
+func TestMCP_wn_list_limit_offset(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSessionThreeItems(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_list",
+		Arguments: map[string]any{"limit": 1, "offset": 1},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_list: %v", err)
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list limit 1 offset 1 must return valid JSON: %v\ncontent: %s", err, text)
+	}
+	if len(items) != 1 {
+		t.Fatalf("wn_list limit 1 offset 1: got %d items, want 1", len(items))
+	}
+	if items[0].ID != "bbb" {
+		t.Errorf("wn_list limit 1 offset 1 = %v; want bbb", items[0].ID)
+	}
+}
+
+func TestMCP_wn_list_cursor(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSessionThreeItems(t)
+	defer cleanup()
+
+	// Start after aaa: should return bbb, ccc; with limit 1 just bbb
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_list",
+		Arguments: map[string]any{"cursor": "aaa", "limit": 1},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_list: %v", err)
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list cursor aaa limit 1: %v\ncontent: %s", err, text)
+	}
+	if len(items) != 1 {
+		t.Fatalf("wn_list cursor aaa limit 1: got %d items, want 1", len(items))
+	}
+	if items[0].ID != "bbb" {
+		t.Errorf("wn_list cursor aaa limit 1 = %v; want bbb", items[0].ID)
+	}
+}
+
 func TestMCP_wn_add(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()

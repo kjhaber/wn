@@ -37,7 +37,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
-		Description: "List available undone work items. Returns a JSON array of objects with id, description (first line), tags, and status (undone, review-ready). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high').",
+		Description: "List available undone work items. Returns a JSON array of objects with id, description (first line), tags, and status (undone, review-ready). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high'). Pass limit (max items to return), optional offset (skip N items), or cursor (item id to start after) for pagination and smaller context.",
 	}, handleWnList)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_done",
@@ -173,8 +173,11 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 }
 
 type wnListIn struct {
-	Tag  string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
-	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+	Tag    string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
+	Limit  int    `json:"limit,omitempty" jsonschema:"Return at most N items (optional; no limit if 0 or omitted)"`
+	Offset int    `json:"offset,omitempty" jsonschema:"Skip first N items (optional)"`
+	Cursor string `json:"cursor,omitempty" jsonschema:"Start after this item id (optional; for key-set pagination)"`
+	Root   string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
 // listItemOut is the JSON shape for each item returned by wn_list (id, description, tags, status).
@@ -212,6 +215,27 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 		ordered = ApplySort(items, spec)
 	} else {
 		ordered, _ = TopoOrder(items)
+	}
+	// Apply cursor (start after this id), offset, and limit (bounded window for pagination).
+	start := 0
+	if in.Cursor != "" {
+		for i, it := range ordered {
+			if it.ID == in.Cursor {
+				start = i + 1
+				break
+			}
+		}
+	}
+	start += in.Offset
+	if start > 0 || in.Limit > 0 {
+		if start > len(ordered) {
+			ordered = nil
+		} else {
+			ordered = ordered[start:]
+			if in.Limit > 0 && len(ordered) > in.Limit {
+				ordered = ordered[:in.Limit]
+			}
+		}
 	}
 	now := time.Now().UTC()
 	out := make([]listItemOut, len(ordered))

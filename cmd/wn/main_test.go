@@ -21,6 +21,20 @@ func resetPickFlags() {
 	pickReviewReady = false
 }
 
+// resetListFlags clears list flags to avoid Cobra's flag persistence across
+// Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
+// each test that invokes "list" with different flags.
+func resetListFlags() {
+	listUndone = true
+	listDone = false
+	listAll = false
+	listTag = ""
+	listSort = ""
+	listLimit = 0
+	listOffset = 0
+	listJson = false
+}
+
 // listStatusWidth and listIDWidth must match runList formatting for alignment tests.
 const listStatusWidth = 7
 const listIDWidth = 6
@@ -958,6 +972,102 @@ func TestListSortFlag(t *testing.T) {
 	listJson = false
 }
 
+func TestListLimit(t *testing.T) {
+	listJson = true
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc", Description: "third", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "2"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	var list []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
+	}
+	if len(list) != 2 {
+		t.Fatalf("list --limit 2: len = %d, want 2", len(list))
+	}
+	if list[0].ID != "aaa" || list[1].ID != "bbb" {
+		t.Errorf("list --limit 2 = %v, %v; want aaa, bbb", list[0].ID, list[1].ID)
+	}
+	listJson = false
+}
+
+func TestListLimitOffset(t *testing.T) {
+	listJson = true
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc", Description: "third", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "1", "--offset", "1"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	var list []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
+	}
+	if len(list) != 1 {
+		t.Fatalf("list --limit 1 --offset 1: len = %d, want 1", len(list))
+	}
+	if list[0].ID != "bbb" {
+		t.Errorf("list --limit 1 --offset 1 = %v; want bbb", list[0].ID)
+	}
+	listJson = false
+}
+
 func TestTagInteractive_Toggle(t *testing.T) {
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", "")
@@ -1464,6 +1574,7 @@ func TestReviewReadySetsState(t *testing.T) {
 				t.Fatalf("%s: %v", cmdName, err)
 			}
 
+			resetListFlags()
 			out := captureStdout(t, func() {
 				rootCmd.SetArgs([]string{"list", "--json"})
 				if err := rootCmd.Execute(); err != nil {

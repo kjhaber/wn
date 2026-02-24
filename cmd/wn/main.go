@@ -1608,6 +1608,8 @@ var listDone bool
 var listAll bool
 var listTag string
 var listSort string
+var listLimit int
+var listOffset int
 
 var listJson bool
 
@@ -1617,6 +1619,8 @@ func init() {
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
 	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
 	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
+	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
+	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N items")
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (array of id and description)")
 	initPick()
 }
@@ -1673,6 +1677,17 @@ func runList(cmd *cobra.Command, args []string) error {
 		ordered, acyclic = wn.TopoOrder(items)
 		if !acyclic && len(ordered) > 0 {
 			ordered = items
+		}
+	}
+	// Apply offset and limit (bounded window for pagination).
+	if listOffset > 0 || listLimit > 0 {
+		if listOffset > len(ordered) {
+			ordered = nil
+		} else {
+			ordered = ordered[listOffset:]
+			if listLimit > 0 && len(ordered) > listLimit {
+				ordered = ordered[:listLimit]
+			}
 		}
 	}
 	if listJson {
