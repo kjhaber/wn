@@ -33,7 +33,7 @@ func NewMCPServer() *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_add",
-		Description: "Add a work item. Returns the new item's id. Priority: pass optional order (lower number = higher priority) when dependencies don't define order.",
+		Description: "Add a work item. Returns the new item's id. Priority: pass optional order (lower number = higher priority) when dependencies don't define order. Pass optional depends_on (array of item IDs) to set dependencies when adding follow-up items so agentic queue order is preserved.",
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
@@ -131,6 +131,7 @@ type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
 	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order: lower number = higher priority (earlier when deps don't define order)"`
+	DependsOn   []string `json:"depends_on,omitempty" jsonschema:"Optional IDs this item will depend on (e.g. current task); preserves agentic queue order when adding follow-up items"`
 	Root        string   `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
@@ -150,15 +151,37 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 		return nil, nil, err
 	}
 	now := time.Now().UTC()
+	deps := uniqueStrings(in.DependsOn)
+	if len(deps) > 0 {
+		existing, err := store.List()
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, depID := range deps {
+			if _, err := store.Get(depID); err != nil {
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("depends_on: item %s not found", depID)}}, IsError: true}, nil, nil
+			}
+		}
+		newItemWithDeps := &Item{ID: id, DependsOn: deps}
+		itemsWithNew := append(existing, newItemWithDeps)
+		for _, depID := range deps {
+			if WouldCreateCycle(itemsWithNew, id, depID) {
+				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("circular dependency detected, could not add item depending on %s", depID)}}, IsError: true}, nil, nil
+			}
+		}
+	}
 	item := &Item{
 		ID:          id,
 		Description: in.Description,
 		Created:     now,
 		Updated:     now,
 		Tags:        in.Tags,
-		DependsOn:   nil,
+		DependsOn:   deps,
 		Order:       in.Order,
 		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	for _, depID := range deps {
+		item.Log = append(item.Log, LogEntry{At: now, Kind: "depend_added", Msg: depID})
 	}
 	if err := store.Put(item); err != nil {
 		return nil, nil, err
@@ -173,6 +196,26 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 	out := map[string]string{"id": id}
 	raw, _ := json.Marshal(out)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, out, nil
+}
+
+// uniqueStrings returns a copy of s with duplicate strings removed (order preserved).
+func uniqueStrings(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		if v == "" {
+			continue
+		}
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 type wnListIn struct {
