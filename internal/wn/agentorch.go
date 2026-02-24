@@ -165,14 +165,26 @@ func ExpandPromptTemplate(tpl string, item *Item, worktree, branch string) (stri
 	return buf.String(), nil
 }
 
+// shellEscapeForDoubleQuoted escapes a string for safe embedding inside a
+// double-quoted string in sh. Escapes \ and " so the result can be used in
+// templates like `cursor agent "{{.Prompt}}"` without breaking sh -c.
+func shellEscapeForDoubleQuoted(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
+
 // ExpandCommandTemplate executes the command template; prompt is the result of the prompt template.
+// The prompt is shell-escaped so descriptions containing quotes (e.g. "resolved", "won't fix")
+// do not break sh -c when the command is executed.
 func ExpandCommandTemplate(tpl string, prompt, itemID, worktree, branch string) (string, error) {
+	escapedPrompt := shellEscapeForDoubleQuoted(prompt)
 	data := struct {
 		Prompt   string
 		ItemID   string
 		Worktree string
 		Branch   string
-	}{prompt, itemID, worktree, branch}
+	}{escapedPrompt, itemID, worktree, branch}
 	tm, err := template.New("cmd").Parse(tpl)
 	if err != nil {
 		return "", err

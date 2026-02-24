@@ -1,6 +1,8 @@
 package wn
 
 import (
+	"bytes"
+	"os/exec"
 	"testing"
 	"time"
 )
@@ -140,6 +142,33 @@ func TestExpandCommandTemplate(t *testing.T) {
 	}
 	if got != "echo hello world" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// TestExpandCommandTemplate_escapesQuotes verifies that prompts containing double
+// quotes, single quotes, and backslashes are shell-escaped so the command can
+// be safely passed to sh -c (fixes agent-orch failure when item description
+// contains e.g. "resolved", "won't fix").
+func TestExpandCommandTemplate_escapesQuotes(t *testing.T) {
+	prompt := `Add a "resolved" state similar to "done". Can be used for "won't fix", "duplicate".`
+	tpl := `printf '%s' "{{.Prompt}}"`
+	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Must not contain unescaped " in the middle (would break sh -c)
+	if got == `printf '%s' "Add a "resolved" state similar to "done". Can be used for "won't fix", "duplicate"."` {
+		t.Fatal("prompt was not escaped; unescaped quotes would break sh -c")
+	}
+	// Run through sh -c to verify it executes without syntax error and produces correct output
+	cmd := exec.Command("sh", "-c", got)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("sh -c failed (shell syntax error): %v.\nExpanded command: %s", err, got)
+	}
+	if stdout.String() != prompt {
+		t.Errorf("sh -c output = %q, want %q (escaped prompt did not round-trip)", stdout.String(), prompt)
 	}
 }
 
