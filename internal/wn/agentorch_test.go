@@ -195,6 +195,7 @@ func TestExpandCommandTemplate_escapesItemIDWorktreeBranch(t *testing.T) {
 		t.Errorf("sh -c output = %q, want %q (ItemID/Worktree/Branch did not round-trip safely)", stdout.String(), want)
 	}
 }
+
 func TestResolveBranchName(t *testing.T) {
 	item := &Item{ID: "abc123", Description: "Add feature"}
 	if got := resolveBranchName(item, ""); got != "wn-abc123-add-feature" {
