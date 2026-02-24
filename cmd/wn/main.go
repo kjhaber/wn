@@ -1758,7 +1758,7 @@ func init() {
 	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
 	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N items")
-	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (array of id and description)")
+	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (same format as export: version, exported_at, items with all attributes)")
 	initPick()
 }
 
@@ -1828,22 +1828,8 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if listJson {
-		out := make([]struct {
-			ID          string   `json:"id"`
-			Description string   `json:"description"`
-			Status      string   `json:"status,omitempty"`
-			Tags        []string `json:"tags,omitempty"`
-		}, len(ordered))
-		now := time.Now().UTC()
-		for i, it := range ordered {
-			out[i].ID = it.ID
-			out[i].Description = wn.FirstLine(it.Description)
-			out[i].Status = itemListStatus(it, now)
-			out[i].Tags = it.Tags
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		return enc.Encode(out)
+		// Same format as wn export: version, exported_at, items (full attributes).
+		return wn.ExportItems(ordered, "")
 	}
 	now := time.Now().UTC()
 	const listStatusWidth = 7

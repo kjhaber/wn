@@ -42,6 +42,22 @@ const listStatusWidth = 7
 const listIDWidth = 6
 const listDescriptionStart = 2 + listIDWidth + 2 + listStatusWidth + 2 // "  "+id+"  "+status+"  "
 
+// listExportShape is the JSON shape of "wn list --json" (same as "wn export").
+type listExportShape struct {
+	Version    int        `json:"version"`
+	ExportedAt time.Time  `json:"exported_at"`
+	Items      []*wn.Item `json:"items"`
+}
+
+func parseListJSON(t *testing.T, out string) listExportShape {
+	t.Helper()
+	var list listExportShape
+	if err := json.Unmarshal([]byte(out), &list); err != nil {
+		t.Fatalf("Unmarshal list: %v\noutput: %s", err, out)
+	}
+	return list
+}
+
 // setupWnRoot creates a temp dir with .wn and one undone item; returns the dir and item id.
 // Caller must chdir to dir before running commands and restore cwd in defer.
 func setupWnRoot(t *testing.T) (dir string, itemID string) {
@@ -101,22 +117,15 @@ func TestListJSON(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
+	list := parseListJSON(t, out)
+	if len(list.Items) != 1 {
+		t.Fatalf("len(list.Items) = %d, want 1", len(list.Items))
 	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal list: %v\noutput: %s", err, out)
+	if list.Items[0].ID != "abc123" {
+		t.Errorf("id = %q, want abc123", list.Items[0].ID)
 	}
-	if len(list) != 1 {
-		t.Fatalf("len(list) = %d, want 1", len(list))
-	}
-	if list[0].ID != "abc123" {
-		t.Errorf("id = %q, want abc123", list[0].ID)
-	}
-	if list[0].Description != "first line" {
-		t.Errorf("description = %q, want first line", list[0].Description)
+	if list.Items[0].Description != "first line\nsecond line" {
+		t.Errorf("description = %q, want full description", list.Items[0].Description)
 	}
 }
 
@@ -315,16 +324,9 @@ func TestListJSONEmpty(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal list: %v\noutput: %s", err, out)
-	}
-	if len(list) != 0 {
-		t.Errorf("len(list) = %d, want 0", len(list))
+	list := parseListJSON(t, out)
+	if len(list.Items) != 0 {
+		t.Errorf("len(list.Items) = %d, want 0", len(list.Items))
 	}
 }
 
@@ -358,16 +360,9 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
-	}
-	if len(list) != 1 || list[0].ID != "done1" {
-		t.Errorf("list --done --json = %v, want single item done1", list)
+	list := parseListJSON(t, out)
+	if len(list.Items) != 1 || list.Items[0].ID != "done1" {
+		t.Errorf("list --done --json = %d items (ids %v), want single item done1", len(list.Items), itemIDs(list.Items))
 	}
 }
 
@@ -1074,19 +1069,13 @@ func TestListSortFlag(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
-	}
-	if len(list) != 2 {
-		t.Fatalf("len(list) = %d, want 2", len(list))
+	list := parseListJSON(t, out)
+	if len(list.Items) != 2 {
+		t.Fatalf("len(list.Items) = %d, want 2", len(list.Items))
 	}
 	// alpha asc: first alpha (aaa) then second alpha (bbb)
-	if list[0].ID != "aaa" || list[1].ID != "bbb" {
-		t.Errorf("list --sort alpha = %v, %v; want aaa then bbb", list[0].ID, list[1].ID)
+	if list.Items[0].ID != "aaa" || list.Items[1].ID != "bbb" {
+		t.Errorf("list --sort alpha = %v, %v; want aaa then bbb", list.Items[0].ID, list.Items[1].ID)
 	}
 
 	out2 := captureStdout(t, func() {
@@ -1095,12 +1084,10 @@ func TestListSortFlag(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	if err := json.Unmarshal([]byte(out2), &list); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
+	list2 := parseListJSON(t, out2)
 	// updated desc: aaa (Updated: now+1h) then bbb (Updated: now)
-	if list[0].ID != "aaa" || list[1].ID != "bbb" {
-		t.Errorf("list --sort updated:desc = %v, %v; want aaa then bbb", list[0].ID, list[1].ID)
+	if list2.Items[0].ID != "aaa" || list2.Items[1].ID != "bbb" {
+		t.Errorf("list --sort updated:desc = %v, %v; want aaa then bbb", list2.Items[0].ID, list2.Items[1].ID)
 	}
 	listJson = false
 }
@@ -1137,18 +1124,12 @@ func TestListLimit(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
+	list := parseListJSON(t, out)
+	if len(list.Items) != 2 {
+		t.Fatalf("list --limit 2: len = %d, want 2", len(list.Items))
 	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
-	}
-	if len(list) != 2 {
-		t.Fatalf("list --limit 2: len = %d, want 2", len(list))
-	}
-	if list[0].ID != "aaa" || list[1].ID != "bbb" {
-		t.Errorf("list --limit 2 = %v, %v; want aaa, bbb", list[0].ID, list[1].ID)
+	if list.Items[0].ID != "aaa" || list.Items[1].ID != "bbb" {
+		t.Errorf("list --limit 2 = %v, %v; want aaa, bbb", list.Items[0].ID, list.Items[1].ID)
 	}
 	listJson = false
 }
@@ -1185,18 +1166,12 @@ func TestListLimitOffset(t *testing.T) {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	var list []struct {
-		ID          string `json:"id"`
-		Description string `json:"description"`
+	list := parseListJSON(t, out)
+	if len(list.Items) != 1 {
+		t.Fatalf("list --limit 1 --offset 1: len = %d, want 1", len(list.Items))
 	}
-	if err := json.Unmarshal([]byte(out), &list); err != nil {
-		t.Fatalf("Unmarshal: %v\noutput: %s", err, out)
-	}
-	if len(list) != 1 {
-		t.Fatalf("list --limit 1 --offset 1: len = %d, want 1", len(list))
-	}
-	if list[0].ID != "bbb" {
-		t.Errorf("list --limit 1 --offset 1 = %v; want bbb", list[0].ID)
+	if list.Items[0].ID != "bbb" {
+		t.Errorf("list --limit 1 --offset 1 = %v; want bbb", list.Items[0].ID)
 	}
 	listJson = false
 }
@@ -1714,18 +1689,12 @@ func TestReviewReadySetsState(t *testing.T) {
 					t.Errorf("list: %v", err)
 				}
 			})
-			var list []struct {
-				ID     string `json:"id"`
-				Status string `json:"status"`
+			list := parseListJSON(t, out)
+			if len(list.Items) != 1 {
+				t.Fatalf("list want 1 item, got %d", len(list.Items))
 			}
-			if err := json.Unmarshal([]byte(out), &list); err != nil {
-				t.Fatalf("Unmarshal list: %v\noutput: %s", err, out)
-			}
-			if len(list) != 1 {
-				t.Fatalf("list want 1 item, got %d", len(list))
-			}
-			if list[0].Status != "review-ready" {
-				t.Errorf("after wn %s, status = %q, want review-ready", cmdName, list[0].Status)
+			if !list.Items[0].ReviewReady || list.Items[0].Done {
+				t.Errorf("after wn %s, want review_ready true and done false; got review_ready=%v done=%v", cmdName, list.Items[0].ReviewReady, list.Items[0].Done)
 			}
 		})
 	}

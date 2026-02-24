@@ -221,3 +221,43 @@ func TestExportItems_EmptyList(t *testing.T) {
 		t.Errorf("len(Items) = %d, want 0", len(exp.Items))
 	}
 }
+
+// TestExportItems_IncludesAllAttributes ensures export always writes every item attribute
+// (no omitempty), so export files are complete and list --json matches.
+func TestExportItems_IncludesAllAttributes(t *testing.T) {
+	now := time.Now().UTC()
+	orderVal := 3
+	items := []*Item{
+		{
+			ID: "full1", Description: "desc", Created: now, Updated: now,
+			Done: false, DoneMessage: "", InProgressUntil: time.Time{}, InProgressBy: "", ReviewReady: false,
+			Tags: nil, DependsOn: nil, Order: &orderVal, Log: []LogEntry{{At: now, Kind: "created"}}, Notes: nil,
+		},
+	}
+	path := filepath.Join(t.TempDir(), "full.json")
+	if err := ExportItems(items, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	itemsArr, ok := raw["items"].([]any)
+	if !ok || len(itemsArr) != 1 {
+		t.Fatalf("expected items array with one element, got %T %v", raw["items"], raw["items"])
+	}
+	itemObj, ok := itemsArr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first item to be object, got %T", itemsArr[0])
+	}
+	wantKeys := []string{"id", "description", "created", "updated", "done", "done_message", "in_progress_until", "in_progress_by", "review_ready", "tags", "depends_on", "order", "log", "notes"}
+	for _, k := range wantKeys {
+		if _, has := itemObj[k]; !has {
+			t.Errorf("export item missing key %q (export must include all attributes)", k)
+		}
+	}
+}
