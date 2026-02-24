@@ -858,6 +858,72 @@ func TestNextWithClaim(t *testing.T) {
 	}
 }
 
+// TestDoneNext_oneItem verifies that "wn done --next" with only one (current) item prints "No next task."
+func TestDoneNext_oneItem(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"done", "--next"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn done --next: %v", err)
+		}
+	})
+	if !strings.Contains(out, "No next task.") {
+		t.Errorf("wn done --next with one item should print 'No next task.'; got %q", out)
+	}
+}
+
+// TestDoneNext_twoItems verifies that "wn done --next" marks current done and sets next undone as current.
+func TestDoneNext_twoItems(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "abc123", Description: "first task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "def456", Description: "second task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "abc123"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"done", "--next"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn done --next: %v", err)
+		}
+	})
+	if !strings.Contains(out, "def456") || !strings.Contains(out, "second task") {
+		t.Errorf("wn done --next with two items should print next item id and description; got %q", out)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "def456" {
+		t.Errorf("after done --next: CurrentID = %q, want def456", meta.CurrentID)
+	}
+}
+
 // TestClaimWithoutForUsesDefault verifies that "wn claim" without --for uses the default duration
 // so agents can renew (extend) a claim without passing a duration.
 func TestClaimWithoutForUsesDefault(t *testing.T) {
