@@ -21,6 +21,32 @@ func auditLog(w io.Writer, format string, args ...interface{}) {
 	_, _ = io.WriteString(w, line)
 }
 
+// BranchMergedInto returns true if the given branch's commits are reachable from
+// intoRef (i.e. the branch has been merged into that ref). intoRef may be empty
+// for HEAD. Returns an error if the branch does not exist.
+func BranchMergedInto(mainRoot, branchName, intoRef string) (bool, error) {
+	if intoRef == "" {
+		intoRef = "HEAD"
+	}
+	exists, err := BranchExists(mainRoot, branchName)
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, fmt.Errorf("branch %s does not exist", branchName)
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", "refs/heads/"+branchName, intoRef)
+	cmd.Dir = mainRoot
+	err = cmd.Run()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil // not an ancestor
+		}
+		return false, fmt.Errorf("git merge-base: %w", err)
+	}
+	return true, nil
+}
+
 // BranchExists returns true if the branch exists in the repo at mainRoot.
 func BranchExists(mainRoot, branchName string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branchName)

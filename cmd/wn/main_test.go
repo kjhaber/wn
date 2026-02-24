@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1786,5 +1788,87 @@ func TestDoWithoutArgUsesCurrent(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "unknown command") || strings.Contains(err.Error(), "no current task") {
 		t.Errorf("wn do (no arg) should use current and reach agent-orch; got: %v", err)
+	}
+}
+
+func TestMarkMerged_MarksDoneWhenBranchMerged(t *testing.T) {
+	dir := t.TempDir()
+	// Create git repo
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	def, _ := wn.DefaultBranch(dir)
+
+	// Init wn in same dir
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "feature task",
+		Created:     now,
+		Updated:     now,
+		ReviewReady: true,
+		Notes:       []wn.Note{{Name: "branch", Created: now, Body: "wn-abc-feature"}},
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create feature branch, commit, merge to main
+	execIn(t, dir, "git", "checkout", "-b", "wn-abc-feature")
+	writeFile(t, filepath.Join(dir, "feature.txt"), "feature")
+	execIn(t, dir, "git", "add", "feature.txt")
+	execIn(t, dir, "git", "commit", "-m", "add feature")
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-abc-feature", "-m", "merge")
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"mark-merged"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("mark-merged: %v", err)
+		}
+	})
+	if !strings.Contains(out, "marked abc123") {
+		t.Errorf("mark-merged output should contain 'marked abc123'; got %q", out)
+	}
+	got, err := store.Get("abc123")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.Done {
+		t.Error("item should be done after mark-merged")
+	}
+	if got.ReviewReady {
+		t.Error("item should not be review-ready after marked done")
+	}
+}
+
+func execIn(t *testing.T, dir, name string, args ...string) {
+	t.Helper()
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
 	}
 }

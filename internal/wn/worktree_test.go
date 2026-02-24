@@ -182,3 +182,56 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestBranchMergedInto(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	def, err := DefaultBranch(dir)
+	if err != nil {
+		t.Fatalf("DefaultBranch: %v", err)
+	}
+
+	// Create feature branch with a commit
+	execIn(t, dir, "git", "checkout", "-b", "wn-abc-feature")
+	writeFile(t, filepath.Join(dir, "feature.txt"), "feature work")
+	execIn(t, dir, "git", "add", "feature.txt")
+	execIn(t, dir, "git", "commit", "-m", "add feature")
+
+	// Merge into main
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-abc-feature", "-m", "merge feature")
+
+	// Branch should be merged into HEAD
+	merged, err := BranchMergedInto(dir, "wn-abc-feature", "")
+	if err != nil {
+		t.Fatalf("BranchMergedInto: %v", err)
+	}
+	if !merged {
+		t.Error("BranchMergedInto(wn-abc-feature, HEAD) = false, want true (branch was merged)")
+	}
+
+	// Create unmerged branch
+	execIn(t, dir, "git", "checkout", "-b", "wn-xyz-unmerged")
+	writeFile(t, filepath.Join(dir, "unmerged.txt"), "unmerged")
+	execIn(t, dir, "git", "add", "unmerged.txt")
+	execIn(t, dir, "git", "commit", "-m", "unmerged change")
+	execIn(t, dir, "git", "checkout", def)
+
+	// Unmerged branch should not be merged into HEAD
+	merged, err = BranchMergedInto(dir, "wn-xyz-unmerged", "")
+	if err != nil {
+		t.Fatalf("BranchMergedInto: %v", err)
+	}
+	if merged {
+		t.Error("BranchMergedInto(wn-xyz-unmerged, HEAD) = true, want false (branch not merged)")
+	}
+
+	// Non-existent branch
+	merged, err = BranchMergedInto(dir, "nonexistent-branch", "")
+	if err == nil {
+		t.Error("BranchMergedInto(nonexistent) want error, got nil")
+	}
+	if merged {
+		t.Error("BranchMergedInto(nonexistent) should not return true")
+	}
+}

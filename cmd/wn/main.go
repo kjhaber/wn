@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1122,6 +1122,54 @@ func runReviewReady(cmd *cobra.Command, args []string) error {
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "review_ready"})
 		return it, nil
 	})
+}
+
+var markMergedCmd = &cobra.Command{
+	Use:   "mark-merged",
+	Short: "Mark review-ready items done if their branch has been merged to current branch",
+	Long:  "Checks all review-ready work items, finds their 'branch' note, and marks them done if that branch has been merged into the current branch (or --branch). Use --dry-run to see what would be marked without making changes.",
+	Args:  cobra.NoArgs,
+	RunE:  runMarkMerged,
+}
+var markMergedDryRun bool
+var markMergedBranch string
+
+func init() {
+	markMergedCmd.Flags().BoolVar(&markMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
+	markMergedCmd.Flags().StringVarP(&markMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
+}
+
+func runMarkMerged(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	intoRef := markMergedBranch
+	results, err := wn.MarkMergedItems(store, root, intoRef, markMergedDryRun)
+	if err != nil {
+		return err
+	}
+	for _, r := range results {
+		switch r.Status {
+		case "marked":
+			prefix := "marked"
+			if markMergedDryRun {
+				prefix = "would mark"
+			}
+			fmt.Printf("%s %s: %s\n", prefix, r.ID, r.Reason)
+		case "skipped_no_branch":
+			fmt.Printf("skip %s: %s\n", r.ID, r.Reason)
+		case "skipped_not_merged":
+			fmt.Printf("skip %s: %s\n", r.ID, r.Reason)
+		case "skipped_error":
+			fmt.Fprintf(os.Stderr, "skip %s: %s\n", r.ID, r.Reason)
+		}
+	}
+	return nil
 }
 
 var logCmd = &cobra.Command{
