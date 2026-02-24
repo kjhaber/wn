@@ -86,6 +86,14 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 		}
 	}
+	// Dependencies: what this task depends on, and what depends on it
+	if len(item.DependsOn) > 0 {
+		fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
+	}
+	dependents, err := wn.Dependents(store, item.ID)
+	if err == nil && len(dependents) > 0 {
+		fmt.Printf("dependent tasks: %s\n", strings.Join(dependents, ", "))
+	}
 	return nil
 }
 
@@ -263,6 +271,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 	if len(item.DependsOn) > 0 {
 		fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
+	}
+	dependents, err := wn.Dependents(store, id)
+	if err == nil && len(dependents) > 0 {
+		fmt.Printf("dependent tasks: %s\n", strings.Join(dependents, ", "))
 	}
 	if item.Order != nil {
 		fmt.Printf("order: %d\n", *item.Order)

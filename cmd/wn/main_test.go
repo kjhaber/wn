@@ -307,6 +307,86 @@ func TestShowCurrentWhenNoArg(t *testing.T) {
 	}
 }
 
+func TestCurrentTaskShowsDependsOnAndDependentTasks(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "current task", Created: now, Updated: now, DependsOn: []string{"bb2222"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "prerequisite", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "cc3333", Description: "follow-up", Created: now, Updated: now, DependsOn: []string{"aa1111"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs(nil)
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "depends on: bb2222") {
+		t.Errorf("wn (current task) should show depends on; got %q", out)
+	}
+	if !strings.Contains(out, "dependent tasks: cc3333") {
+		t.Errorf("wn (current task) should show dependent tasks; got %q", out)
+	}
+}
+
+func TestShowShowsDependentTasks(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, DependsOn: []string{"aa1111"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Cobra does not reset flags between Execute() calls; reset so default is human-readable.
+	_ = showCmd.Flags().Set("json", "false")
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", "aa1111"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "dependent tasks: bb2222") {
+		t.Errorf("wn show should show dependent tasks when item has dependents; got %q", out)
+	}
+}
+
 func TestListJSONEmpty(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
