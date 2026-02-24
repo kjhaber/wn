@@ -142,6 +142,26 @@ func ImportReplace(store Store, path string) error {
 	return nil
 }
 
+// ImportAppend reads an export file and adds or updates items in the store.
+// Items from the file are written with Put; same ID overwrites existing.
+// The store's root must already be initialized (.wn/items exists).
+func ImportAppend(store Store, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var exp ExportData
+	if err := json.Unmarshal(data, &exp); err != nil {
+		return err
+	}
+	for _, it := range exp.Items {
+		if err := store.Put(it); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // StoreHasItems returns whether the store has at least one item.
 func StoreHasItems(store Store) (bool, error) {
 	items, err := store.List()

@@ -65,7 +65,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter by state: `--undone` (default), `--done`, `--all`, or `--rr`/`--review-ready`. |
 | `wn settings` | Open `~/.config/wn/settings.json` in `$EDITOR`. Set `"sort": "updated:desc,priority,tags"` for default list/fzf order |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`) |
-| `wn import <file>` | Import items (use `--replace` if store already has items) |
+| `wn import <file>` | Import items from JSON export. When store has items, use `--append` (add/merge) or `--replace` (replace all). When store is empty, either flag is optional. |
 | `wn help` / `wn completion` | Help and shell completion |
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients) |
 | `wn agent-orch` | Run the agent orchestrator loop: claim next item, create worktree, run subagent (e.g. Cursor/Claude Code), release. See [Agent workflow runner](#agent-workflow-runner-wn-agent-orch) below. |

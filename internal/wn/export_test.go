@@ -261,3 +261,93 @@ func TestExportItems_IncludesAllAttributes(t *testing.T) {
 		}
 	}
 }
+
+func TestImportAppend_IntoEmptyStore(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	path := filepath.Join(t.TempDir(), "export.json")
+	if err := ExportItems([]*Item{
+		{ID: "aaa111", Description: "only item", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}},
+	}, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	if err := ImportAppend(store, path); err != nil {
+		t.Fatalf("ImportAppend: %v", err)
+	}
+	got, err := store.Get("aaa111")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Description != "only item" {
+		t.Errorf("description = %q, want %q", got.Description, "only item")
+	}
+}
+
+func TestImportAppend_AddsToExisting(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	existing := &Item{ID: "old111", Description: "existing", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(existing); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "export.json")
+	if err := ExportItems([]*Item{
+		{ID: "new222", Description: "from file", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}},
+	}, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	if err := ImportAppend(store, path); err != nil {
+		t.Fatalf("ImportAppend: %v", err)
+	}
+	all, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("len(List) = %d, want 2", len(all))
+	}
+	gotOld, _ := store.Get("old111")
+	if gotOld.Description != "existing" {
+		t.Errorf("old111 description = %q, want existing", gotOld.Description)
+	}
+	gotNew, _ := store.Get("new222")
+	if gotNew.Description != "from file" {
+		t.Errorf("new222 description = %q, want from file", gotNew.Description)
+	}
+}
+
+func TestImportAppend_SameIDOverwrites(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Put(&Item{ID: "abc123", Description: "old text", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "export.json")
+	if err := ExportItems([]*Item{
+		{ID: "abc123", Description: "new text", Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}},
+	}, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	if err := ImportAppend(store, path); err != nil {
+		t.Fatalf("ImportAppend: %v", err)
+	}
+	got, err := store.Get("abc123")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Description != "new text" {
+		t.Errorf("description = %q, want new text", got.Description)
+	}
+}

@@ -1761,16 +1761,22 @@ func runExport(cmd *cobra.Command, args []string) error {
 var importCmd = &cobra.Command{
 	Use:   "import [file]",
 	Short: "Import work items from an export file",
+	Long:  "Import work items from a JSON export file. When the store already has items, you must choose --append (add/merge from file) or --replace (delete all existing, then load file). When the store is empty, either flag is optional.",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runImport,
 }
 var importReplace bool
+var importAppend bool
 
 func init() {
-	importCmd.Flags().BoolVar(&importReplace, "replace", false, "Replace existing items (required if store has items)")
+	importCmd.Flags().BoolVar(&importAppend, "append", false, "Add items from file to the store (merge by ID; same ID overwrites)")
+	importCmd.Flags().BoolVar(&importReplace, "replace", false, "Replace all existing items with the contents of the file")
 }
 
 func runImport(cmd *cobra.Command, args []string) error {
+	if importAppend && importReplace {
+		return fmt.Errorf("cannot use both --append and --replace; choose one")
+	}
 	path := args[0]
 	root, err := wn.FindRootForCLI()
 	if err != nil {
@@ -1784,10 +1790,13 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if hasItems && !importReplace {
-		return fmt.Errorf("store already has items; use --replace to overwrite")
+	if hasItems && !importAppend && !importReplace {
+		return fmt.Errorf("store already has items; use --append to add to existing items or --replace to replace all")
 	}
-	return wn.ImportReplace(store, path)
+	if importReplace {
+		return wn.ImportReplace(store, path)
+	}
+	return wn.ImportAppend(store, path)
 }
 
 var listCmd = &cobra.Command{

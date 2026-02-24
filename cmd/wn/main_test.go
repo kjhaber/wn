@@ -821,6 +821,190 @@ func itemIDs(items []*wn.Item) []string {
 	}
 	return ids
 }
+
+// resetImportFlags clears import flags so tests get consistent behavior.
+func resetImportFlags() {
+	importReplace = false
+	importAppend = false
+}
+
+func TestImport_StoreHasItemsNoFlagErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Put(&wn.Item{ID: "abc123", Description: "existing", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	path := dir + "/export.json"
+	if err := wn.Export(store, path); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetImportFlags()
+	rootCmd.SetArgs([]string{"import", path})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when store has items and no --append/--replace")
+	}
+	if !strings.Contains(err.Error(), "--append") || !strings.Contains(err.Error(), "--replace") {
+		t.Errorf("error should mention --append and --replace: %v", err)
+	}
+}
+
+func TestImport_Replace(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := dir + "/export.json"
+	if err := wn.Export(store, path); err != nil {
+		t.Fatalf("Export: %v", err)
+	}
+	// Add another item so store has 3
+	if err := store.Put(&wn.Item{ID: "ccc333", Description: "third", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetImportFlags()
+	rootCmd.SetArgs([]string{"import", "--replace", path})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("import --replace: %v", err)
+	}
+	store2, _ := wn.NewFileStore(dir)
+	all, err := store2.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("after --replace: len(List) = %d, want 2 (file had 2 items)", len(all))
+	}
+}
+
+func TestImport_Append(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Put(&wn.Item{ID: "old111", Description: "existing", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	path := dir + "/new.json"
+	if err := wn.ExportItems([]*wn.Item{
+		{ID: "new222", Description: "from file", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	}, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetImportFlags()
+	rootCmd.SetArgs([]string{"import", "--append", path})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("import --append: %v", err)
+	}
+	store2, _ := wn.NewFileStore(dir)
+	all, err := store2.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("after --append: len(List) = %d, want 2", len(all))
+	}
+	got, _ := store2.Get("new222")
+	if got.Description != "from file" {
+		t.Errorf("new222 description = %q, want from file", got.Description)
+	}
+}
+
+func TestImport_BothAppendAndReplaceErrors(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	path := dir + "/export.json"
+	if err := wn.ExportItems(nil, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetImportFlags()
+	rootCmd.SetArgs([]string{"import", "--append", "--replace", path})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("expected error when both --append and --replace")
+	}
+	if !strings.Contains(err.Error(), "append") || !strings.Contains(err.Error(), "replace") {
+		t.Errorf("error should mention append and replace: %v", err)
+	}
+}
+
+func TestImport_EmptyStoreNoFlagSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	path := dir + "/export.json"
+	if err := wn.ExportItems([]*wn.Item{
+		{ID: "only1", Description: "only item", Created: time.Now().UTC(), Updated: time.Now().UTC(), Log: []wn.LogEntry{{At: time.Now().UTC(), Kind: "created"}}},
+	}, path); err != nil {
+		t.Fatalf("ExportItems: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetImportFlags()
+	rootCmd.SetArgs([]string{"import", path})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("import into empty store: %v", err)
+	}
+	store, _ := wn.NewFileStore(dir)
+	got, err := store.Get("only1")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Description != "only item" {
+		t.Errorf("description = %q, want only item", got.Description)
+	}
+}
 func TestListShowsStatusWithAlignment(t *testing.T) {
 	resetListFlags()
 	dir := t.TempDir()
