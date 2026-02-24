@@ -174,9 +174,18 @@ func shellEscapeForDoubleQuoted(s string) string {
 	return s
 }
 
+// shellEscapeForShWord wraps a string in single quotes and escapes internal
+// single quotes as '\”, producing a single sh word that evaluates to the
+// original string. Safe for ItemID, Worktree, Branch when used in templates
+// that pass the result to sh -c.
+func shellEscapeForShWord(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // ExpandCommandTemplate executes the command template; prompt is the result of the prompt template.
-// The prompt is shell-escaped so descriptions containing quotes (e.g. "resolved", "won't fix")
-// do not break sh -c when the command is executed.
+// Prompt is escaped for double-quoted context; ItemID, Worktree, and Branch are escaped as
+// single-quoted shell words so descriptions, imported IDs, and branch notes cannot inject
+// commands when the result is passed to sh -c.
 func ExpandCommandTemplate(tpl string, prompt, itemID, worktree, branch string) (string, error) {
 	escapedPrompt := shellEscapeForDoubleQuoted(prompt)
 	data := struct {
@@ -184,7 +193,7 @@ func ExpandCommandTemplate(tpl string, prompt, itemID, worktree, branch string) 
 		ItemID   string
 		Worktree string
 		Branch   string
-	}{escapedPrompt, itemID, worktree, branch}
+	}{escapedPrompt, shellEscapeForShWord(itemID), shellEscapeForShWord(worktree), shellEscapeForShWord(branch)}
 	tm, err := template.New("cmd").Parse(tpl)
 	if err != nil {
 		return "", err

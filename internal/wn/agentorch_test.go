@@ -172,6 +172,29 @@ func TestExpandCommandTemplate_escapesQuotes(t *testing.T) {
 	}
 }
 
+// TestExpandCommandTemplate_escapesItemIDWorktreeBranch verifies that ItemID,
+// Worktree, and Branch are shell-escaped so values with metacharacters (from
+// import or branch notes) cannot inject commands when passed to sh -c.
+func TestExpandCommandTemplate_escapesItemIDWorktreeBranch(t *testing.T) {
+	itemID := `x; rm -rf /`
+	worktree := `/tmp/worktree with spaces`
+	branch := `main'$(id)'`
+	tpl := `printf 'id=%s wd=%s br=%s' {{.ItemID}} {{.Worktree}} {{.Branch}}`
+	got, err := ExpandCommandTemplate(tpl, "prompt", itemID, worktree, branch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sh", "-c", got)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("sh -c failed (shell syntax/injection): %v.\nExpanded command: %s", err, got)
+	}
+	want := "id=" + itemID + " wd=" + worktree + " br=" + branch
+	if stdout.String() != want {
+		t.Errorf("sh -c output = %q, want %q (ItemID/Worktree/Branch did not round-trip safely)", stdout.String(), want)
+	}
+}
 func TestResolveBranchName(t *testing.T) {
 	item := &Item{ID: "abc123", Description: "Add feature"}
 	if got := resolveBranchName(item); got != "wn-abc123-add-feature" {
