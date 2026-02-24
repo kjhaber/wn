@@ -195,3 +195,60 @@ func itemIDs(items []*Item) []string {
 	}
 	return s
 }
+
+// TestNextUndoneItem_withTag verifies that when tag is provided, the next item is the first undone that has that tag (dependency order).
+func TestNextUndoneItem_withTag(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	// aaa no tag, bbb has tag "agent", ccc has tag "agent"; topo order aaa, bbb, ccc
+	for i, id := range []string{"aaa", "bbb", "ccc"} {
+		ord := i
+		tags := []string{}
+		if id != "aaa" {
+			tags = []string{"agent"}
+		}
+		item := &Item{
+			ID:          id,
+			Description: "item " + id,
+			Created:     now,
+			Updated:     now,
+			Order:       &ord,
+			Tags:        tags,
+			Log:         []LogEntry{{At: now, Kind: "created"}},
+		}
+		if err := store.Put(item); err != nil {
+			t.Fatalf("Put %s: %v", id, err)
+		}
+	}
+
+	// No tag: first in dependency order is aaa
+	next, err := NextUndoneItem(store, "")
+	if err != nil {
+		t.Fatalf("NextUndoneItem(no tag): %v", err)
+	}
+	if next == nil || next.ID != "aaa" {
+		t.Errorf("NextUndoneItem(no tag) = %v, want aaa", next)
+	}
+
+	// Tag "agent": first with that tag in dependency order is bbb
+	next, err = NextUndoneItem(store, "agent")
+	if err != nil {
+		t.Fatalf("NextUndoneItem(tag=agent): %v", err)
+	}
+	if next == nil || next.ID != "bbb" {
+		t.Errorf("NextUndoneItem(tag=agent) = %v, want bbb", next)
+	}
+
+	// Tag "nonexistent": no item
+	next, err = NextUndoneItem(store, "nonexistent")
+	if err != nil {
+		t.Fatalf("NextUndoneItem(tag=nonexistent): %v", err)
+	}
+	if next != nil {
+		t.Errorf("NextUndoneItem(tag=nonexistent) = %v, want nil", next)
+	}
+}

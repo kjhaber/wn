@@ -802,6 +802,93 @@ func TestMCP_wn_next_with_claim_for(t *testing.T) {
 	}
 }
 
+// TestMCP_wn_next_with_tag verifies that wn_next with tag returns/sets current to the next undone item that has that tag (dependency order).
+func TestMCP_wn_next_with_tag(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitRoot(dir); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	for i, id := range []string{"aa1111", "bb2222"} {
+		ord := i
+		tags := []string{}
+		if id == "bb2222" {
+			tags = []string{"agent"}
+		}
+		item := &Item{
+			ID:          id,
+			Description: "item " + id,
+			Created:     now,
+			Updated:     now,
+			Order:       &ord,
+			Tags:        tags,
+			Log:         []LogEntry{{At: now, Kind: "created"}},
+		}
+		if err := store.Put(item); err != nil {
+			t.Fatalf("Put %s: %v", id, err)
+		}
+	}
+	if err := WriteMeta(dir, Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, _ := server.Connect(ctx, serverTransport, nil)
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	clientSession, _ := client.Connect(ctx, clientTransport, nil)
+	defer clientSession.Close()
+
+	// wn_next with tag "agent" should return bb2222 (only undone item with that tag)
+	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_next",
+		Arguments: map[string]any{"tag": "agent"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_next tag=agent: %v", err)
+	}
+	text := textContent(res)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("wn_next tag=agent must return valid JSON: %v\ncontent: %q", err, text)
+	}
+	if out["id"] != "bb2222" {
+		t.Errorf("wn_next tag=agent = %q, want id bb2222", text)
+	}
+	meta, _ := ReadMeta(dir)
+	if meta.CurrentID != "bb2222" {
+		t.Errorf("after wn_next tag=agent: CurrentID = %q, want bb2222", meta.CurrentID)
+	}
+
+	// wn_next with tag "nonexistent" should return id:null
+	res2, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_next",
+		Arguments: map[string]any{"tag": "nonexistent"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_next tag=nonexistent: %v", err)
+	}
+	text2 := textContent(res2)
+	var out2 map[string]any
+	if err := json.Unmarshal([]byte(text2), &out2); err != nil {
+		t.Fatalf("wn_next tag=nonexistent must return valid JSON: %v", err)
+	}
+	if out2["id"] != nil {
+		t.Errorf("wn_next tag=nonexistent = %q, want id:null", text2)
+	}
+}
+
 func TestMCP_no_wn_root_returns_error(t *testing.T) {
 	dir := t.TempDir()
 	cwd, _ := os.Getwd()

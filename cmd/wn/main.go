@@ -1274,13 +1274,15 @@ func runLog(cmd *cobra.Command, args []string) error {
 var nextCmd = &cobra.Command{
 	Use:   "next",
 	Short: "Pick the next task (first undone in dependency order) and set as current",
-	Long:  "Optionally use --claim <duration> to also claim the task for that duration in the same step (e.g. wn next --claim 30m).",
+	Long:  "When --tag is provided, pick the next undone item that has that tag (dependency order). Use --claim <duration> to also claim the task (e.g. wn next --claim 30m).",
 	RunE:  runNext,
 }
 var nextClaimFor string
 var nextClaimBy string
+var nextTag string
 
 func init() {
+	nextCmd.Flags().StringVar(&nextTag, "tag", "", "Only consider items with this tag (next undone in dependency order)")
 	nextCmd.Flags().StringVar(&nextClaimFor, "claim", "", "Also claim the task for this duration (e.g. 30m, 1h)")
 	nextCmd.Flags().StringVar(&nextClaimBy, "claim-by", "", "Optional worker ID when using --claim")
 }
@@ -1294,16 +1296,14 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	undone, err := wn.UndoneItems(store)
+	next, err := wn.NextUndoneItem(store, nextTag)
 	if err != nil {
 		return err
 	}
-	ordered, acyclic := wn.TopoOrder(undone)
-	if !acyclic || len(ordered) == 0 {
+	if next == nil {
 		fmt.Println("No next task.")
 		return nil
 	}
-	next := ordered[0]
 	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
 		m.CurrentID = next.ID
 		return m, nil

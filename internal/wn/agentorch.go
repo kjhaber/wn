@@ -36,23 +36,6 @@ func BranchSlug(description string) string {
 	return slug
 }
 
-// filterByTag returns items that have the given tag. If tag is empty, returns items unchanged.
-func filterByTag(items []*Item, tag string) []*Item {
-	if tag == "" {
-		return items
-	}
-	filtered := make([]*Item, 0, len(items))
-	for _, it := range items {
-		for _, t := range it.Tags {
-			if t == tag {
-				filtered = append(filtered, it)
-				break
-			}
-		}
-	}
-	return filtered
-}
-
 // ClaimNextItem atomically selects the next available item (by UndoneItems, optional tag filter, then TopoOrder),
 // sets it as current under the meta lock, and claims it for the given duration.
 // Selection: dependencies are honored (prerequisites first); within each tier, Order field is the tiebreaker (lower = earlier).
@@ -63,7 +46,7 @@ func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy str
 	if err != nil {
 		return nil, err
 	}
-	undone = filterByTag(undone, tag)
+	undone = FilterByTag(undone, tag)
 	ordered, acyclic := TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
 		return nil, nil

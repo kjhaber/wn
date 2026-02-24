@@ -935,6 +935,65 @@ func TestNextWithClaim(t *testing.T) {
 	}
 }
 
+// TestNextWithTag verifies that "wn next --tag X" sets current to the next undone item that has tag X (dependency order).
+func TestNextWithTag(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	ord0, ord1 := 0, 1
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "no tag", Created: now, Updated: now, Order: &ord0, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "has agent tag", Created: now, Updated: now, Order: &ord1, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatalf("Put: %v", err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn next --tag agent should set current to bb2222
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"next", "--tag", "agent"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn next --tag agent: %v", err)
+		}
+	})
+	if !strings.Contains(out, "bb2222") || !strings.Contains(out, "has agent tag") {
+		t.Errorf("wn next --tag agent should output bb2222 and description; got %q", out)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "bb2222" {
+		t.Errorf("after wn next --tag agent: CurrentID = %q, want bb2222", meta.CurrentID)
+	}
+
+	// wn next --tag nonexistent should print "No next task."
+	out2 := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"next", "--tag", "nonexistent"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn next --tag nonexistent: %v", err)
+		}
+	})
+	if !strings.Contains(out2, "No next task.") {
+		t.Errorf("wn next --tag nonexistent should print No next task.; got %q", out2)
+	}
+}
+
 // TestDoneNext_oneItem verifies that "wn done --next" with only one (current) item prints "No next task."
 func TestDoneNext_oneItem(t *testing.T) {
 	dir, _ := setupWnRoot(t)

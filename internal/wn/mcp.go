@@ -69,7 +69,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRelease)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_next",
-		Description: "Set the next available task as current and return its id and description. Next is chosen by dependency order, then by order field (lower = higher priority). Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
+		Description: "Set the next available task as current and return its id and description. Next is chosen by dependency order, then by order field (lower = higher priority). When tag is provided, return/set current to the next undone item that has that tag (dependency order). Enables getting the next agentic item without listing the full queue. Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
 	}, handleWnNext)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_order",
@@ -599,6 +599,7 @@ func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnRelease
 
 type wnNextIn struct {
 	Root     string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+	Tag      string `json:"tag,omitempty" jsonschema:"Optional tag; when set, return/set current to the next undone item that has this tag (dependency order)"`
 	ClaimFor string `json:"claim_for,omitempty" jsonschema:"If set, atomically claim the returned item for this duration (e.g. 30m, 1h)"`
 	ClaimBy  string `json:"claim_by,omitempty" jsonschema:"Optional worker id when claim_for is set"`
 }
@@ -608,18 +609,16 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	undone, err := UndoneItems(store)
+	next, err := NextUndoneItem(store, in.Tag)
 	if err != nil {
 		return nil, nil, err
 	}
-	ordered, acyclic := TopoOrder(undone)
-	if !acyclic || len(ordered) == 0 {
+	if next == nil {
 		// Empty: return JSON so agents can distinguish "no task" from "task with empty description".
 		emptyOut := map[string]any{"id": nil, "description": nil}
 		raw, _ := json.Marshal(emptyOut)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 	}
-	next := ordered[0]
 	if err := WithMetaLock(root, func(m Meta) (Meta, error) {
 		m.CurrentID = next.ID
 		return m, nil
