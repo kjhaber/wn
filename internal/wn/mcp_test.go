@@ -106,8 +106,8 @@ func TestMCP_wn_list_returns_structured_json(t *testing.T) {
 	if items[0].Tags == nil {
 		t.Error("wn_list items[0].tags must be present (array)")
 	}
-	if items[0].Status != "undone" && items[0].Status != "review-ready" {
-		t.Errorf("wn_list items[0].status = %q, want undone or review-ready", items[0].Status)
+	if items[0].Status != "undone" {
+		t.Errorf("wn_list items[0].status = %q, want undone (wn_list excludes review-ready)", items[0].Status)
 	}
 }
 

@@ -42,7 +42,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
-| `wn list` | List items (default: undone including review-ready, dependency order; in-progress excluded until expiry). Status column: undone, review-ready, claimed, done. Use `--sort 'updated:desc,priority,tags'` to sort; `--done`, `--all`, `--tag x`, `--json` for machine-readable output. Use `--limit N` and optional `--offset N` to return a bounded window (e.g. next 20 for pagination). |
+| `wn list` | List items (default: undone, i.e. available for next/claim—excludes review-ready and in-progress; dependency order). Status column: undone, claimed, done. Use `--review-ready`/`--rr` to list only review-ready items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
 | `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
 | `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
@@ -73,7 +73,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
 
-**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (and from MCP `wn_next`), so it won't be picked again. You can also set an item to review-ready directly with `wn review-ready` (alias `wn rr`). It still appears in `wn list` for human review. Mark it done when the work is merged or accepted (e.g. merge to main). Use `wn mark-merged` to automatically mark done all review-ready items whose branch has been merged to the current branch.
+**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (and from MCP `wn_next` and `wn_list`), so it won't be picked again. You can also set an item to review-ready directly with `wn review-ready` (alias `wn rr`). Use `wn list --review-ready` (or `wn list --rr`) to list review-ready items for human review. Mark it done when the work is merged or accepted (e.g. merge to main). Use `wn mark-merged` to automatically mark done all review-ready items whose branch has been merged to the current branch.
 
 ## Shell completion
 

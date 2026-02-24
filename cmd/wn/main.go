@@ -1799,6 +1799,7 @@ var listCmd = &cobra.Command{
 var listUndone bool
 var listDone bool
 var listAll bool
+var listReviewReady bool
 var listTag string
 var listSort string
 var listLimit int
@@ -1807,9 +1808,11 @@ var listOffset int
 var listJson bool
 
 func init() {
-	listCmd.Flags().BoolVar(&listUndone, "undone", true, "List undone items (default)")
+	listCmd.Flags().BoolVar(&listUndone, "undone", false, "List undone items (default when no filter; excludes review-ready and in-progress)")
 	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
+	listCmd.Flags().BoolVar(&listReviewReady, "review-ready", false, "List review-ready items only")
+	listCmd.Flags().BoolVar(&listReviewReady, "rr", false, "List review-ready items only")
 	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
 	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
@@ -1827,6 +1830,24 @@ func runList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	stateFlags := 0
+	if listAll {
+		stateFlags++
+	}
+	if listDone {
+		stateFlags++
+	}
+	if listUndone {
+		stateFlags++
+	}
+	if listReviewReady {
+		stateFlags++
+	}
+	if stateFlags > 1 {
+		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
+	}
+	// Default when no filter: undone (available for next/claim)
+	useUndone := listUndone || stateFlags == 0
 	var items []*wn.Item
 	if listAll {
 		items, err = store.List()
@@ -1843,11 +1864,19 @@ func runList(cmd *cobra.Command, args []string) error {
 				items = append(items, it)
 			}
 		}
-	} else {
-		items, err = wn.ListableUndoneItems(store)
+	} else if listReviewReady {
+		items, err = wn.ReviewReadyItems(store)
 		if err != nil {
 			return err
 		}
+	} else if useUndone {
+		// --undone or default: available for next/claim only; exclude review-ready and in-progress
+		items, err = wn.UndoneItems(store)
+		if err != nil {
+			return err
+		}
+	} else {
+		items = nil
 	}
 	if listTag != "" {
 		var filtered []*wn.Item

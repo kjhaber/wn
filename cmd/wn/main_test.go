@@ -27,9 +27,10 @@ func resetPickFlags() {
 // Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
 // each test that invokes "list" with different flags.
 func resetListFlags() {
-	listUndone = true
+	listUndone = false
 	listDone = false
 	listAll = false
+	listReviewReady = false
 	listTag = ""
 	listSort = ""
 	listLimit = 0
@@ -446,6 +447,47 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 	}
 }
 
+func TestListUndoneExcludesReviewReady(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "undone1", Description: "undone", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "rr1", Description: "review-ready", Created: now, Updated: now, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetListFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--json", "--undone"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	list := parseListJSON(t, out)
+	if len(list.Items) != 1 || list.Items[0].ID != "undone1" {
+		t.Errorf("list --undone --json = %v, want single item undone1 (review-ready must not appear)", list.Items)
+	}
+	if list.Items[0].Done || list.Items[0].ReviewReady {
+		t.Errorf("list --undone item should be undone and not review-ready; got done=%v review_ready=%v", list.Items[0].Done, list.Items[0].ReviewReady)
+	}
+}
+
 func TestPickWithID_SetsCurrent(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: ""}); err != nil {
@@ -780,7 +822,7 @@ func itemIDs(items []*wn.Item) []string {
 	return ids
 }
 func TestListShowsStatusWithAlignment(t *testing.T) {
-	listJson = false // reset in case a previous test set --json
+	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1184,7 +1226,7 @@ func TestCurrentTaskShowsTags(t *testing.T) {
 }
 
 func TestListShowsTags(t *testing.T) {
-	listJson = false
+	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1231,6 +1273,7 @@ func TestListShowsTags(t *testing.T) {
 }
 
 func TestListSortFlag(t *testing.T) {
+	resetListFlags()
 	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -1285,6 +1328,7 @@ func TestListSortFlag(t *testing.T) {
 }
 
 func TestListLimit(t *testing.T) {
+	resetListFlags()
 	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -1327,6 +1371,7 @@ func TestListLimit(t *testing.T) {
 }
 
 func TestListLimitOffset(t *testing.T) {
+	resetListFlags()
 	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -1876,7 +1921,7 @@ func TestReviewReadySetsState(t *testing.T) {
 
 			resetListFlags()
 			out := captureStdout(t, func() {
-				rootCmd.SetArgs([]string{"list", "--json"})
+				rootCmd.SetArgs([]string{"list", "--review-ready", "--json"})
 				if err := rootCmd.Execute(); err != nil {
 					t.Errorf("list: %v", err)
 				}

@@ -37,7 +37,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
-		Description: "List available undone work items. Returns a JSON array of objects with id, description (first line), tags, and status (undone, review-ready). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high'). Pass limit (max items to return), optional offset (skip N items), or cursor (item id to start after) for pagination and smaller context.",
+		Description: "List available undone work items (excludes review-ready and in-progress). Returns a JSON array of objects with id, description (first line), tags, and status (undone). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high'). Pass limit (max items to return), optional offset (skip N items), or cursor (item id to start after) for pagination and smaller context.",
 	}, handleWnList)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_done",
@@ -243,7 +243,7 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	items, err := ListableUndoneItems(store)
+	items, err := UndoneItems(store)
 	if err != nil {
 		return nil, nil, err
 	}
