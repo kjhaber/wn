@@ -1154,17 +1154,22 @@ func runNext(cmd *cobra.Command, args []string) error {
 var pickCmd = &cobra.Command{
 	Use:   "pick [id]",
 	Short: "Interactively pick a current task (uses fzf if available)",
-	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Use --done or --all to pick from done or all items instead of undone only.",
+	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runPick,
 }
 
+var pickUndone bool
 var pickDone bool
 var pickAll bool
+var pickReviewReady bool
 
 func initPick() {
+	pickCmd.Flags().BoolVar(&pickUndone, "undone", false, "Pick from undone items only (default)")
 	pickCmd.Flags().BoolVar(&pickDone, "done", false, "Pick from done items only")
 	pickCmd.Flags().BoolVar(&pickAll, "all", false, "Pick from all items")
+	pickCmd.Flags().BoolVar(&pickReviewReady, "rr", false, "Pick from review-ready items only")
+	pickCmd.Flags().BoolVar(&pickReviewReady, "review-ready", false, "Pick from review-ready items only")
 }
 
 func runPick(cmd *cobra.Command, args []string) error {
@@ -1189,6 +1194,23 @@ func runPick(cmd *cobra.Command, args []string) error {
 		})
 	}
 
+	stateFlags := 0
+	if pickUndone {
+		stateFlags++
+	}
+	if pickDone {
+		stateFlags++
+	}
+	if pickAll {
+		stateFlags++
+	}
+	if pickReviewReady {
+		stateFlags++
+	}
+	if stateFlags > 1 {
+		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
+	}
+
 	var items []*wn.Item
 	if pickAll {
 		items, err = store.List()
@@ -1205,7 +1227,13 @@ func runPick(cmd *cobra.Command, args []string) error {
 				items = append(items, it)
 			}
 		}
+	} else if pickReviewReady {
+		items, err = wn.ReviewReadyItems(store)
+		if err != nil {
+			return err
+		}
 	} else {
+		// default: undone (available for next/claim)
 		items, err = wn.UndoneItems(store)
 		if err != nil {
 			return err
@@ -1218,6 +1246,8 @@ func runPick(cmd *cobra.Command, args []string) error {
 			msg = "No done tasks."
 		} else if pickAll {
 			msg = "No tasks."
+		} else if pickReviewReady {
+			msg = "No review-ready tasks."
 		}
 		fmt.Println(msg)
 		return nil

@@ -11,6 +11,16 @@ import (
 	"github.com/keith/wn/internal/wn"
 )
 
+// resetPickFlags clears pick filter flags to avoid Cobra's flag persistence across
+// Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
+// each test that invokes "pick" with different flags.
+func resetPickFlags() {
+	pickUndone = false
+	pickDone = false
+	pickAll = false
+	pickReviewReady = false
+}
+
 // listStatusWidth and listIDWidth must match runList formatting for alignment tests.
 const listStatusWidth = 7
 const listIDWidth = 6
@@ -357,6 +367,7 @@ func TestPickWithDoneFlag(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
+	resetPickFlags()
 	rootCmd.SetArgs([]string{"pick", "--done"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("pick --done: %v", err)
@@ -409,6 +420,7 @@ func TestPickWithAllFlag(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
+	resetPickFlags()
 	rootCmd.SetArgs([]string{"pick", "--all"})
 	if err := rootCmd.Execute(); err != nil {
 		t.Fatalf("pick --all: %v", err)
@@ -420,6 +432,142 @@ func TestPickWithAllFlag(t *testing.T) {
 	// Order with --all is from store.List() then ApplySort; we chose "2" so we get second item (id depends on sort)
 	if meta.CurrentID != "done1" && meta.CurrentID != "undone1" {
 		t.Errorf("after pick --all and choose 2: CurrentID = %q, want done1 or undone1", meta.CurrentID)
+	}
+}
+
+func TestPickWithReviewReadyFlag(t *testing.T) {
+	for _, flag := range []string{"--rr", "--review-ready"} {
+		t.Run(flag, func(t *testing.T) {
+			origPath := os.Getenv("PATH")
+			os.Setenv("PATH", "")
+			t.Cleanup(func() { os.Setenv("PATH", origPath) })
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			origStdin := os.Stdin
+			os.Stdin = r
+			t.Cleanup(func() { os.Stdin = origStdin })
+			if _, err := w.WriteString("1\n"); err != nil {
+				t.Fatal(err)
+			}
+			w.Close()
+
+			dir := t.TempDir()
+			if err := wn.InitRoot(dir); err != nil {
+				t.Fatalf("InitRoot: %v", err)
+			}
+			store, err := wn.NewFileStore(dir)
+			if err != nil {
+				t.Fatalf("NewFileStore: %v", err)
+			}
+			now := time.Now().UTC()
+			rrItem := &wn.Item{ID: "rr1111", Description: "review-ready task", Created: now, Updated: now, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+			if err := store.Put(rrItem); err != nil {
+				t.Fatal(err)
+			}
+			cwd, _ := os.Getwd()
+			if err := os.Chdir(dir); err != nil {
+				t.Fatalf("Chdir: %v", err)
+			}
+			defer func() { _ = os.Chdir(cwd) }()
+
+			resetPickFlags()
+			rootCmd.SetArgs([]string{"pick", flag})
+			if err := rootCmd.Execute(); err != nil {
+				t.Fatalf("pick %s: %v", flag, err)
+			}
+			meta, err := wn.ReadMeta(dir)
+			if err != nil {
+				t.Fatalf("ReadMeta: %v", err)
+			}
+			if meta.CurrentID != "rr1111" {
+				t.Errorf("after pick %s and choose 1: CurrentID = %q, want rr1111", flag, meta.CurrentID)
+			}
+		})
+	}
+}
+
+func TestPickDefaultIsUndone(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "done1", Description: "done", Created: now, Updated: now, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "undone1", Description: "undone", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "rr1", Description: "review-ready", Created: now, Updated: now, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick (default): %v", err)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	// Default is undone only (excludes done and review-ready), so only one choice
+	if meta.CurrentID != "undone1" {
+		t.Errorf("after pick with no flag: CurrentID = %q, want undone1 (default filter is undone)", meta.CurrentID)
+	}
+}
+
+func TestPickStateFlagsMutualExclusion(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	for _, args := range [][]string{
+		{"pick", "--done", "--all"},
+		{"pick", "--undone", "--all"},
+		{"pick", "--done", "--rr"},
+	} {
+		resetPickFlags()
+		rootCmd.SetArgs(args)
+		err := rootCmd.Execute()
+		if err == nil {
+			t.Errorf("pick %v: expected error (only one state flag allowed), got nil", args)
+		}
+		if err != nil && !strings.Contains(err.Error(), "one of") {
+			t.Errorf("pick %v: error = %v, want message containing \"one of\"", args, err)
+		}
 	}
 }
 

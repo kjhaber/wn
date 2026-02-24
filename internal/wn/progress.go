@@ -79,6 +79,21 @@ func UndoneItems(store Store) ([]*Item, error) {
 	return result, nil
 }
 
+// ReviewReadyItems returns all items that are undone and review-ready (excluded from next/claim).
+func ReviewReadyItems(store Store) ([]*Item, error) {
+	items, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+	var result []*Item
+	for _, it := range items {
+		if !it.Done && it.ReviewReady {
+			result = append(result, it)
+		}
+	}
+	return result, nil
+}
+
 // ListableUndoneItems returns all undone items (including review-ready) for human list/filters.
 // Clears expired in-progress lazily. Used by list and wn_list so review-ready items are visible.
 func ListableUndoneItems(store Store) ([]*Item, error) {
