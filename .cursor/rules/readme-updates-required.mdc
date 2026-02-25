@@ -1,0 +1,9 @@
+---
+description: Require README updates to be complete before reporting a change complete
+alwaysApply: true
+---
+
+# README file updates
+
+Whenever commands are added, updated, or removed, the README must be updated accordingly.
+
