@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
