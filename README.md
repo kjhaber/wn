@@ -45,8 +45,9 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
 | `wn list` | List items (default: undone, i.e. both available-for-claim and review-ready—excludes in-progress; dependency order). Status column: undone, claimed, done, review-ready. Use `--review-ready`/`--rr` to list only review-ready items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
-| `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
-| `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
+| `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item (fzf or numbered list) |
+| `wn depend rm --on <id> [--wid <id>]` | Remove dependency. Omit `--wid` for current task. Use `-i` to pick which dependency to remove (fzf or numbered list) |
+| `wn depend list [--wid <id>]` | List dependency ids of the work item, one per line. Omit `--wid` for current task |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
@@ -163,22 +164,23 @@ When no sort preference is set, `wn list` uses dependency order (topological) fo
 
 ## Optional: fzf for interactive commands
 
-If `fzf` is in your `PATH` (and `WN_DISABLE_FZF` is not set, e.g. in CI or when running tests):
+If `fzf` is in your `PATH` (and `WN_NO_FZF` is not set, e.g. in CI or when running tests):
 - **`wn pick`** uses it for fuzzy selection of the current task. Otherwise a numbered list is shown and you type the number.
 - **`wn tag add -i <tag>`** uses fzf with multi-select (Tab to select, Enter to confirm); the list shows each item’s tags. Selected items have the tag toggled (added if missing, removed if present). Without fzf, a numbered list is shown—enter space-separated numbers to select items.
-- **`wn depend -i`** uses fzf to pick the depended-on item from undone work items; the selected item is used as the `--on` target. Without fzf, a numbered list is shown. The current task (or the given id) is the item that will gain the dependency; the current item is excluded from the list.
-- **`wn rmdepend -i`** uses fzf to pick which dependency to remove from the current task (or the given id); the list shows the item’s current dependencies. Without fzf, a numbered list is shown.
+- **`wn depend add -i`** uses fzf to pick the depended-on item from undone work items; the selected item is used as the `--on` target. Without fzf, a numbered list is shown. The work item (current task or `--wid`) is the item that will gain the dependency; that item is excluded from the list.
+- **`wn depend rm -i`** uses fzf to pick which dependency to remove from the work item (current task or `--wid`); the list shows the item’s current dependencies. Without fzf, a numbered list is shown.
 
-Set `WN_DISABLE_FZF=1` to force the numbered list (e.g. in scripts or CI so interactive commands don’t block).
+Set `WN_NO_FZF=1` to force the numbered list (e.g. in scripts or CI so interactive commands don’t block).
 
 ## Testing
 
 ```bash
-make test    # or: WN_DISABLE_FZF=1 go test ./...
+make          # runs fmt, lint, cover, build (cover uses WN_NO_FZF=1 so fzf is not used)
+go test ./...
 go test ./internal/wn/... -cover   # aim for 80%+ coverage
 ```
 
-`make test` and `make cover` set `WN_DISABLE_FZF=1` so interactive tests don’t block on fzf.
+When running tests, set `WN_NO_FZF=1` (or use `make test` / `make cover`) so interactive pick uses the numbered list instead of fzf and tests do not block on a fuzzy finder.
 
 Development follows red/green TDD: write tests first, see expected failures, then implement.
 

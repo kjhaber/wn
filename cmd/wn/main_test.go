@@ -45,6 +45,18 @@ func resetListFlags() {
 	listJson = false
 }
 
+// resetDependFlags clears depend subcommand flags to avoid Cobra's flag persistence
+// across Execute() calls. Call before each test that invokes "depend" with different flags.
+func resetDependFlags() {
+	dependAddOn = ""
+	dependAddWid = ""
+	dependAddInteractive = false
+	dependRmOn = ""
+	dependRmWid = ""
+	dependRmInteractive = false
+	dependListWid = ""
+}
+
 // listStatusWidth and listIDWidth must match runList formatting for alignment tests.
 const listStatusWidth = 7
 const listIDWidth = 6
@@ -1971,9 +1983,9 @@ func TestDependInteractive(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"depend", "-i"})
+	rootCmd.SetArgs([]string{"depend", "add", "-i"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("depend -i: %v", err)
+		t.Fatalf("depend add -i: %v", err)
 	}
 
 	it, _ := store.Get("aa1111")
@@ -2032,14 +2044,205 @@ func TestRmdependInteractive(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rmdepend", "-i"})
+	rootCmd.SetArgs([]string{"depend", "rm", "-i"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("rmdepend -i: %v", err)
+		t.Fatalf("depend rm -i: %v", err)
 	}
 
 	it, _ := store.Get("aa1111")
 	if len(it.DependsOn) != 0 {
 		t.Errorf("aa1111 should have no dependencies after rmdepend -i; DependsOn = %v", it.DependsOn)
+	}
+}
+
+// TestDependAddWithOnAndWid tests "wn depend add --on <id> [--wid <id>]"
+func TestDependAddWithOnAndWid(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetDependFlags()
+	// depend add --on bb2222 --wid aa1111
+	rootCmd.SetArgs([]string{"depend", "add", "--on", "bb2222", "--wid", "aa1111"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend add --on bb2222 --wid aa1111: %v", err)
+	}
+	it, _ := store.Get("aa1111")
+	if len(it.DependsOn) != 1 || it.DependsOn[0] != "bb2222" {
+		t.Errorf("after depend add: DependsOn = %v, want [bb2222]", it.DependsOn)
+	}
+}
+
+// TestDependAddWithOnCurrent tests "wn depend add --on <id>" without --wid uses current task
+func TestDependAddWithOnCurrent(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetDependFlags()
+	rootCmd.SetArgs([]string{"depend", "add", "--on", "bb2222"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend add --on bb2222: %v", err)
+	}
+	it, _ := store.Get("aa1111")
+	if len(it.DependsOn) != 1 || it.DependsOn[0] != "bb2222" {
+		t.Errorf("after depend add (current): DependsOn = %v, want [bb2222]", it.DependsOn)
+	}
+}
+
+// TestDependRmWithOnAndWid tests "wn depend rm --on <id> [--wid <id>]"
+func TestDependRmWithOnAndWid(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, DependsOn: []string{"bb2222"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetDependFlags()
+	rootCmd.SetArgs([]string{"depend", "rm", "--on", "bb2222", "--wid", "aa1111"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend rm --on bb2222 --wid aa1111: %v", err)
+	}
+	it, _ := store.Get("aa1111")
+	if len(it.DependsOn) != 0 {
+		t.Errorf("after depend rm: DependsOn = %v, want []", it.DependsOn)
+	}
+}
+
+// TestDependList tests "wn depend list [--wid <id>]" outputs dependency ids one per line
+func TestDependList(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, DependsOn: []string{"bb2222", "cc3333"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "cc3333", Description: "third", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetDependFlags()
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	defer func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil) }()
+
+	rootCmd.SetArgs([]string{"depend", "list", "--wid", "aa1111"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend list --wid aa1111: %v", err)
+	}
+	out := strings.TrimSpace(buf.String())
+	lines := strings.Split(out, "\n")
+	if len(lines) != 2 {
+		t.Errorf("depend list: got %d lines, want 2; output %q", len(lines), out)
+	}
+	if out != "bb2222\ncc3333" && out != "cc3333\nbb2222" {
+		t.Errorf("depend list: output should be two lines (bb2222 and cc3333); got %q", out)
+	}
+}
+
+// TestDependListEmpty tests "wn depend list" when item has no dependencies
+func TestDependListEmpty(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetDependFlags()
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	defer func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil) }()
+
+	rootCmd.SetArgs([]string{"depend", "list", "--wid", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("depend list: %v", err)
+	}
+	if buf.String() != "" {
+		t.Errorf("depend list (no deps): got %q, want empty", buf.String())
 	}
 }
 

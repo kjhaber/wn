@@ -15,14 +15,14 @@ fmt:
 lint:
 	@golangci-lint run
 
-# Run unit tests (WN_DISABLE_FZF avoids blocking on fzf in interactive tests)
+# Run unit tests (WN_NO_FZF=1 disables fzf so tests use numbered list, no interactive prompt)
 test:
-	@WN_DISABLE_FZF=1 go test ./...
+	@WN_NO_FZF=1 go test ./...
 
 # Run tests with coverage and print report
 cover:
 	@mkdir -p $(BUILD_DIR)
-	@WN_DISABLE_FZF=1 go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
+	@WN_NO_FZF=1 go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
 # Build the binary

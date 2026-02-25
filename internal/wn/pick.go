@@ -9,17 +9,23 @@ import (
 	"strings"
 )
 
+// useFzf reports whether to use fzf for interactive picking. False if WN_NO_FZF is set
+// (e.g. in CI or when running tests), otherwise true when fzf is in PATH.
+func useFzf() bool {
+	if os.Getenv("WN_NO_FZF") != "" {
+		return false
+	}
+	_, err := exec.LookPath("fzf")
+	return err == nil
+}
+
 // PickInteractive lets the user choose one item from the list. Returns the chosen item ID,
 // or "" if cancelled. Uses fzf if available, otherwise a numbered list on stdin.
-// Set WN_DISABLE_FZF=1 to skip fzf (e.g. in CI or tests).
 func PickInteractive(items []*Item) (string, error) {
 	if len(items) == 0 {
 		return "", nil
 	}
-	if os.Getenv("WN_DISABLE_FZF") != "" {
-		return pickNumbered(items)
-	}
-	if _, err := exec.LookPath("fzf"); err == nil {
+	if useFzf() {
 		return pickFzf(items)
 	}
 	return pickNumbered(items)
@@ -46,10 +52,7 @@ func pickMulti(items []*Item, suffix func(*Item) string) ([]string, error) {
 	if len(items) == 0 {
 		return nil, nil
 	}
-	if os.Getenv("WN_DISABLE_FZF") != "" {
-		return pickMultiNumbered(items, suffix)
-	}
-	if _, err := exec.LookPath("fzf"); err == nil {
+	if useFzf() {
 		return pickMultiFzf(items, suffix)
 	}
 	return pickMultiNumbered(items, suffix)

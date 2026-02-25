@@ -23,6 +23,43 @@ func TestPickInteractive_EmptyList(t *testing.T) {
 	}
 }
 
+func TestPickInteractive_NumberedChoiceWhenWN_NO_FZF(t *testing.T) {
+	// WN_NO_FZF forces numbered path even if fzf is in PATH (e.g. when running tests via make)
+	orig := os.Getenv("WN_NO_FZF")
+	os.Setenv("WN_NO_FZF", "1")
+	t.Cleanup(func() {
+		if orig == "" {
+			os.Unsetenv("WN_NO_FZF")
+		} else {
+			os.Setenv("WN_NO_FZF", orig)
+		}
+	})
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	items := []*Item{
+		{ID: "only1", Description: "only item", Created: time.Now().UTC(), Updated: time.Now().UTC()},
+	}
+	id, err := PickInteractive(items)
+	if err != nil {
+		t.Errorf("PickInteractive(...) err = %v", err)
+	}
+	if id != "only1" {
+		t.Errorf("PickInteractive(...) = %q, want \"only1\"", id)
+	}
+}
+
 func TestPickInteractive_NumberedChoice(t *testing.T) {
 	// Force numbered path by making fzf unavailable
 	origPath := os.Getenv("PATH")
