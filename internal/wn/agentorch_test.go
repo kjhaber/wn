@@ -172,6 +172,29 @@ func TestExpandCommandTemplate_escapesQuotes(t *testing.T) {
 	}
 }
 
+// TestExpandCommandTemplate_escapesBackticksAndDollar verifies that prompts
+// containing backticks and $ are shell-escaped so they are not interpreted as
+// command substitution or variable expansion when passed to sh -c (fixes
+// agent-orch failure when item description contains e.g. `--wid <id>`).
+func TestExpandCommandTemplate_escapesBackticksAndDollar(t *testing.T) {
+	prompt := "wn tag add <tag-name> [--wid <id>]\n`--wid <id>` should be used. Cost $5 or $(id) risky."
+	tpl := `printf '%s' "{{.Prompt}}"`
+	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Run through sh -c to verify it executes without command-substitution or expansion
+	cmd := exec.Command("sh", "-c", got)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("sh -c failed (shell syntax/command substitution): %v.\nExpanded command: %s", err, got)
+	}
+	if stdout.String() != prompt {
+		t.Errorf("sh -c output = %q, want %q (backticks/$ did not round-trip safely)", stdout.String(), prompt)
+	}
+}
+
 // TestExpandCommandTemplate_escapesItemIDWorktreeBranch verifies that ItemID,
 // Worktree, and Branch are shell-escaped so values with metacharacters (from
 // import or branch notes) cannot inject commands when passed to sh -c.

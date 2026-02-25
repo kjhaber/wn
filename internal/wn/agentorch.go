@@ -150,11 +150,15 @@ func ExpandPromptTemplate(tpl string, item *Item, worktree, branch string) (stri
 }
 
 // shellEscapeForDoubleQuoted escapes a string for safe embedding inside a
-// double-quoted string in sh. Escapes \ and " so the result can be used in
-// templates like `cursor agent "{{.Prompt}}"` without breaking sh -c.
+// double-quoted string in sh. Escapes \, ", `, and $ so the result can be used
+// in templates like `cursor agent "{{.Prompt}}"` without breaking sh -c.
+// Backticks and $ must be escaped to prevent command substitution and variable
+// expansion (e.g. work item descriptions like `--wid <id>` or "cost $5").
 func shellEscapeForDoubleQuoted(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "`", "\\`")
+	s = strings.ReplaceAll(s, "$", "\\$")
 	return s
 }
 
