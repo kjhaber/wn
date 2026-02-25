@@ -447,7 +447,7 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 	}
 }
 
-func TestListUndoneExcludesReviewReady(t *testing.T) {
+func TestListUndoneIncludesReviewReady(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -480,11 +480,21 @@ func TestListUndoneExcludesReviewReady(t *testing.T) {
 	})
 
 	list := parseListJSON(t, out)
-	if len(list.Items) != 1 || list.Items[0].ID != "undone1" {
-		t.Errorf("list --undone --json = %v, want single item undone1 (review-ready must not appear)", list.Items)
+	if len(list.Items) != 2 {
+		t.Errorf("list --undone --json = %d items (want 2: undone and review-ready); ids %v", len(list.Items), itemIDs(list.Items))
 	}
-	if list.Items[0].Done || list.Items[0].ReviewReady {
-		t.Errorf("list --undone item should be undone and not review-ready; got done=%v review_ready=%v", list.Items[0].Done, list.Items[0].ReviewReady)
+	byID := make(map[string]*wn.Item)
+	for _, it := range list.Items {
+		byID[it.ID] = it
+	}
+	if byID["undone1"] == nil || byID["rr1"] == nil {
+		t.Errorf("list --undone --json want both undone1 and rr1; got %v", itemIDs(list.Items))
+	}
+	if byID["undone1"] != nil && (byID["undone1"].Done || byID["undone1"].ReviewReady) {
+		t.Errorf("undone1 should be undone and not review-ready; got done=%v review_ready=%v", byID["undone1"].Done, byID["undone1"].ReviewReady)
+	}
+	if byID["rr1"] != nil && (byID["rr1"].Done || !byID["rr1"].ReviewReady) {
+		t.Errorf("rr1 should be review-ready and not done; got done=%v review_ready=%v", byID["rr1"].Done, byID["rr1"].ReviewReady)
 	}
 }
 

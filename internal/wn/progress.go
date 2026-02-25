@@ -126,8 +126,8 @@ func NextUndoneItem(store Store, tag string) (*Item, error) {
 	return ordered[0], nil
 }
 
-// ListableUndoneItems returns all undone items (including review-ready) for human list/filters.
-// Clears expired in-progress lazily. Used by export --undone. For listing, use UndoneItems (default/--undone) or ReviewReadyItems (--review-ready).
+// ListableUndoneItems returns all undone items (including review-ready) for list/export.
+// Clears expired in-progress lazily. Used by wn list (default/--undone), export --undone, and MCP wn_list. For pick/next/claim use UndoneItems (available only); for list --review-ready use ReviewReadyItems.
 func ListableUndoneItems(store Store) ([]*Item, error) {
 	now := time.Now().UTC()
 	items, err := store.List()

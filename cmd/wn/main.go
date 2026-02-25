@@ -1817,7 +1817,7 @@ var listOffset int
 var listJson bool
 
 func init() {
-	listCmd.Flags().BoolVar(&listUndone, "undone", false, "List undone items (default when no filter; excludes review-ready and in-progress)")
+	listCmd.Flags().BoolVar(&listUndone, "undone", false, "List undone items (default when no filter; includes both available and review-ready; excludes in-progress)")
 	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
 	listCmd.Flags().BoolVar(&listReviewReady, "review-ready", false, "List review-ready items only")
@@ -1879,8 +1879,8 @@ func runList(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	} else if useUndone {
-		// --undone or default: available for next/claim only; exclude review-ready and in-progress
-		items, err = wn.UndoneItems(store)
+		// --undone or default: all undone (including review-ready); exclude in-progress only
+		items, err = wn.ListableUndoneItems(store)
 		if err != nil {
 			return err
 		}
