@@ -11,9 +11,13 @@ import (
 
 // PickInteractive lets the user choose one item from the list. Returns the chosen item ID,
 // or "" if cancelled. Uses fzf if available, otherwise a numbered list on stdin.
+// Set WN_DISABLE_FZF=1 to skip fzf (e.g. in CI or tests).
 func PickInteractive(items []*Item) (string, error) {
 	if len(items) == 0 {
 		return "", nil
+	}
+	if os.Getenv("WN_DISABLE_FZF") != "" {
+		return pickNumbered(items)
 	}
 	if _, err := exec.LookPath("fzf"); err == nil {
 		return pickFzf(items)
@@ -41,6 +45,9 @@ func PickMultiInteractiveWithTags(items []*Item) ([]string, error) {
 func pickMulti(items []*Item, suffix func(*Item) string) ([]string, error) {
 	if len(items) == 0 {
 		return nil, nil
+	}
+	if os.Getenv("WN_DISABLE_FZF") != "" {
+		return pickMultiNumbered(items, suffix)
 	}
 	if _, err := exec.LookPath("fzf"); err == nil {
 		return pickMultiFzf(items, suffix)

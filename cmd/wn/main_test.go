@@ -23,6 +23,13 @@ func resetPickFlags() {
 	pickReviewReady = false
 }
 
+// resetTagFlags clears tag flags to avoid Cobra's flag persistence across
+// Execute() calls. Call before each test that invokes "tag" with different flags.
+func resetTagFlags() {
+	tagWid = ""
+	tagAddInteractive = false
+}
+
 // resetListFlags clears list flags to avoid Cobra's flag persistence across
 // Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
 // each test that invokes "list" with different flags.
@@ -1608,6 +1615,7 @@ func TestListLimitOffset(t *testing.T) {
 }
 
 func TestTagInteractive_Toggle(t *testing.T) {
+	resetTagFlags()
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", "")
 	t.Cleanup(func() { os.Setenv("PATH", origPath) })
@@ -1647,9 +1655,9 @@ func TestTagInteractive_Toggle(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"tag", "-i", "mytag"})
+	rootCmd.SetArgs([]string{"tag", "add", "-i", "mytag"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("tag -i mytag: %v", err)
+		t.Fatalf("tag add -i mytag: %v", err)
 	}
 
 	it1, _ := store.Get("aa1111")
@@ -1677,6 +1685,7 @@ func TestTagInteractive_Toggle(t *testing.T) {
 }
 
 func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
+	resetTagFlags()
 	// wn tag -i should list only undone items; done items must not appear in fzf/numbered list
 	origPath := os.Getenv("PATH")
 	os.Setenv("PATH", "")
@@ -1716,9 +1725,9 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"tag", "-i", "mytag"})
+	rootCmd.SetArgs([]string{"tag", "add", "-i", "mytag"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("tag -i mytag: %v", err)
+		t.Fatalf("tag add -i mytag: %v", err)
 	}
 
 	// Only undone item (bb2222) should be in the list; selecting "1" must tag bb2222, not aa1111
@@ -1743,6 +1752,179 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 	}
 	if !undoneHasTag {
 		t.Error("selecting the only listed item (bb2222, undone) should have added mytag")
+	}
+}
+
+func TestTagAdd(t *testing.T) {
+	resetTagFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn tag add mytag (current item)
+	rootCmd.SetArgs([]string{"tag", "add", "mytag"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag add mytag: %v", err)
+	}
+	it, _ := store.Get("aa1111")
+	hasTag := false
+	for _, tag := range it.Tags {
+		if tag == "mytag" {
+			hasTag = true
+			break
+		}
+	}
+	if !hasTag {
+		t.Error("tag add mytag should add tag to current item aa1111")
+	}
+
+	// wn tag add other --wid bb2222
+	rootCmd.SetArgs([]string{"tag", "add", "other", "--wid", "bb2222"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag add other --wid bb2222: %v", err)
+	}
+	it2, _ := store.Get("bb2222")
+	hasOther := false
+	for _, tag := range it2.Tags {
+		if tag == "other" {
+			hasOther = true
+			break
+		}
+	}
+	if !hasOther {
+		t.Error("tag add other --wid bb2222 should add tag to bb2222")
+	}
+}
+
+func TestTagRm(t *testing.T) {
+	resetTagFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Tags: []string{"mytag", "other"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Tags: []string{"mytag"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn tag rm mytag (current item)
+	rootCmd.SetArgs([]string{"tag", "rm", "mytag"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag rm mytag: %v", err)
+	}
+	it, _ := store.Get("aa1111")
+	for _, tag := range it.Tags {
+		if tag == "mytag" {
+			t.Error("tag rm mytag should remove tag from current item aa1111")
+			break
+		}
+	}
+
+	// wn tag rm mytag --wid bb2222
+	rootCmd.SetArgs([]string{"tag", "rm", "mytag", "--wid", "bb2222"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag rm mytag --wid bb2222: %v", err)
+	}
+	it2, _ := store.Get("bb2222")
+	if len(it2.Tags) != 0 {
+		t.Errorf("tag rm mytag --wid bb2222 should remove tag from bb2222; remaining tags: %v", it2.Tags)
+	}
+}
+
+func TestTagList(t *testing.T) {
+	resetTagFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aa1111", Description: "first", Created: now, Updated: now, Tags: []string{"foo", "bar"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Tags: []string{"baz"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aa1111"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn tag list (current item) — one per line
+	rootCmd.SetArgs([]string{"tag", "list"})
+	var out strings.Builder
+	rootCmd.SetOut(&out)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag list: %v", err)
+	}
+	rootCmd.SetOut(nil)
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Errorf("tag list: want 2 lines (foo, bar), got %d: %q", len(lines), lines)
+	}
+	if lines[0] != "foo" || lines[1] != "bar" {
+		t.Errorf("tag list: want lines foo, bar; got %q", lines)
+	}
+
+	// wn tag list --wid bb2222
+	rootCmd.SetArgs([]string{"tag", "list", "--wid", "bb2222"})
+	out.Reset()
+	rootCmd.SetOut(&out)
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("tag list --wid bb2222: %v", err)
+	}
+	rootCmd.SetOut(nil)
+	lines2 := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	if len(lines2) != 1 || lines2[0] != "baz" {
+		t.Errorf("tag list --wid bb2222: want one line 'baz'; got %q", lines2)
 	}
 }
 

@@ -41,7 +41,9 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn add -m "..."` | Add a work item (use `-t tag` for tags; omit `-m` to use `$EDITOR`) |
 | `wn rm <id>` | Remove a work item |
 | `wn edit <id>` | Edit description in `$EDITOR` |
-| `wn tag [id] <tag>` / `wn untag [id] <tag>` | Add or remove a tag. Use `wn tag -i <tag>` to pick items with fzf and toggle the tag on each selected item |
+| `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
+| `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
+| `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
 | `wn list` | List items (default: undone, i.e. both available-for-claim and review-ready—excludes in-progress; dependency order). Status column: undone, claimed, done, review-ready. Use `--review-ready`/`--rr` to list only review-ready items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
 | `wn depend [id] --on <id2>` | Mark dependency (rejects cycles). Use `-i` to pick the depended-on item from undone work items (fzf or numbered list) |
 | `wn rmdepend [id] --on <id2>` | Remove dependency. Use `-i` to pick which dependency to remove (fzf or numbered list) |
@@ -154,24 +156,28 @@ When choosing what to work on, agents should use this convention:
 List order and fzf pick order can be controlled by:
 
 - **`wn list --sort '...'`** — Comma-separated sort keys; each key may be suffixed with `:asc` or `:desc` (default `:asc`). Keys: `created`, `updated`, `priority` (backlog order), `alpha` (description), `tags` (group by tags). Example: `wn list --sort 'updated:desc,priority,tags'`.
-- **Default in settings** — In `~/.config/wn/settings.json`, set `"sort": "updated:desc,priority"` (or any valid sort spec). This applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag -i`, `wn depend -i`, and `wn rmdepend -i`.
+- **Default in settings** — In `~/.config/wn/settings.json`, set `"sort": "updated:desc,priority"` (or any valid sort spec). This applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag add -i`, `wn depend -i`, and `wn rmdepend -i`.
 
 When no sort preference is set, `wn list` uses dependency order (topological) for undone items.
 
 ## Optional: fzf for interactive commands
 
-If `fzf` is in your `PATH`:
+If `fzf` is in your `PATH` (and `WN_DISABLE_FZF` is not set, e.g. in CI or when running tests):
 - **`wn pick`** uses it for fuzzy selection of the current task. Otherwise a numbered list is shown and you type the number.
-- **`wn tag -i <tag>`** uses fzf with multi-select (Tab to select, Enter to confirm); the list shows each item’s tags. Selected items have the tag toggled (added if missing, removed if present). Without fzf, a numbered list is shown—enter space-separated numbers to select items.
+- **`wn tag add -i <tag>`** uses fzf with multi-select (Tab to select, Enter to confirm); the list shows each item’s tags. Selected items have the tag toggled (added if missing, removed if present). Without fzf, a numbered list is shown—enter space-separated numbers to select items.
 - **`wn depend -i`** uses fzf to pick the depended-on item from undone work items; the selected item is used as the `--on` target. Without fzf, a numbered list is shown. The current task (or the given id) is the item that will gain the dependency; the current item is excluded from the list.
 - **`wn rmdepend -i`** uses fzf to pick which dependency to remove from the current task (or the given id); the list shows the item’s current dependencies. Without fzf, a numbered list is shown.
+
+Set `WN_DISABLE_FZF=1` to force the numbered list (e.g. in scripts or CI so interactive commands don’t block).
 
 ## Testing
 
 ```bash
-go test ./...
+make test    # or: WN_DISABLE_FZF=1 go test ./...
 go test ./internal/wn/... -cover   # aim for 80%+ coverage
 ```
+
+`make test` and `make cover` set `WN_DISABLE_FZF=1` so interactive tests don’t block on fzf.
 
 Development follows red/green TDD: write tests first, see expected failures, then implement.
 

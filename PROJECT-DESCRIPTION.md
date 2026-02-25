@@ -29,9 +29,9 @@ From there I started writing prompts into a NEXT-STEPS.md file as I thought of t
 `wn edit af123`
   ... opens $EDITOR
 
-`wn tag af123 'whatever'`
-`wn untag af123 'whatever'`
-  .. or `wn tag af123 '+whatever'` and `wn tag af123 '-whatever'`?
+`wn tag add whatever` / `wn tag add whatever --wid af123`
+`wn tag rm whatever` / `wn tag rm whatever --wid af123`
+`wn tag list` / `wn tag list --wid af123`
   .. tag names allow alphanumeric + dash + underscore, maxlen 32
   .. might be interesting for tags to have more detailed description/notes, allowing more context in the task description.
 

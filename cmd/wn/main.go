@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, untagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -457,45 +457,71 @@ func runEdit(cmd *cobra.Command, args []string) error {
 }
 
 var tagCmd = &cobra.Command{
-	Use:   "tag [id] <tag>",
-	Short: "Add a tag to a work item",
-	Long:  "If id is omitted, tags the current task. Use -i/--interactive to pick items with fzf and toggle the tag on each. Example: wn tag my-tag  or  wn tag -i mytag",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runTag,
+	Use:   "tag",
+	Short: "Add, remove, or list tags on a work item",
+	Long:  "Subcommands: add, rm, list. Use --wid to specify work item; when omitted, uses the current task. Use 'wn tag add -i <tag>' to pick items with fzf and toggle the tag on each.",
 }
-var tagInteractive bool
+
+var tagWid string
+var tagAddInteractive bool
+
+var tagAddCmd = &cobra.Command{
+	Use:   "add <tag-name>",
+	Short: "Add a tag to a work item",
+	Long:  "Add a tag. Use --wid <id> to specify the work item; when omitted, uses the current task. Use -i/--interactive to pick items with fzf and toggle the tag on each selected item.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTagAdd,
+}
+
+var tagRmCmd = &cobra.Command{
+	Use:   "rm <tag-name>",
+	Short: "Remove a tag from a work item",
+	Long:  "Remove a tag. Use --wid <id> to specify the work item; when omitted, uses the current task.",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTagRm,
+}
+
+var tagListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List tags on a work item (one per line)",
+	Long:  "List tags on the work item. Use --wid <id> to specify the work item; when omitted, uses the current task. Output is one tag per line.",
+	Args:  cobra.NoArgs,
+	RunE:  runTagList,
+}
 
 func init() {
-	tagCmd.Flags().BoolVarP(&tagInteractive, "interactive", "i", false, "Pick work items with fzf (or numbered list); toggle tag on selected items")
+	tagCmd.PersistentFlags().StringVar(&tagWid, "wid", "", "Work item id (default: current task)")
+	tagAddCmd.Flags().BoolVarP(&tagAddInteractive, "interactive", "i", false, "Pick work items with fzf (or numbered list); toggle tag on selected items")
+	tagCmd.AddCommand(tagAddCmd, tagRmCmd, tagListCmd)
 }
 
-func runTag(cmd *cobra.Command, args []string) error {
-	if tagInteractive {
+func resolveTagWid() (string, error) {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return "", err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return "", err
+	}
+	return wn.ResolveItemID(meta.CurrentID, tagWid)
+}
+
+func runTagAdd(cmd *cobra.Command, args []string) error {
+	if tagAddInteractive {
 		return runTagInteractive(args)
 	}
-	var id, tag string
-	if len(args) == 2 {
-		id, tag = args[0], args[1]
-	} else {
-		tag = args[0]
-	}
+	tag := args[0]
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
+	}
+	id, err := resolveTagWid()
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	if len(args) == 1 {
-		var errResolve error
-		id, errResolve = wn.ResolveItemID(meta.CurrentID, "")
-		if errResolve != nil {
-			return fmt.Errorf("no id provided and no current task")
-		}
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -575,35 +601,15 @@ func runTagInteractive(args []string) error {
 	return nil
 }
 
-var untagCmd = &cobra.Command{
-	Use:   "untag [id] <tag>",
-	Short: "Remove a tag from a work item",
-	Long:  "If id is omitted, untags the current task.",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runUntag,
-}
-
-func runUntag(cmd *cobra.Command, args []string) error {
-	var id, tag string
-	if len(args) == 2 {
-		id, tag = args[0], args[1]
-	} else {
-		tag = args[0]
+func runTagRm(cmd *cobra.Command, args []string) error {
+	tag := args[0]
+	id, err := resolveTagWid()
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
 	}
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	if len(args) == 1 {
-		var errResolve error
-		id, errResolve = wn.ResolveItemID(meta.CurrentID, "")
-		if errResolve != nil {
-			return fmt.Errorf("no id provided and no current task")
-		}
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -621,6 +627,30 @@ func runUntag(cmd *cobra.Command, args []string) error {
 		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "tag_removed", Msg: tag})
 		return it, nil
 	})
+}
+
+func runTagList(cmd *cobra.Command, args []string) error {
+	id, err := resolveTagWid()
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	out := cmd.Root().OutOrStdout()
+	for _, t := range item.Tags {
+		fmt.Fprintln(out, t)
+	}
+	return nil
 }
 
 var dependCmd = &cobra.Command{
