@@ -172,3 +172,32 @@ func RemoveWorktree(mainRoot, worktreePath string, audit io.Writer) error {
 	}
 	return nil
 }
+
+// WorktreePathForBranch returns the path of the worktree that has the given branch checked out,
+// or "" if no worktree has that branch. mainRoot is the repo root. Used to remove a worktree
+// so the branch can be checked out in the main worktree (e.g. for wn merge).
+func WorktreePathForBranch(mainRoot, branchName string) (string, error) {
+	cmd := exec.Command("git", "worktree", "list")
+	cmd.Dir = mainRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("git worktree list: %w", err)
+	}
+	// Format: "<path> <commit> [<branch>]" (path may contain spaces; commit is hex)
+	suffix := " [" + branchName + "]"
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasSuffix(line, suffix) {
+			continue
+		}
+		beforeBranch := line[:len(line)-len(suffix)]
+		// beforeBranch is "<path> <commit>"; path may have spaces, commit is last token
+		fields := strings.Fields(beforeBranch)
+		if len(fields) < 2 {
+			continue
+		}
+		path := strings.Join(fields[:len(fields)-1], " ")
+		return path, nil
+	}
+	return "", nil
+}

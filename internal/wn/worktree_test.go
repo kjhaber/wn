@@ -235,3 +235,38 @@ func TestBranchMergedInto(t *testing.T) {
 		t.Error("BranchMergedInto(nonexistent) should not return true")
 	}
 }
+
+func TestWorktreePathForBranch(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	base := filepath.Join(dir, "worktrees")
+	if err := os.MkdirAll(base, 0755); err != nil {
+		t.Fatal(err)
+	}
+	var audit bytes.Buffer
+	worktreePath := filepath.Join(base, "wn-path-test")
+	path, err := EnsureWorktree(dir, worktreePath, "wn-path-test", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+	got, err := WorktreePathForBranch(dir, "wn-path-test")
+	if err != nil {
+		t.Fatalf("WorktreePathForBranch: %v", err)
+	}
+	absPath, _ := filepath.Abs(path)
+	absGot, _ := filepath.Abs(got)
+	normPath, _ := filepath.EvalSymlinks(absPath)
+	normGot, _ := filepath.EvalSymlinks(absGot)
+	if normGot != normPath {
+		t.Errorf("WorktreePathForBranch(wn-path-test) = %q, want %q", got, path)
+	}
+	// Branch not in any worktree returns ""
+	gotNone, err := WorktreePathForBranch(dir, "nonexistent-branch")
+	if err != nil {
+		t.Fatalf("WorktreePathForBranch(nonexistent): %v", err)
+	}
+	if gotNone != "" {
+		t.Errorf("WorktreePathForBranch(nonexistent) = %q, want \"\"", gotNone)
+	}
+	_ = RemoveWorktree(dir, path, &audit)
+}

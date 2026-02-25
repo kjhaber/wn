@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, rmdependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1254,6 +1254,47 @@ func runMarkMerged(cmd *cobra.Command, args []string) error {
 		case "skipped_error":
 			fmt.Fprintf(os.Stderr, "skip %s: %s\n", r.ID, r.Reason)
 		}
+	}
+	return nil
+}
+
+var mergeCmd = &cobra.Command{
+	Use:   "merge",
+	Short: "Merge a review-ready work item's branch into main",
+	Long:  "From the main worktree: checkout the work item's branch (removing its worktree if present), run validate (e.g. make), rebase main, checkout main, merge the branch, run validate again, mark the item done, and delete the branch. Use current task or --wid <id>. Logs activity with timestamps to stderr (same as wn agent-orch). On validate or rebase failure, exits with instructions for the agent to fix and re-run.",
+	RunE:  runMerge,
+}
+
+var (
+	mergeWID         string
+	mergeMainBranch  string
+	mergeValidateCmd string
+)
+
+func init() {
+	mergeCmd.Flags().StringVar(&mergeWID, "wid", "", "Work item id to merge; omit to use current task (must be review-ready)")
+	mergeCmd.Flags().StringVar(&mergeMainBranch, "main-branch", "main", "Branch to rebase onto and merge into")
+	mergeCmd.Flags().StringVar(&mergeValidateCmd, "validate", "make", "Build/validation command to run before and after merge (e.g. make)")
+}
+
+func runMerge(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	opts := wn.MergeOpts{
+		Root:        root,
+		WorkID:      mergeWID,
+		MainBranch:  mergeMainBranch,
+		ValidateCmd: mergeValidateCmd,
+		Audit:       os.Stderr,
+	}
+	if err := wn.RunMerge(store, opts); err != nil {
+		return err
 	}
 	return nil
 }

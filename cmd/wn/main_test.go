@@ -2439,6 +2439,42 @@ func TestMarkMerged_MarksDoneWhenBranchMerged(t *testing.T) {
 	}
 }
 
+func TestMerge_noBranchNote(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatal(err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID: "abc123", Description: "task", Created: now, Updated: now,
+		ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}},
+		Notes: []wn.Note{},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "abc123"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	rootCmd.SetArgs([]string{"merge"})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("wn merge with no branch note should fail")
+	}
+	if !strings.Contains(err.Error(), "branch note") {
+		t.Errorf("wn merge error = %v, want message containing 'branch note'", err)
+	}
+}
+
 func execIn(t *testing.T, dir, name string, args ...string) {
 	t.Helper()
 	cmd := exec.Command(name, args...)
