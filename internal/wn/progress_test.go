@@ -5,6 +5,33 @@ import (
 	"time"
 )
 
+func TestItemListStatus(t *testing.T) {
+	now := time.Now().UTC()
+	future := now.Add(time.Hour)
+
+	tests := []struct {
+		name string
+		item *Item
+		now  time.Time
+		want string
+	}{
+		{"undone", &Item{Done: false}, now, "undone"},
+		{"claimed", &Item{Done: false, InProgressUntil: future}, now, "claimed"},
+		{"review", &Item{Done: false, ReviewReady: true}, now, "review"},
+		{"done (default)", &Item{Done: true}, now, "done"},
+		{"done (explicit)", &Item{Done: true, DoneStatus: DoneStatusDone}, now, "done"},
+		{"closed", &Item{Done: true, DoneStatus: DoneStatusClosed}, now, "closed"},
+		{"suspend", &Item{Done: true, DoneStatus: DoneStatusSuspend}, now, "suspend"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ItemListStatus(tt.item, tt.now); got != tt.want {
+				t.Errorf("ItemListStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestIsInProgress(t *testing.T) {
 	now := time.Now().UTC()
 	past := now.Add(-time.Hour)

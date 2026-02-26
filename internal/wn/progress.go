@@ -2,16 +2,23 @@ package wn
 
 import "time"
 
-// ItemListStatus returns "done", "undone", "claimed", or "review-ready" for list/JSON output.
+// ItemListStatus returns "undone", "claimed", "review", "done", "closed", or "suspend" for list/JSON output.
 func ItemListStatus(it *Item, now time.Time) string {
 	if it.Done {
-		return "done"
+		switch it.DoneStatus {
+		case DoneStatusClosed:
+			return "closed"
+		case DoneStatusSuspend:
+			return "suspend"
+		default:
+			return "done"
+		}
 	}
 	if IsInProgress(it, now) {
 		return "claimed"
 	}
 	if it.ReviewReady {
-		return "review-ready"
+		return "review"
 	}
 	return "undone"
 }

@@ -54,6 +54,7 @@ func MarkMergedItems(store Store, repoRoot, intoRef string, dryRun bool) ([]Mark
 		if err := store.UpdateItem(it.ID, func(item *Item) (*Item, error) {
 			item.Done = true
 			item.DoneMessage = msg
+			item.DoneStatus = DoneStatusDone
 			item.ReviewReady = false
 			item.Updated = now
 			item.Log = append(item.Log, LogEntry{At: now, Kind: "done", Msg: msg})

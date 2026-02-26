@@ -140,6 +140,7 @@ func RunMerge(store Store, opts MergeOpts) error {
 	if err := store.UpdateItem(item.ID, func(it *Item) (*Item, error) {
 		it.Done = true
 		it.DoneMessage = msg
+		it.DoneStatus = DoneStatusDone
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: msg})

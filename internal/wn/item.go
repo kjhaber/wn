@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// DoneStatus values when Item.Done is true. Empty or "done" = normal completion.
+const (
+	DoneStatusDone    = "done"
+	DoneStatusClosed  = "closed"
+	DoneStatusSuspend = "suspend"
+)
+
 // Item is a single work item. IDs are 6-character UUID prefixes (lowercase hex).
 type Item struct {
 	ID              string     `json:"id"`
@@ -13,6 +20,7 @@ type Item struct {
 	Updated         time.Time  `json:"updated"`
 	Done            bool       `json:"done"`
 	DoneMessage     string     `json:"done_message,omitempty"`
+	DoneStatus      string     `json:"done_status,omitempty"`       // when Done: "done" | "closed" | "suspend"; empty = done
 	InProgressUntil time.Time  `json:"in_progress_until,omitempty"` // zero = not in progress
 	InProgressBy    string     `json:"in_progress_by,omitempty"`    // optional worker id for logging
 	ReviewReady     bool       `json:"review_ready,omitempty"`      // undone but excluded from agent next/claim; set on release, cleared when user marks done

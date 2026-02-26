@@ -254,7 +254,7 @@ func TestExportItems_IncludesAllAttributes(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected first item to be object, got %T", itemsArr[0])
 	}
-	wantKeys := []string{"id", "description", "created", "updated", "done", "done_message", "in_progress_until", "in_progress_by", "review_ready", "tags", "depends_on", "order", "log", "notes"}
+	wantKeys := []string{"id", "description", "created", "updated", "done", "done_message", "done_status", "in_progress_until", "in_progress_by", "review_ready", "tags", "depends_on", "order", "log", "notes"}
 	for _, k := range wantKeys {
 		if _, has := itemObj[k]; !has {
 			t.Errorf("export item missing key %q (export must include all attributes)", k)

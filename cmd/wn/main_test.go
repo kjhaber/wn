@@ -1190,6 +1190,48 @@ func TestNextWithClaim(t *testing.T) {
 	}
 }
 
+func TestStatusCommand(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// wn status suspend [id] marks item done with done_status suspend
+	rootCmd.SetArgs([]string{"status", "suspend", itemID, "-m", "deferred"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn status suspend: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, err := store.Get(itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !item.Done || item.DoneStatus != wn.DoneStatusSuspend {
+		t.Errorf("after status suspend: Done=%v DoneStatus=%q", item.Done, item.DoneStatus)
+	}
+
+	// wn status undone [id] clears done/suspend
+	rootCmd.SetArgs([]string{"status", "undone", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn status undone: %v", err)
+	}
+	item, _ = store.Get(itemID)
+	if item.Done || item.DoneStatus != "" {
+		t.Errorf("after status undone: Done=%v DoneStatus=%q", item.Done, item.DoneStatus)
+	}
+
+	// invalid status returns error
+	rootCmd.SetArgs([]string{"status", "invalid", itemID})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("wn status invalid should fail")
+	}
+}
+
 // TestNextWithTag verifies that "wn next --tag X" sets current to the next undone item that has tag X (dependency order).
 func TestNextWithTag(t *testing.T) {
 	dir := t.TempDir()

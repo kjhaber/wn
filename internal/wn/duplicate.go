@@ -29,6 +29,7 @@ func MarkDuplicateOf(store Store, id, originalID string) error {
 		}
 		it.Done = true
 		it.DoneMessage = ""
+		it.DoneStatus = DoneStatusDone
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, LogEntry{At: now, Kind: "duplicate_of", Msg: originalID})

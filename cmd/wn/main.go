@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, orderCmd, doneCmd, undoneCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, orderCmd, doneCmd, undoneCmd, statusCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -61,9 +61,18 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 	}
 	var state string
 	if item.Done {
-		state = " (done)"
+		switch item.DoneStatus {
+		case wn.DoneStatusClosed:
+			state = " (closed)"
+		case wn.DoneStatusSuspend:
+			state = " (suspend)"
+		default:
+			state = " (done)"
+		}
 	} else if wn.IsInProgress(item, time.Now().UTC()) {
 		state = " (claimed)"
+	} else if item.ReviewReady {
+		state = " (review)"
 	}
 	firstLine := wn.FirstLine(item.Description)
 	tagsStr := formatTags(item.Tags)
@@ -253,12 +262,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	const timeFmt = "2006-01-02 15:04:05"
 	fmt.Printf("id: %s\n", item.ID)
 	fmt.Printf("description:\n%s\n", item.Description)
-	status := "undone"
-	if item.Done {
-		status = "done"
-		if item.DoneMessage != "" {
-			status += " (" + item.DoneMessage + ")"
-		}
+	status := wn.ItemListStatus(item, time.Now().UTC())
+	if item.Done && item.DoneMessage != "" {
+		status += " (" + item.DoneMessage + ")"
 	} else if !item.InProgressUntil.IsZero() && item.InProgressUntil.After(time.Now().UTC()) {
 		status = "in progress until " + item.InProgressUntil.Format(timeFmt)
 		if item.InProgressBy != "" {
@@ -999,6 +1005,7 @@ func runDone(cmd *cobra.Command, args []string) error {
 	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
 		it.DoneMessage = doneMessage
+		it.DoneStatus = wn.DoneStatusDone
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
@@ -1106,11 +1113,72 @@ func runUndone(cmd *cobra.Command, args []string) error {
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = false
 		it.DoneMessage = ""
+		it.DoneStatus = ""
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "undone"})
 		return it, nil
 	})
+}
+
+var statusCmd = &cobra.Command{
+	Use:   "status <undone|claimed|review|done|closed|suspend> [id]",
+	Short: "Set work item status",
+	Long:  "Set the work item to the given status. If id is omitted, uses the current task. Use --for when setting to claimed (duration, e.g. 30m); -m for a message when setting to done/closed/suspend.",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runStatus,
+}
+var statusFor string
+var statusMessage string
+var statusClaimBy string
+
+func init() {
+	statusCmd.Flags().StringVar(&statusFor, "for", "", "Claim duration when setting to claimed (e.g. 30m, 1h); default 1h")
+	statusCmd.Flags().StringVarP(&statusMessage, "message", "m", "", "Optional message when setting to done, closed, or suspend")
+	statusCmd.Flags().StringVar(&statusClaimBy, "by", "", "Optional worker ID when setting to claimed")
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	state := args[0]
+	if !wn.ValidStatus(state) {
+		return fmt.Errorf("invalid status %q; must be one of: undone, claimed, review, done, closed, suspend", state)
+	}
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 1 {
+		explicitID = args[1]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	opts := wn.StatusOpts{DoneMessage: statusMessage, ClaimBy: statusClaimBy}
+	if state == wn.StatusClaimed && statusFor != "" {
+		d, err := time.ParseDuration(statusFor)
+		if err != nil {
+			return fmt.Errorf("invalid --for duration %q: %w", statusFor, err)
+		}
+		if d <= 0 {
+			return fmt.Errorf("--for duration must be positive, got %v", d)
+		}
+		opts.ClaimFor = d
+	}
+	if err := wn.SetStatus(store, id, state, opts); err != nil {
+		return err
+	}
+	fmt.Printf("marked %s %s\n", id, state)
+	return nil
 }
 
 var claimCmd = &cobra.Command{
@@ -2306,16 +2374,7 @@ func formatTags(tags []string) string {
 	return "[" + strings.Join(tags, ", ") + "]"
 }
 
-// itemListStatus returns "done", "undone", "claimed", or "review-ready" for list and JSON output.
+// itemListStatus returns "undone", "claimed", "review", "done", "closed", or "suspend" for list and JSON output.
 func itemListStatus(it *wn.Item, now time.Time) string {
-	if it.Done {
-		return "done"
-	}
-	if wn.IsInProgress(it, now) {
-		return "claimed"
-	}
-	if it.ReviewReady {
-		return "review-ready"
-	}
-	return "undone"
+	return wn.ItemListStatus(it, now)
 }

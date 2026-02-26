@@ -323,6 +323,7 @@ func handleWnDone(ctx context.Context, req *mcp.CallToolRequest, in wnDoneIn) (*
 	err = store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
 		it.Done = true
 		it.DoneMessage = in.Message
+		it.DoneStatus = DoneStatusDone
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: in.Message})
@@ -349,6 +350,7 @@ func handleWnUndone(ctx context.Context, req *mcp.CallToolRequest, in wnUndoneIn
 	err = store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
 		it.Done = false
 		it.DoneMessage = ""
+		it.DoneStatus = ""
 		it.ReviewReady = false
 		it.Updated = now
 		it.Log = append(it.Log, LogEntry{At: now, Kind: "undone"})

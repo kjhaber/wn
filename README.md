@@ -44,13 +44,14 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
-| `wn list` | List items (default: undone, i.e. both available-for-claim and review-ready—excludes in-progress; dependency order). Status column: undone, claimed, done, review-ready. Use `--review-ready`/`--rr` to list only review-ready items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
+| `wn list` | List items (default: undone, i.e. both available-for-claim and review; excludes in-progress; dependency order). Status column: undone, claimed, review, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
 | `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item (fzf or numbered list) |
 | `wn depend rm --on <id> [--wid <id>]` | Remove dependency. Omit `--wid` for current task. Use `-i` to pick which dependency to remove (fzf or numbered list) |
 | `wn depend list [--wid <id>]` | List dependency ids of the work item, one per line. Omit `--wid` for current task |
 | `wn order [id] --set <n>` / `--unset` | Set or clear optional backlog order (lower = earlier when deps don't define order) |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
+| `wn status <state> [id]` | Set work item status. State: undone, claimed, review, done, closed, suspend. Omit id for current task. Use `--for 30m` when setting to claimed; `-m "..."` for done/closed/suspend. |
 | `wn duplicate [id] --of <id>` | Mark a work item as a duplicate of another. Adds the standard note `duplicate-of` (body = original id) and marks the item done so it leaves the queue; the item is kept for reference. Omit id for current task. |
 | `wn claim [id] [--for 30m]` | Mark in progress (item leaves undone list until expiry or release). Omit `--for` to use default 1h so you can renew with just `wn claim`; optional `--by` for logging |
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done) |
@@ -76,6 +77,17 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn do [id]` | Shorthand: run agent orchestrator on a work item and exit. With id: `agent-orch --work-id <id>`. Without id: uses current task (`agent-orch --current`). |
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
+
+**Work item status:** Each item has one of six statuses. Use `wn status <state> [id]` to set any state (omit id for current task). `wn done` and `wn undone` are shortcuts for the common cases.
+
+| Status | Description |
+|--------|-------------|
+| **undone** | Not complete; available for `wn next` and agent claim. Default for new items. |
+| **claimed** | In progress—someone has claimed it until a duration expires or they run `wn release`. Excluded from `wn next` and claim until expiry. |
+| **review** | Work is done but not yet accepted (e.g. PR open). Excluded from `wn next` and claim; use `wn list --rr` to see review items. Set by `wn release` or `wn review-ready` / `wn rr`. Mark **done** when merged or accepted. |
+| **done** | Completed and accepted. Use `wn done` or `wn status done`. |
+| **closed** | Completed and closed (e.g. archived). Terminal state. |
+| **suspend** | Deferred—not ready to implement or not sure you want to. Like done (excluded from next/claim) but not retired to closed; use for ideas you might revisit (e.g. “TUI subcommand” when focusing on CLI first). |
 
 **Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (so it won't be picked again); `wn list` and MCP `wn_list` include both undone and review-ready. You can also set an item to review-ready directly with `wn review-ready` (alias `wn rr`). Use `wn list --review-ready` (or `wn list --rr`) to list only review-ready items for human review. Mark it done when the work is merged or accepted (e.g. merge to main). Use `wn mark-merged` to automatically mark done all review-ready items whose branch has been merged to the current branch.
 

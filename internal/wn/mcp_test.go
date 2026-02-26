@@ -215,8 +215,8 @@ func TestMCP_wn_list_includes_review_ready(t *testing.T) {
 	if byID["u1"].Status != "undone" {
 		t.Errorf("wn_list u1 status = %q, want undone", byID["u1"].Status)
 	}
-	if byID["rr1"].Status != "review-ready" {
-		t.Errorf("wn_list rr1 status = %q, want review-ready", byID["rr1"].Status)
+	if byID["rr1"].Status != "review" {
+		t.Errorf("wn_list rr1 status = %q, want review", byID["rr1"].Status)
 	}
 }
 

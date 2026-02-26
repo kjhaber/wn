@@ -24,6 +24,7 @@ type ExportItem struct {
 	Updated         time.Time  `json:"updated"`
 	Done            bool       `json:"done"`
 	DoneMessage     string     `json:"done_message"`
+	DoneStatus      string     `json:"done_status"`
 	InProgressUntil time.Time  `json:"in_progress_until"`
 	InProgressBy    string     `json:"in_progress_by"`
 	ReviewReady     bool       `json:"review_ready"`
@@ -46,6 +47,7 @@ func ItemToExportItem(it *Item) *ExportItem {
 		Updated:         it.Updated,
 		Done:            it.Done,
 		DoneMessage:     it.DoneMessage,
+		DoneStatus:      it.DoneStatus,
 		InProgressUntil: it.InProgressUntil,
 		InProgressBy:    it.InProgressBy,
 		ReviewReady:     it.ReviewReady,
