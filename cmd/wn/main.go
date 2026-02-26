@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, orderCmd, doneCmd, undoneCmd, statusCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -887,65 +887,6 @@ func interactiveSortSpec() []wn.SortOption {
 		return nil
 	}
 	return wn.SortSpecFromSettings(settings)
-}
-
-var orderCmd = &cobra.Command{
-	Use:   "order [id] --set <n> | --unset",
-	Short: "Set or clear optional backlog order (lower = earlier when deps don't define order)",
-	Long:  "If id is omitted, uses the current task. Use --set to assign a number, --unset to clear.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runOrder,
-}
-var orderSet int
-var orderUnset bool
-
-func init() {
-	orderCmd.Flags().IntVar(&orderSet, "set", 0, "Set order to this number (0..255; lower = earlier in backlog; default when unset is 99)")
-	orderCmd.Flags().BoolVar(&orderUnset, "unset", false, "Clear the order field")
-}
-
-func runOrder(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
-	}
-	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
-	if err != nil {
-		return fmt.Errorf("no id provided and no current task")
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	if orderUnset {
-		return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
-			it.Order = nil
-			it.Updated = time.Now().UTC()
-			it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "order_cleared"})
-			return it, nil
-		})
-	}
-	if !cmd.Flags().Changed("set") {
-		return fmt.Errorf("use --set <n> or --unset")
-	}
-	n := orderSet
-	if !wn.ValidOrder(n) {
-		return fmt.Errorf("order must be 0..%d (got %d)", wn.MaxOrder, n)
-	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
-		it.Order = &n
-		it.Updated = time.Now().UTC()
-		it.Log = append(it.Log, wn.LogEntry{At: it.Updated, Kind: "order_set", Msg: fmt.Sprintf("%d", n)})
-		return it, nil
-	})
 }
 
 var doneCmd = &cobra.Command{

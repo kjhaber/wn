@@ -33,11 +33,11 @@ func NewMCPServer() *mcp.Server {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_add",
-		Description: "Add a work item. Returns the new item's id. Priority: pass optional order (lower number = higher priority) when dependencies don't define order. Pass optional depends_on (array of item IDs) to set dependencies when adding follow-up items so agentic queue order is preserved.",
+		Description: "Add a work item. Returns the new item's id. Pass optional depends_on (array of item IDs) to set dependencies when adding follow-up items so agentic queue order is preserved. Use tags (e.g. priority:high) and status suspend for prioritization.",
 	}, handleWnAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_list",
-		Description: "List undone work items (includes both available-for-claim and review-ready; excludes in-progress). Returns a JSON array of objects with id, description (first line), tags, and status (undone or review-ready). Order: dependency order, then by order field (lower = earlier). Optionally filter by tag (e.g. tag 'priority:high'). Pass limit (max items to return), optional offset (skip N items), or cursor (item id to start after) for pagination and smaller context.",
+		Description: "List undone work items (includes both available-for-claim and review-ready; excludes in-progress). Returns a JSON array of objects with id, description (first line), tags, and status (undone or review-ready). Order: dependency order. Optionally filter by tag (e.g. tag 'priority:high'). Pass limit (max items to return), optional offset (skip N items), or cursor (item id to start after) for pagination and smaller context.",
 	}, handleWnList)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_done",
@@ -69,12 +69,8 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRelease)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_next",
-		Description: "Set the next available task as current and return its id and description. Next is chosen by dependency order, then by order field (lower = higher priority). When tag is provided, return/set current to the next undone item that has that tag (dependency order). Enables getting the next agentic item without listing the full queue. Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
+		Description: "Set the next available task as current and return its id and description. Next is chosen by dependency order. When tag is provided, return/set current to the next undone item that has that tag (dependency order). Enables getting the next agentic item without listing the full queue. Optionally pass claim_for (e.g. 30m) to atomically claim the item so concurrent workers don't double-assign.",
 	}, handleWnNext)
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "wn_order",
-		Description: "Set or clear optional backlog order for an item. Priority convention: lower number = higher priority (earlier when dependencies don't define order).",
-	}, handleWnOrder)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_depend",
 		Description: "Mark a work item as depending on another (add to depends_on). If id is omitted, uses current task.",
@@ -134,7 +130,6 @@ func getStoreWithRoot(ctx context.Context, projectRoot string) (Store, string, e
 type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
-	Order       *int     `json:"order,omitempty" jsonschema:"Optional backlog order: lower number = higher priority (earlier when deps don't define order)"`
 	DependsOn   []string `json:"depends_on,omitempty" jsonschema:"Optional IDs this item will depend on (e.g. current task); preserves agentic queue order when adding follow-up items"`
 	Root        string   `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
@@ -146,9 +141,6 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 	}
 	if in.Description == "" {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: description is required"}}, IsError: true}, nil, nil
-	}
-	if in.Order != nil && !ValidOrder(*in.Order) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("order must be 0..%d (got %d)", MaxOrder, *in.Order)}}, IsError: true}, nil, nil
 	}
 	id, err := GenerateID(store)
 	if err != nil {
@@ -181,7 +173,6 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 		Updated:     now,
 		Tags:        in.Tags,
 		DependsOn:   deps,
-		Order:       in.Order,
 		Log:         []LogEntry{{At: now, Kind: "created"}},
 	}
 	for _, depID := range deps {
@@ -651,54 +642,6 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 	nextOut := map[string]any{"id": next.ID, "description": FirstLine(next.Description)}
 	raw, _ := json.Marshal(nextOut)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, map[string]string{"id": next.ID, "description": FirstLine(next.Description)}, nil
-}
-
-type wnOrderIn struct {
-	ID    string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
-	Order *int   `json:"order,omitempty" jsonschema:"Set order to this number (lower = higher priority)"`
-	Unset bool   `json:"unset,omitempty" jsonschema:"If true, clear the order field"`
-	Root  string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
-}
-
-func handleWnOrder(ctx context.Context, req *mcp.CallToolRequest, in wnOrderIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.Unset {
-		err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-			it.Order = nil
-			it.Updated = time.Now().UTC()
-			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "order_cleared"})
-			return it, nil
-		})
-	} else if in.Order != nil {
-		n := *in.Order
-		if !ValidOrder(n) {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("order must be 0..%d (got %d)", MaxOrder, n)}}, IsError: true}, nil, nil
-		}
-		err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-			it.Order = &n
-			it.Updated = time.Now().UTC()
-			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "order_set", Msg: fmt.Sprintf("%d", n)})
-			return it, nil
-		})
-	} else {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "provide order (number) or unset: true"}}, IsError: true}, nil, nil
-	}
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("order updated for %s", id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnDependIn struct {
