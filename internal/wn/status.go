@@ -33,6 +33,8 @@ type StatusOpts struct {
 	DoneMessage string
 	ClaimFor    time.Duration
 	ClaimBy     string
+	// DuplicateOf is valid only when setting status to "closed". Sets the standard note duplicate-of (body = original id) and logs duplicate_of.
+	DuplicateOf string
 }
 
 // SetStatus sets the work item to the given status. Id must exist.
@@ -44,6 +46,14 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 	_, err := store.Get(id)
 	if err != nil {
 		return err
+	}
+	if status == StatusClosed && opts.DuplicateOf != "" {
+		if id == opts.DuplicateOf {
+			return fmt.Errorf("cannot mark item as duplicate of itself")
+		}
+		if _, err := store.Get(opts.DuplicateOf); err != nil {
+			return fmt.Errorf("original item %s not found", opts.DuplicateOf)
+		}
 	}
 	now := time.Now().UTC()
 
@@ -95,6 +105,18 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.InProgressBy = ""
 			it.Updated = now
 			it.Log = append(it.Log, LogEntry{At: now, Kind: "closed", Msg: opts.DoneMessage})
+			if opts.DuplicateOf != "" {
+				if it.Notes == nil {
+					it.Notes = []Note{}
+				}
+				idx := it.NoteIndexByName(NoteNameDuplicateOf)
+				if idx >= 0 {
+					it.Notes[idx].Body = opts.DuplicateOf
+				} else {
+					it.Notes = append(it.Notes, Note{Name: NoteNameDuplicateOf, Created: now, Body: opts.DuplicateOf})
+				}
+				it.Log = append(it.Log, LogEntry{At: now, Kind: "duplicate_of", Msg: opts.DuplicateOf})
+			}
 		case StatusSuspend:
 			it.Done = true
 			it.DoneMessage = opts.DoneMessage

@@ -93,7 +93,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnNoteRm)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_duplicate",
-		Description: "Mark a work item as a duplicate of another. Appends the standard note 'duplicate-of' with the original item's id and marks the item done so it leaves the queue. Id is the item to mark (omit for current task); on is the id of the canonical/original work item.",
+		Description: "Mark a work item as a duplicate of another. Sets status to closed and appends the standard note 'duplicate-of' with the original item's id so it leaves the queue. Id is the item to mark (omit for current task); on is the id of the canonical/original work item.",
 	}, handleWnDuplicate)
 
 	return server
@@ -883,7 +883,7 @@ func handleWnDuplicate(ctx context.Context, req *mcp.CallToolRequest, in wnDupli
 	if in.On == "" {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (original item id) is required"}}, IsError: true}, nil, nil
 	}
-	if err := MarkDuplicateOf(store, id, in.On); err != nil {
+	if err := SetStatus(store, id, StatusClosed, StatusOpts{DuplicateOf: in.On}); err != nil {
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	text := fmt.Sprintf("marked %s as duplicate of %s", id, in.On)

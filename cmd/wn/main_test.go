@@ -1357,8 +1357,8 @@ func TestDoneNext_twoItems(t *testing.T) {
 	}
 }
 
-// TestDuplicate_adds_note_and_marks_done verifies that "wn duplicate <id> --of <orig>" adds the standard duplicate-of note and marks the item done.
-func TestDuplicate_adds_note_and_marks_done(t *testing.T) {
+// TestStatus_closed_duplicate_of verifies that "wn status closed [id] --duplicate-of <id2>" adds the standard duplicate-of note and marks the item closed.
+func TestStatus_closed_duplicate_of(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1386,20 +1386,20 @@ func TestDuplicate_adds_note_and_marks_done(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"duplicate", "def456", "--of", "abc123"})
+		rootCmd.SetArgs([]string{"status", "closed", "def456", "--duplicate-of", "abc123"})
 		if err := rootCmd.Execute(); err != nil {
-			t.Errorf("wn duplicate: %v", err)
+			t.Errorf("wn status closed --duplicate-of: %v", err)
 		}
 	})
 	if !strings.Contains(out, "marked def456 as duplicate of abc123") {
-		t.Errorf("wn duplicate should print confirmation; got %q", out)
+		t.Errorf("wn status closed --duplicate-of should print confirmation; got %q", out)
 	}
 	item, err := store.Get("def456")
 	if err != nil {
 		t.Fatalf("Get def456: %v", err)
 	}
-	if !item.Done {
-		t.Error("item should be done after duplicate")
+	if !item.Done || item.DoneStatus != wn.DoneStatusClosed {
+		t.Errorf("item should be closed after status closed --duplicate-of: Done=%v DoneStatus=%q", item.Done, item.DoneStatus)
 	}
 	idx := item.NoteIndexByName(wn.NoteNameDuplicateOf)
 	if idx < 0 {
@@ -1407,6 +1407,25 @@ func TestDuplicate_adds_note_and_marks_done(t *testing.T) {
 	}
 	if item.Notes[idx].Body != "abc123" {
 		t.Errorf("duplicate-of body = %q, want abc123", item.Notes[idx].Body)
+	}
+}
+
+// TestStatus_duplicate_of_only_with_closed verifies that --duplicate-of is rejected when status is not closed.
+func TestStatus_duplicate_of_only_with_closed(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"status", "done", "--duplicate-of", "abc123"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn status done --duplicate-of should error")
+	}
+	if err != nil && !strings.Contains(err.Error(), "only valid when setting status to closed") {
+		t.Errorf("expected error about --duplicate-of only with closed; got %v", err)
 	}
 }
 

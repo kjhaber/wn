@@ -32,8 +32,8 @@ func TestMarkDuplicateOf_adds_note_and_marks_done(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get dup456: %v", err)
 	}
-	if !item.Done {
-		t.Error("item should be done after MarkDuplicateOf")
+	if !item.Done || item.DoneStatus != DoneStatusClosed {
+		t.Errorf("item should be closed after MarkDuplicateOf: Done=%v DoneStatus=%q", item.Done, item.DoneStatus)
 	}
 	idx := item.NoteIndexByName(NoteNameDuplicateOf)
 	if idx < 0 {

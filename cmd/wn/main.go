@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, duplicateCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -977,50 +977,6 @@ func runDone(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var duplicateCmd = &cobra.Command{
-	Use:   "duplicate [id] --of <id>",
-	Short: "Mark a work item as a duplicate of another",
-	Long:  "Adds the standard note 'duplicate-of' with the original item's id and marks the item done so it leaves the queue. If id is omitted, uses the current task. Use --of to specify the canonical work item id.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDuplicate,
-}
-var duplicateOf string
-
-func init() {
-	duplicateCmd.Flags().StringVar(&duplicateOf, "of", "", "ID of the canonical/original work item (required)")
-}
-
-func runDuplicate(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
-	}
-	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
-	if err != nil {
-		return fmt.Errorf("no id provided and no current task")
-	}
-	if duplicateOf == "" {
-		return fmt.Errorf("required flag \"of\" not set")
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	if err := wn.MarkDuplicateOf(store, id, duplicateOf); err != nil {
-		return err
-	}
-	fmt.Printf("marked %s as duplicate of %s\n", id, duplicateOf)
-	return nil
-}
-
 var undoneCmd = &cobra.Command{
 	Use:   "undone [id]",
 	Short: "Mark a work item not complete",
@@ -1065,18 +1021,20 @@ func runUndone(cmd *cobra.Command, args []string) error {
 var statusCmd = &cobra.Command{
 	Use:   "status <undone|claimed|review|done|closed|suspend> [id]",
 	Short: "Set work item status",
-	Long:  "Set the work item to the given status. If id is omitted, uses the current task. Use --for when setting to claimed (duration, e.g. 30m); -m for a message when setting to done/closed/suspend.",
+	Long:  "Set the work item to the given status. If id is omitted, uses the current task. Use --for when setting to claimed (duration, e.g. 30m); -m for a message when setting to done/closed/suspend. Use --duplicate-of <id> when setting to closed to mark the item as a duplicate of another (adds duplicate-of note).",
 	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runStatus,
 }
 var statusFor string
 var statusMessage string
 var statusClaimBy string
+var statusDuplicateOf string
 
 func init() {
 	statusCmd.Flags().StringVar(&statusFor, "for", "", "Claim duration when setting to claimed (e.g. 30m, 1h); default 1h")
 	statusCmd.Flags().StringVarP(&statusMessage, "message", "m", "", "Optional message when setting to done, closed, or suspend")
 	statusCmd.Flags().StringVar(&statusClaimBy, "by", "", "Optional worker ID when setting to claimed")
+	statusCmd.Flags().StringVar(&statusDuplicateOf, "duplicate-of", "", "When setting to closed: mark item as duplicate of this work item id (adds duplicate-of note)")
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -1104,7 +1062,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	opts := wn.StatusOpts{DoneMessage: statusMessage, ClaimBy: statusClaimBy}
+	if state != wn.StatusClosed && statusDuplicateOf != "" {
+		return fmt.Errorf("--duplicate-of is only valid when setting status to closed")
+	}
+	opts := wn.StatusOpts{DoneMessage: statusMessage, ClaimBy: statusClaimBy, DuplicateOf: statusDuplicateOf}
 	if state == wn.StatusClaimed && statusFor != "" {
 		d, err := time.ParseDuration(statusFor)
 		if err != nil {
@@ -1118,7 +1079,11 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err := wn.SetStatus(store, id, state, opts); err != nil {
 		return err
 	}
-	fmt.Printf("marked %s %s\n", id, state)
+	if state == wn.StatusClosed && statusDuplicateOf != "" {
+		fmt.Printf("marked %s as duplicate of %s\n", id, statusDuplicateOf)
+	} else {
+		fmt.Printf("marked %s %s\n", id, state)
+	}
 	return nil
 }
 
