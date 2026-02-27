@@ -47,6 +47,26 @@ func BranchMergedInto(mainRoot, branchName, intoRef string) (bool, error) {
 	return true, nil
 }
 
+// CommitMergedInto returns true if the given commit hash is reachable from intoRef
+// (i.e. the commit has been merged into that ref). intoRef may be empty for HEAD.
+// The commitHash must be something git understands (full or short SHA); errors from
+// git are returned as Go errors.
+func CommitMergedInto(mainRoot, commitHash, intoRef string) (bool, error) {
+	if intoRef == "" {
+		intoRef = "HEAD"
+	}
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", commitHash, intoRef)
+	cmd.Dir = mainRoot
+	err := cmd.Run()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil // not an ancestor
+		}
+		return false, fmt.Errorf("git merge-base: %w", err)
+	}
+	return true, nil
+}
+
 // BranchExists returns true if the branch exists in the repo at mainRoot.
 func BranchExists(mainRoot, branchName string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branchName)

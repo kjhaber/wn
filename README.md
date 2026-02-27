@@ -54,7 +54,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn claim [id] [--for 30m]` | Mark in progress (item leaves undone list until expiry or release). Omit `--for` to use default 1h so you can renew with just `wn claim`; optional `--by` for logging |
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done) |
 | `wn review-ready [id]` / `wn rr [id]` | Set item to review-ready state directly (excluded from `wn next` until marked done) |
-| `wn mark-merged` | Check all review-ready items; mark done if their `branch` note's branch has been merged to current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
+| `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note's branch (or recorded commit) has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
 | `wn merge [--wid <id>]` | Merge a review-ready work item's branch into main: checkout item branch (remove worktree if present), run validate (e.g. `make`), rebase main, merge into main, validate again, mark done, delete branch. Omit `--wid` to use current task. Use `--main-branch main` and `--validate make` to override. Logs with timestamps to stderr (same as agent-orch). |
 | `wn log <id>` | Show history for an item |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars |
@@ -87,7 +87,7 @@ Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the w
 | **closed** | Completed and closed (e.g. archived). Terminal state. |
 | **suspend** | Deferred—not ready to implement or not sure you want to. Like done (excluded from next/claim) but not retired to closed; use for ideas you might revisit (e.g. “TUI subcommand” when focusing on CLI first). |
 
-**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (so it won't be picked again); `wn list` and MCP `wn_list` include both undone and review-ready. You can also set an item to review-ready directly with `wn review-ready` (alias `wn rr`). Use `wn list --review-ready` (or `wn list --rr`) to list only review-ready items for human review. Mark it done when the work is merged or accepted (e.g. merge to main). Use `wn mark-merged` to automatically mark done all review-ready items whose branch has been merged to the current branch.
+**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays undone but is excluded from `wn next` and from agent claim (so it won't be picked again); `wn list` and MCP `wn_list` include both undone and review-ready. You can also set an item to review-ready directly with `wn review-ready` (alias `wn rr`). Use `wn list --review-ready` (or `wn list --rr`) to list only review-ready items for human review. Mark it done when the work is merged or accepted (e.g. merge to main). Use `wn cleanup set-merged-review-items-done` to automatically mark done all review-ready items whose work has been merged to the current branch.
 
 ## Shell completion
 

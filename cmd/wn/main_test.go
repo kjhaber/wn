@@ -2637,7 +2637,7 @@ func TestDoWithoutArgUsesCurrent(t *testing.T) {
 	}
 }
 
-func TestMarkMerged_MarksDoneWhenBranchMerged(t *testing.T) {
+func TestCleanupSetMergedReviewItemsDone_MarksDoneWhenBranchMerged(t *testing.T) {
 	dir := t.TempDir()
 	// Create git repo
 	execIn(t, dir, "git", "init")
@@ -2683,13 +2683,13 @@ func TestMarkMerged_MarksDoneWhenBranchMerged(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"mark-merged"})
+		rootCmd.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
 		if err := rootCmd.Execute(); err != nil {
-			t.Errorf("mark-merged: %v", err)
+			t.Errorf("cleanup set-merged-review-items-done: %v", err)
 		}
 	})
 	if !strings.Contains(out, "marked abc123") {
-		t.Errorf("mark-merged output should contain 'marked abc123'; got %q", out)
+		t.Errorf("cleanup set-merged-review-items-done output should contain 'marked abc123'; got %q", out)
 	}
 	got, err := store.Get("abc123")
 	if err != nil {
@@ -2697,6 +2697,93 @@ func TestMarkMerged_MarksDoneWhenBranchMerged(t *testing.T) {
 	}
 	if !got.Done {
 		t.Error("item should be done after mark-merged")
+	}
+	if got.ReviewReady {
+		t.Error("item should not be review-ready after marked done")
+	}
+}
+
+func TestCleanupSetMergedReviewItemsDone_BranchDeletedUsesCommitNote(t *testing.T) {
+	dir := t.TempDir()
+	// Create git repo
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	def, _ := wn.DefaultBranch(dir)
+
+	// Init wn in same dir
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "feature task",
+		Created:     now,
+		Updated:     now,
+		ReviewReady: true,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create feature branch, commit, capture commit hash, merge to main, then delete branch
+	execIn(t, dir, "git", "checkout", "-b", "wn-abc-feature")
+	writeFile(t, filepath.Join(dir, "feature.txt"), "feature")
+	execIn(t, dir, "git", "add", "feature.txt")
+	execIn(t, dir, "git", "commit", "-m", "add feature")
+
+	// Capture commit hash for commit note
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = dir
+	outHash, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v", err)
+	}
+	commitHash := strings.TrimSpace(string(outHash))
+
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-abc-feature", "-m", "merge")
+	execIn(t, dir, "git", "branch", "-d", "wn-abc-feature")
+
+	// Add branch and commit notes after merge; branch ref is deleted but note remains
+	if err := store.UpdateItem("abc123", func(it *wn.Item) (*wn.Item, error) {
+		it.Notes = []wn.Note{
+			{Name: "branch", Created: now, Body: "wn-abc-feature"},
+			{Name: "commit", Created: now, Body: commitHash + " add feature"},
+		}
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("cleanup set-merged-review-items-done: %v", err)
+		}
+	})
+	if !strings.Contains(out, "marked abc123") {
+		t.Fatalf("cleanup set-merged-review-items-done output should contain 'marked abc123'; got %q", out)
+	}
+	got, err := store.Get("abc123")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.Done {
+		t.Error("item should be done after cleanup set-merged-review-items-done with deleted branch and commit note")
 	}
 	if got.ReviewReady {
 		t.Error("item should not be review-ready after marked done")

@@ -33,7 +33,7 @@ var rootCmd = &cobra.Command{
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, markMergedCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1231,22 +1231,29 @@ func runReviewReady(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var markMergedCmd = &cobra.Command{
-	Use:   "mark-merged",
-	Short: "Mark review-ready items done if their branch has been merged to current branch",
-	Long:  "Checks all review-ready work items, finds their 'branch' note, and marks them done if that branch has been merged into the current branch (or --branch). Use --dry-run to see what would be marked without making changes.",
-	Args:  cobra.NoArgs,
-	RunE:  runMarkMerged,
+var cleanupCmd = &cobra.Command{
+	Use:   "cleanup",
+	Short: "Bulk maintenance utilities for work items",
 }
-var markMergedDryRun bool
-var markMergedBranch string
+
+var cleanupSetMergedReviewItemsDoneCmd = &cobra.Command{
+	Use:   "set-merged-review-items-done",
+	Short: "Mark review items done when their work has been merged",
+	Long:  "Checks all review-ready work items, finds their 'branch' note, and marks them done if that branch (or recorded commit) has been merged into the current branch (or --branch). Use --dry-run to see what would be marked without making changes.",
+	Args:  cobra.NoArgs,
+	RunE:  runCleanupSetMergedReviewItemsDone,
+}
+
+var cleanupMergedDryRun bool
+var cleanupMergedBranch string
 
 func init() {
-	markMergedCmd.Flags().BoolVar(&markMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
-	markMergedCmd.Flags().StringVarP(&markMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
+	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
+	cleanupSetMergedReviewItemsDoneCmd.Flags().StringVarP(&cleanupMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
+	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd)
 }
 
-func runMarkMerged(cmd *cobra.Command, args []string) error {
+func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -1255,8 +1262,8 @@ func runMarkMerged(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	intoRef := markMergedBranch
-	results, err := wn.MarkMergedItems(store, root, intoRef, markMergedDryRun)
+	intoRef := cleanupMergedBranch
+	results, err := wn.MarkMergedItems(store, root, intoRef, cleanupMergedDryRun)
 	if err != nil {
 		return err
 	}
@@ -1264,7 +1271,7 @@ func runMarkMerged(cmd *cobra.Command, args []string) error {
 		switch r.Status {
 		case "marked":
 			prefix := "marked"
-			if markMergedDryRun {
+			if cleanupMergedDryRun {
 				prefix = "would mark"
 			}
 			fmt.Printf("%s %s: %s\n", prefix, r.ID, r.Reason)
