@@ -39,6 +39,9 @@ func TestReadSettings_withAgentOrch(t *testing.T) {
 	path := filepath.Join(dir, "settings.json")
 	body := `{
 		"sort": "updated:desc",
+		"cleanup": {
+			"close_done_items_age": "30d"
+		},
 		"agent_orch": {
 			"claim": "2h",
 			"delay": "5m",
@@ -60,6 +63,9 @@ func TestReadSettings_withAgentOrch(t *testing.T) {
 	}
 	if got.Sort != "updated:desc" {
 		t.Errorf("Sort = %q, want updated:desc", got.Sort)
+	}
+	if got.Cleanup.CloseDoneItemsAge != "30d" {
+		t.Errorf("Cleanup.CloseDoneItemsAge = %q, want 30d", got.Cleanup.CloseDoneItemsAge)
 	}
 	ao := got.AgentOrch
 	if ao.Claim != "2h" || ao.Delay != "5m" || ao.Poll != "60s" {

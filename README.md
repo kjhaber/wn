@@ -55,6 +55,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done) |
 | `wn review-ready [id]` / `wn rr [id]` | Set item to review-ready state directly (excluded from `wn next` until marked done) |
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note's branch (or recorded commit) has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
+| `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Age comes from `--age` (e.g. `5d`, `2h`, `15m`) or from `cleanup.close_done_items_age` in settings; items are moved from **done** to **closed**. Use `--dry-run` to preview without making changes. |
 | `wn merge [--wid <id>]` | Merge a review-ready work item's branch into main: checkout item branch (remove worktree if present), run validate (e.g. `make`), rebase main, merge into main, validate again, mark done, delete branch. Omit `--wid` to use current task. Use `--main-branch main` and `--validate make` to override. Logs with timestamps to stderr (same as agent-orch). |
 | `wn log <id>` | Show history for an item |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars |
@@ -170,6 +171,7 @@ List order and fzf pick order can be controlled by:
 
 - **`wn list --sort '...'`** — Comma-separated sort keys; each key may be suffixed with `:asc` or `:desc` (default `:asc`). Keys: `created`, `updated`, `priority` (backlog order), `alpha` (description), `tags` (group by tags). Example: `wn list --sort 'updated:desc,priority,tags'`.
 - **Default in settings** — In `~/.config/wn/settings.json`, set `"sort": "updated:desc,priority"` (or any valid sort spec). This applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag add -i`, `wn depend -i`, and `wn rmdepend -i`.
+- **Cleanup defaults** — In `~/.config/wn/settings.json`, set `"cleanup": { "close_done_items_age": "30d" }` to configure the default age for `wn cleanup close-done-items` when `--age` is omitted. Durations accept `d` (days, 24h each), `h`, `m`, and `s` (e.g. `7d`, `48h`, `90m`).
 
 When no sort preference is set, `wn list` uses dependency order (topological) for undone items.
 

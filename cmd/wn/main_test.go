@@ -2841,3 +2841,83 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+// TestCleanupCloseDoneItems_closesOldDoneKeepsRecent verifies that
+// "wn cleanup close-done-items --age 1d" closes items that have been done
+// longer than 1d while leaving more recent done items unchanged.
+func TestCleanupCloseDoneItems_closesOldDoneKeepsRecent(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	oldDoneAt := now.Add(-48 * time.Hour)
+	recentDoneAt := now.Add(-30 * time.Minute)
+
+	oldItem := &wn.Item{
+		ID:          "old111",
+		Description: "old done",
+		Created:     oldDoneAt,
+		Updated:     oldDoneAt,
+		Done:        true,
+		DoneStatus:  wn.DoneStatusDone,
+		Log: []wn.LogEntry{
+			{At: oldDoneAt, Kind: "created"},
+			{At: oldDoneAt, Kind: "done"},
+		},
+	}
+	recentItem := &wn.Item{
+		ID:          "new222",
+		Description: "recent done",
+		Created:     recentDoneAt,
+		Updated:     recentDoneAt,
+		Done:        true,
+		DoneStatus:  wn.DoneStatusDone,
+		Log: []wn.LogEntry{
+			{At: recentDoneAt, Kind: "created"},
+			{At: recentDoneAt, Kind: "done"},
+		},
+	}
+	if err := store.Put(oldItem); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(recentItem); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cleanup", "close-done-items", "--age", "1d"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("cleanup close-done-items: %v", err)
+		}
+	})
+	if !strings.Contains(out, "old111") {
+		t.Errorf("output should mention old111; got %q", out)
+	}
+
+	gotOld, err := store.Get("old111")
+	if err != nil {
+		t.Fatalf("Get old111: %v", err)
+	}
+	if !gotOld.Done || gotOld.DoneStatus != wn.DoneStatusClosed {
+		t.Errorf("old111 should be closed; Done=%v DoneStatus=%q", gotOld.Done, gotOld.DoneStatus)
+	}
+
+	gotRecent, err := store.Get("new222")
+	if err != nil {
+		t.Fatalf("Get new222: %v", err)
+	}
+	if !gotRecent.Done || (gotRecent.DoneStatus != wn.DoneStatusDone && gotRecent.DoneStatus != "") {
+		t.Errorf("new222 should remain done (not closed); Done=%v DoneStatus=%q", gotRecent.Done, gotRecent.DoneStatus)
+	}
+}

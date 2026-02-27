@@ -1247,10 +1247,23 @@ var cleanupSetMergedReviewItemsDoneCmd = &cobra.Command{
 var cleanupMergedDryRun bool
 var cleanupMergedBranch string
 
+var cleanupCloseDoneItemsCmd = &cobra.Command{
+	Use:   "close-done-items",
+	Short: "Close done items older than a configurable age",
+	Long:  "Finds items in done state whose done time is older than the configured age and sets them to closed. Age comes from --age or settings cleanup.close_done_items_age.",
+	Args:  cobra.NoArgs,
+	RunE:  runCleanupCloseDoneItems,
+}
+
+var cleanupCloseDoneItemsAge string
+var cleanupCloseDoneItemsDryRun bool
+
 func init() {
 	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
 	cleanupSetMergedReviewItemsDoneCmd.Flags().StringVarP(&cleanupMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
-	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd)
+	cleanupCloseDoneItemsCmd.Flags().StringVar(&cleanupCloseDoneItemsAge, "age", "", "Age threshold (e.g. 30d, 7d, 48h); items done longer ago are closed")
+	cleanupCloseDoneItemsCmd.Flags().BoolVar(&cleanupCloseDoneItemsDryRun, "dry-run", false, "Report what would be closed without making changes")
+	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd)
 }
 
 func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error {
@@ -1281,6 +1294,56 @@ func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error
 			fmt.Printf("skip %s: %s\n", r.ID, r.Reason)
 		case "skipped_error":
 			fmt.Fprintf(os.Stderr, "skip %s: %s\n", r.ID, r.Reason)
+		}
+	}
+	return nil
+}
+
+func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	settings, err := wn.ReadSettings()
+	if err != nil {
+		return err
+	}
+	ageStr := cleanupCloseDoneItemsAge
+	if ageStr == "" {
+		ageStr = settings.Cleanup.CloseDoneItemsAge
+	}
+	if ageStr == "" {
+		return fmt.Errorf("--age is required when cleanup.close_done_items_age is not set in settings")
+	}
+	age, err := wn.ParseDurationWithDays(ageStr)
+	if err != nil {
+		return fmt.Errorf("invalid age %q: %w", ageStr, err)
+	}
+	if age <= 0 {
+		return fmt.Errorf("age must be positive, got %v", age)
+	}
+	cutoff := time.Now().UTC().Add(-age)
+	results, err := wn.CloseDoneItems(store, cutoff, cleanupCloseDoneItemsDryRun)
+	if err != nil {
+		return err
+	}
+	for _, r := range results {
+		switch r.Status {
+		case "closed":
+			prefix := "closed"
+			if cleanupCloseDoneItemsDryRun {
+				prefix = "would close"
+			}
+			fmt.Printf("%s %s: %s\n", prefix, r.ID, r.Reason)
+		case "skipped_not_done", "skipped_not_old_enough":
+			fmt.Printf("skip %s: %s\n", r.ID, r.Reason)
+		default:
+			// Unknown status: still print for visibility.
+			fmt.Printf("%s %s: %s\n", r.Status, r.ID, r.Reason)
 		}
 	}
 	return nil

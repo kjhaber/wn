@@ -8,8 +8,9 @@ import (
 
 // Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
 type Settings struct {
-	Sort      string    `json:"sort,omitempty"`       // e.g. "updated:desc,priority,tags"
-	AgentOrch AgentOrch `json:"agent_orch,omitempty"` // defaults for wn agent-orch
+	Sort      string          `json:"sort,omitempty"`       // e.g. "updated:desc,priority,tags"
+	AgentOrch AgentOrch       `json:"agent_orch,omitempty"` // defaults for wn agent-orch
+	Cleanup   CleanupSettings `json:"cleanup,omitempty"`    // options for cleanup subcommands
 }
 
 // AgentOrch holds user-level defaults for the agent orchestrator (wn agent-orch).
@@ -25,6 +26,13 @@ type AgentOrch struct {
 	Branch        string `json:"branch,omitempty"`         // default branch override, e.g. "main"
 	BranchPrefix  string `json:"branch_prefix,omitempty"`  // prefix for generated branch names, e.g. "keith/"
 	Tag           string `json:"tag,omitempty"`            // only consider items that have this tag
+}
+
+// CleanupSettings holds user-level defaults for cleanup utilities (wn cleanup ...).
+type CleanupSettings struct {
+	// CloseDoneItemsAge is the default age threshold for "wn cleanup close-done-items"
+	// when --age is not provided (e.g. "30d", "7d", "48h").
+	CloseDoneItemsAge string `json:"close_done_items_age,omitempty"`
 }
 
 // SettingsPath returns the path to the user's wn settings file.
