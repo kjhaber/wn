@@ -566,7 +566,7 @@ func runTagInteractive(args []string) error {
 	if err != nil {
 		return err
 	}
-	items = wn.ApplySort(items, interactiveSortSpec())
+	items = wn.ApplySort(items, interactiveSortSpec(root))
 	ids, err := wn.PickMultiInteractiveWithTags(items)
 	if err != nil {
 		return err
@@ -703,7 +703,7 @@ func runDependAdd(cmd *cobra.Command, args []string) error {
 	}
 	var onID string
 	if dependAddInteractive {
-		onID, err = runDependInteractive(store, id)
+		onID, err = runDependInteractive(store, root, id)
 		if err != nil {
 			return err
 		}
@@ -736,7 +736,7 @@ func runDependAdd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func runDependInteractive(store wn.Store, excludeID string) (string, error) {
+func runDependInteractive(store wn.Store, root string, excludeID string) (string, error) {
 	undone, err := wn.UndoneItems(store)
 	if err != nil {
 		return "", err
@@ -750,7 +750,7 @@ func runDependInteractive(store wn.Store, excludeID string) (string, error) {
 	if len(candidates) == 0 {
 		return "", fmt.Errorf("no other undone items to depend on")
 	}
-	candidates = wn.ApplySort(candidates, interactiveSortSpec())
+	candidates = wn.ApplySort(candidates, interactiveSortSpec(root))
 	return wn.PickInteractive(candidates)
 }
 
@@ -791,7 +791,7 @@ func runDependRm(cmd *cobra.Command, args []string) error {
 	}
 	var onID string
 	if dependRmInteractive {
-		onID, err = runRmdependInteractive(store, id)
+		onID, err = runRmdependInteractive(store, root, id)
 		if err != nil {
 			return err
 		}
@@ -818,7 +818,7 @@ func runDependRm(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func runRmdependInteractive(store wn.Store, id string) (string, error) {
+func runRmdependInteractive(store wn.Store, root string, id string) (string, error) {
 	it, err := store.Get(id)
 	if err != nil {
 		return "", err
@@ -834,7 +834,7 @@ func runRmdependInteractive(store wn.Store, id string) (string, error) {
 		}
 		candidates = append(candidates, dep)
 	}
-	candidates = wn.ApplySort(candidates, interactiveSortSpec())
+	candidates = wn.ApplySort(candidates, interactiveSortSpec(root))
 	return wn.PickInteractive(candidates)
 }
 
@@ -880,9 +880,9 @@ func runDependList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// interactiveSortSpec returns sort options from user settings for fzf/numbered lists. No CLI override.
-func interactiveSortSpec() []wn.SortOption {
-	settings, err := wn.ReadSettings()
+// interactiveSortSpec returns sort options from effective settings (user + project) for fzf/numbered lists. No CLI override.
+func interactiveSortSpec(root string) []wn.SortOption {
+	settings, err := wn.ReadSettingsInRoot(root)
 	if err != nil {
 		return nil
 	}
@@ -1308,7 +1308,7 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	settings, err := wn.ReadSettings()
+	settings, err := wn.ReadSettingsInRoot(root)
 	if err != nil {
 		return err
 	}
@@ -1599,7 +1599,7 @@ func runPick(cmd *cobra.Command, args []string) error {
 		fmt.Println(msg)
 		return nil
 	}
-	items = wn.ApplySort(items, interactiveSortSpec())
+	items = wn.ApplySort(items, interactiveSortSpec(root))
 	id, err := wn.PickInteractive(items)
 	if err != nil {
 		return err
@@ -1700,7 +1700,7 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	settings, err := wn.ReadSettings()
+	settings, err := wn.ReadSettingsInRoot(root)
 	if err != nil {
 		return err
 	}
@@ -1829,10 +1829,33 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 var settingsCmd = &cobra.Command{
 	Use:   "settings",
 	Short: "Open wn settings file in $EDITOR",
+	Long:  "Opens user-level settings (~/.config/wn/settings.json) in $EDITOR. Use --project to open project-level settings (.wn/settings.json) which override user settings when present.",
 	RunE:  runSettings,
+}
+var settingsProject bool
+
+func init() {
+	settingsCmd.Flags().BoolVar(&settingsProject, "project", false, "Edit project-level settings (.wn/settings.json) instead of user settings")
 }
 
 func runSettings(cmd *cobra.Command, args []string) error {
+	if settingsProject {
+		root, err := wn.FindRootForCLI()
+		if err != nil {
+			return err
+		}
+		wnDir := filepath.Join(root, ".wn")
+		if err := os.MkdirAll(wnDir, 0755); err != nil {
+			return err
+		}
+		settingsPath := wn.ProjectSettingsPath(root)
+		if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
+			if err := os.WriteFile(settingsPath, []byte("{}\n"), 0644); err != nil {
+				return err
+			}
+		}
+		return wn.RunEditorOnFile(settingsPath)
+	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return err
@@ -1841,7 +1864,10 @@ func runSettings(cmd *cobra.Command, args []string) error {
 	if err := os.MkdirAll(wnDir, 0755); err != nil {
 		return err
 	}
-	settingsPath := filepath.Join(wnDir, "settings.json")
+	settingsPath, err := wn.SettingsPath()
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
 		if err := os.WriteFile(settingsPath, []byte("{}\n"), 0644); err != nil {
 			return err
@@ -2062,7 +2088,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		items = filtered
 	}
 	var ordered []*wn.Item
-	sortSpec := listSortSpec()
+	sortSpec := listSortSpec(root)
 	if len(sortSpec) > 0 {
 		ordered = wn.ApplySort(items, sortSpec)
 	} else {
@@ -2102,8 +2128,8 @@ func runList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// listSortSpec returns sort options from --sort flag or user settings. Invalid spec returns nil.
-func listSortSpec() []wn.SortOption {
+// listSortSpec returns sort options from --sort flag or effective settings (user + project). Invalid spec returns nil.
+func listSortSpec(root string) []wn.SortOption {
 	if listSort != "" {
 		spec, err := wn.ParseSortSpec(listSort)
 		if err != nil {
@@ -2111,7 +2137,7 @@ func listSortSpec() []wn.SortOption {
 		}
 		return spec
 	}
-	settings, err := wn.ReadSettings()
+	settings, err := wn.ReadSettingsInRoot(root)
 	if err != nil {
 		return nil
 	}

@@ -44,6 +44,65 @@ func SettingsPath() (string, error) {
 	return filepath.Join(configDir, "wn", "settings.json"), nil
 }
 
+// ProjectSettingsPath returns the path to the project-level settings file under root (.wn/settings.json).
+func ProjectSettingsPath(root string) string {
+	return filepath.Join(root, ".wn", "settings.json")
+}
+
+// MergeSettings overlays project onto user. Non-empty project fields override user; empty project fields leave user values.
+func MergeSettings(user, project Settings) Settings {
+	out := user
+	if project.Sort != "" {
+		out.Sort = project.Sort
+	}
+	out.Cleanup = mergeCleanup(user.Cleanup, project.Cleanup)
+	out.AgentOrch = mergeAgentOrch(user.AgentOrch, project.AgentOrch)
+	return out
+}
+
+func mergeCleanup(user, project CleanupSettings) CleanupSettings {
+	out := user
+	if project.CloseDoneItemsAge != "" {
+		out.CloseDoneItemsAge = project.CloseDoneItemsAge
+	}
+	return out
+}
+
+func mergeAgentOrch(user, project AgentOrch) AgentOrch {
+	out := user
+	if project.Claim != "" {
+		out.Claim = project.Claim
+	}
+	if project.Delay != "" {
+		out.Delay = project.Delay
+	}
+	if project.Poll != "" {
+		out.Poll = project.Poll
+	}
+	if project.AgentCmd != "" {
+		out.AgentCmd = project.AgentCmd
+	}
+	if project.PromptTpl != "" {
+		out.PromptTpl = project.PromptTpl
+	}
+	if project.Worktrees != "" {
+		out.Worktrees = project.Worktrees
+	}
+	if project.LeaveWorktree {
+		out.LeaveWorktree = project.LeaveWorktree
+	}
+	if project.Branch != "" {
+		out.Branch = project.Branch
+	}
+	if project.BranchPrefix != "" {
+		out.BranchPrefix = project.BranchPrefix
+	}
+	if project.Tag != "" {
+		out.Tag = project.Tag
+	}
+	return out
+}
+
 // ReadSettings reads the user's settings. Missing file returns empty Settings, no error.
 func ReadSettings() (Settings, error) {
 	path, err := SettingsPath()
@@ -51,6 +110,23 @@ func ReadSettings() (Settings, error) {
 		return Settings{}, err
 	}
 	return readSettingsFromPath(path)
+}
+
+// ReadSettingsInRoot returns effective settings for the given project root: user settings with optional project overrides from root/.wn/settings.json. When root is empty, returns user settings only. Missing project file is ignored (user settings only).
+func ReadSettingsInRoot(root string) (Settings, error) {
+	user, err := ReadSettings()
+	if err != nil {
+		return Settings{}, err
+	}
+	if root == "" {
+		return user, nil
+	}
+	projectPath := ProjectSettingsPath(root)
+	project, err := readSettingsFromPath(projectPath)
+	if err != nil {
+		return user, nil
+	}
+	return MergeSettings(user, project), nil
 }
 
 // readSettingsFromPath reads settings from a specific path (for tests).

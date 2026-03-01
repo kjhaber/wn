@@ -230,7 +230,7 @@ type listItemOut struct {
 }
 
 func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStoreWithRoot(ctx, in.Root)
+	store, root, err := getStoreWithRoot(ctx, in.Root)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -251,7 +251,7 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 		items = filtered
 	}
 	var ordered []*Item
-	settings, _ := ReadSettings()
+	settings, _ := ReadSettingsInRoot(root)
 	if spec := SortSpecFromSettings(settings); len(spec) > 0 {
 		ordered = ApplySort(items, spec)
 	} else {
