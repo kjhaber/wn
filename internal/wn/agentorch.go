@@ -206,6 +206,14 @@ func auditLogAgent(w io.Writer, mainRoot, worktreePath, expandedCmd string) {
 	fmt.Fprintf(w, "%s exec (Dir=%s WN_ROOT=%s): %s\n", ts, worktreePath, mainRoot, cmdForLog)
 }
 
+// worktreeDirForBranch returns the directory name for a worktree given the main
+// worktree dirname and a branch name. Slashes in branchName (e.g. from a
+// "keith/" prefix) are replaced with underscores so that filepath.Join does
+// not create an unintended subdirectory level.
+func worktreeDirForBranch(mainDirname, branchName string) string {
+	return mainDirname + "-" + strings.ReplaceAll(branchName, "/", "_")
+}
+
 // resolveBranchName returns the branch name for the item: note "branch" if set, else prefix+wn-<id>-<slug>.
 // branchPrefix is applied only when generating a new name (e.g. "keith/" -> "keith/wn-abc123-add-feature").
 func resolveBranchName(item *Item, branchPrefix string) string {
@@ -266,7 +274,7 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 			createBranch = true // branch was deleted (e.g. cleanup); recreate it
 		}
 	}
-	worktreeDirName := mainDirname + "-" + branchName
+	worktreeDirName := worktreeDirForBranch(mainDirname, branchName)
 	worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
 
 	worktreePath, err := EnsureWorktree(opts.Root, worktreePathArg, branchName, createBranch, opts.Audit)

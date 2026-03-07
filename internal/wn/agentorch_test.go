@@ -233,6 +233,25 @@ func TestResolveBranchName(t *testing.T) {
 	}
 }
 
+func TestWorktreeDirForBranch(t *testing.T) {
+	tests := []struct {
+		mainDirname string
+		branchName  string
+		want        string
+	}{
+		{"main", "wn-abc123-add-feature", "main-wn-abc123-add-feature"},
+		{"main", "keith/wn-abc123-add-feature", "main-keith_wn-abc123-add-feature"},
+		{"myrepo", "user/team/wn-abc-slug", "myrepo-user_team_wn-abc-slug"},
+		{"main", "wn-abc", "main-wn-abc"},
+	}
+	for _, tt := range tests {
+		got := worktreeDirForBranch(tt.mainDirname, tt.branchName)
+		if got != tt.want {
+			t.Errorf("worktreeDirForBranch(%q, %q) = %q, want %q", tt.mainDirname, tt.branchName, got, tt.want)
+		}
+	}
+}
+
 func TestClaimItem(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)
