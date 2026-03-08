@@ -3138,3 +3138,164 @@ func TestCleanupCloseDoneItems_closesOldDoneKeepsRecent(t *testing.T) {
 		t.Errorf("new222 should remain done (not closed); Done=%v DoneStatus=%q", gotRecent.Done, gotRecent.DoneStatus)
 	}
 }
+
+func setupGitWnRoot(t *testing.T) (dir string, itemID string) {
+	t.Helper()
+	dir = t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "Add feature\nDetails here",
+		Created:     now,
+		Updated:     now,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	return dir, "abc123"
+}
+
+func TestWorktreeSetup_noCurrent(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"worktree"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn worktree with no current task should fail")
+	}
+	if !strings.Contains(err.Error(), "no current task") {
+		t.Errorf("want 'no current task'; got: %v", err)
+	}
+}
+
+func TestWorktreeSetup_nextAndIdArgError(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"worktree", "--next", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn worktree --next <id> should fail")
+	}
+	if !strings.Contains(err.Error(), "either") {
+		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+func TestWorktreeSetup_withID(t *testing.T) {
+	dir, itemID := setupGitWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	worktreesBase := filepath.Join(dir, "worktrees")
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn worktree %s: %v", itemID, err)
+		}
+	})
+	worktreePath := strings.TrimSpace(out)
+	if worktreePath == "" {
+		t.Fatal("wn worktree printed empty path")
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("worktree path %q should exist: %v", worktreePath, err)
+	}
+	// Item should be claimed
+	store, _ := wn.NewFileStore(dir)
+	item, _ := store.Get(itemID)
+	if item.InProgressUntil.IsZero() {
+		t.Error("item should be claimed after wn worktree")
+	}
+	// Branch note should be set
+	if item.NoteIndexByName("branch") < 0 {
+		t.Error("item should have branch note after wn worktree")
+	}
+}
+
+func TestWorktreeSetup_usesCurrent(t *testing.T) {
+	dir, itemID := setupGitWnRoot(t)
+	// Set the item as current
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: itemID}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	worktreesBase := filepath.Join(dir, "worktrees")
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"worktree", "--worktree-base", worktreesBase})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn worktree (no args, current set): %v", err)
+		}
+	})
+	worktreePath := strings.TrimSpace(out)
+	if worktreePath == "" {
+		t.Fatal("wn worktree printed empty path")
+	}
+	store, _ := wn.NewFileStore(dir)
+	item, _ := store.Get(itemID)
+	if item.InProgressUntil.IsZero() {
+		t.Error("current item should be claimed after wn worktree")
+	}
+}
+
+func TestWorktreeSetup_claimsNext(t *testing.T) {
+	dir, itemID := setupGitWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	worktreesBase := filepath.Join(dir, "worktrees")
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"worktree", "--next", "--worktree-base", worktreesBase})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn worktree --next: %v", err)
+		}
+	})
+	worktreePath := strings.TrimSpace(out)
+	if worktreePath == "" {
+		t.Fatal("wn worktree printed empty path")
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("worktree path %q should exist: %v", worktreePath, err)
+	}
+	// Item should be claimed
+	store, _ := wn.NewFileStore(dir)
+	item, _ := store.Get(itemID)
+	if item.InProgressUntil.IsZero() {
+		t.Error("next item should be claimed after wn worktree")
+	}
+}

@@ -2,7 +2,9 @@ package wn
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -393,4 +395,117 @@ func TestClaimNextItem_tagFilter(t *testing.T) {
 	if got != nil {
 		t.Errorf("ClaimNextItem(tag=nonexistent) = %v, want nil", got)
 	}
+}
+
+func TestSetupItemWorktree_createsWorktreeAndBranchNote(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Add feature\nWith details",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := filepath.Join(repoDir, "worktrees")
+	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", nil)
+	if err != nil {
+		t.Fatalf("SetupItemWorktree: %v", err)
+	}
+	if branchName != "wn-abc123-add-feature" {
+		t.Errorf("branchName = %q, want wn-abc123-add-feature", branchName)
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("worktree path %q should exist: %v", worktreePath, err)
+	}
+	updated, err := store.Get("abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := updated.NoteIndexByName("branch")
+	if idx < 0 {
+		t.Error("branch note not added to item")
+	} else if updated.Notes[idx].Body != branchName {
+		t.Errorf("branch note body = %q, want %q", updated.Notes[idx].Body, branchName)
+	}
+	var audit bytes.Buffer
+	_ = RemoveWorktree(repoDir, worktreePath, &audit)
+}
+
+func TestSetupItemWorktree_reusesExistingBranchNote(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "xyz789",
+		Description: "Fix bug",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: "branch", Body: "custom-branch-name", Created: now}},
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := filepath.Join(repoDir, "worktrees")
+	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "prefix/", nil)
+	if err != nil {
+		t.Fatalf("SetupItemWorktree: %v", err)
+	}
+	if branchName != "custom-branch-name" {
+		t.Errorf("branchName = %q, want custom-branch-name (from note, prefix ignored)", branchName)
+	}
+	var audit bytes.Buffer
+	_ = RemoveWorktree(repoDir, worktreePath, &audit)
+}
+
+func TestSetupItemWorktree_withBranchPrefix(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "def456",
+		Description: "New thing",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := filepath.Join(repoDir, "worktrees")
+	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "keith/", nil)
+	if err != nil {
+		t.Fatalf("SetupItemWorktree: %v", err)
+	}
+	if branchName != "keith/wn-def456-new-thing" {
+		t.Errorf("branchName = %q, want keith/wn-def456-new-thing", branchName)
+	}
+	var audit bytes.Buffer
+	_ = RemoveWorktree(repoDir, worktreePath, &audit)
 }

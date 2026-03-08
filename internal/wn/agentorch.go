@@ -260,15 +260,17 @@ func releaseItemClaim(store Store, itemID string) error {
 	})
 }
 
-// runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
-func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
-	branchName := resolveBranchName(item, opts.BranchPrefix)
+// SetupItemWorktree creates the branch and worktree for item, records the branch note,
+// and returns the resolved worktree path and branch name. On error the item claim is NOT
+// released; caller is responsible for cleanup.
+func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, mainDirname, branchPrefix string, audit io.Writer) (worktreePath, branchName string, err error) {
+	branchName = resolveBranchName(item, branchPrefix)
 	reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
 	createBranch := !reuseBranch
 	if reuseBranch {
-		exists, err := BranchExists(opts.Root, branchName)
-		if err != nil {
-			return fmt.Errorf("check branch %s: %w", branchName, err)
+		exists, checkErr := BranchExists(root, branchName)
+		if checkErr != nil {
+			return "", "", fmt.Errorf("check branch %s: %w", branchName, checkErr)
 		}
 		if !exists {
 			createBranch = true // branch was deleted (e.g. cleanup); recreate it
@@ -276,15 +278,22 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	}
 	worktreeDirName := worktreeDirForBranch(mainDirname, branchName)
 	worktreePathArg := filepath.Join(worktreesBase, worktreeDirName)
+	worktreePath, err = EnsureWorktree(root, worktreePathArg, branchName, createBranch, audit)
+	if err != nil {
+		return "", "", fmt.Errorf("worktree %s: %w", branchName, err)
+	}
+	if noteErr := addItemNote(store, item.ID, "branch", branchName); noteErr != nil {
+		return "", "", fmt.Errorf("add branch note: %w", noteErr)
+	}
+	return worktreePath, branchName, nil
+}
 
-	worktreePath, err := EnsureWorktree(opts.Root, worktreePathArg, branchName, createBranch, opts.Audit)
+// runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
+func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
+	worktreePath, branchName, err := SetupItemWorktree(store, opts.Root, item, worktreesBase, mainDirname, opts.BranchPrefix, opts.Audit)
 	if err != nil {
 		_ = releaseItemClaim(store, item.ID)
-		return fmt.Errorf("worktree %s: %w", branchName, err)
-	}
-	if err := addItemNote(store, item.ID, "branch", branchName); err != nil {
-		_ = releaseItemClaim(store, item.ID)
-		return fmt.Errorf("add branch note: %w", err)
+		return err
 	}
 	prompt, err := ExpandPromptTemplate(promptTpl, item, worktreePath, branchName)
 	if err != nil {
