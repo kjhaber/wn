@@ -2348,8 +2348,8 @@ func listSortSpec(root string) []wn.SortOption {
 
 var noteCmd = &cobra.Command{
 	Use:   "note",
-	Short: "Add, list, edit, or remove notes (attachments) on a work item",
-	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note edit [id] <name> -m \"...\"', and 'wn note rm [id] <name>'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
+	Short: "Add, list, edit, remove, or show notes (attachments) on a work item",
+	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note show [id] <name>', 'wn note edit [id] <name> -m \"...\"', and 'wn note rm [id] <name>'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
 }
 
 var noteAddCmd = &cobra.Command{
@@ -2362,7 +2362,7 @@ var noteAddMessage string
 
 func init() {
 	noteAddCmd.Flags().StringVarP(&noteAddMessage, "message", "m", "", "Note text (or open $EDITOR if omitted)")
-	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteEditCmd, noteRmCmd)
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteShowCmd, noteEditCmd, noteRmCmd)
 }
 
 func runNoteAdd(cmd *cobra.Command, args []string) error {
@@ -2416,6 +2416,49 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 		it.Updated = now
 		return it, nil
 	})
+}
+
+var noteShowCmd = &cobra.Command{
+	Use:   "show [id] <name>",
+	Short: "Print the body of a named note",
+	Args:  cobra.RangeArgs(1, 2),
+	RunE:  runNoteShow,
+}
+
+func runNoteShow(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	var id string
+	var nameArg string
+	if len(args) == 2 {
+		id, nameArg = args[0], args[1]
+	} else {
+		id, err = wn.ResolveItemID(meta.CurrentID, "")
+		if err != nil {
+			return fmt.Errorf("no id provided and no current task")
+		}
+		nameArg = args[0]
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return fmt.Errorf("item %s not found", id)
+	}
+	idx := item.NoteIndexByName(nameArg)
+	if idx < 0 {
+		return fmt.Errorf("no note named %q", nameArg)
+	}
+	fmt.Println(item.Notes[idx].Body)
+	return nil
 }
 
 var noteListCmd = &cobra.Command{

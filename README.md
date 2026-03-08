@@ -65,6 +65,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn log <id>` | Show history for an item. |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars. |
 | `wn note list [id]` | List notes on an item (name, created, body), ordered by create time. |
+| `wn note show [id] <name>` | Print the raw body of a named note; omit id for current task. Useful for scripting, e.g. `git checkout $(wn note show branch)`. |
 | `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body. |
 | `wn note rm [id] <name>` | Remove a note by name. |
 | `wn settings [--project]` | Open settings in `$EDITOR`. Default: user-level `~/.config/wn/settings.json`. Use `--project` for project-level `.wn/settings.json`. |

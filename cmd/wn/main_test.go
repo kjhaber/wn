@@ -2593,6 +2593,80 @@ func TestNoteRm(t *testing.T) {
 	}
 }
 
+func TestNoteShow(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "branch", itemID, "-m", "my-feature-branch"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	// show with explicit id
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "show", itemID, "branch"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note show: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "my-feature-branch" {
+		t.Errorf("note show output = %q, want %q", strings.TrimSpace(out), "my-feature-branch")
+	}
+}
+
+func TestNoteShow_CurrentItem(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// claim so there's a current item
+	rootCmd.SetArgs([]string{"claim", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	rootCmd.SetArgs([]string{"note", "add", "branch", "-m", "current-branch"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	// show with just note name (uses current item)
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "show", "branch"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note show (current): %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != "current-branch" {
+		t.Errorf("note show current item output = %q, want %q", strings.TrimSpace(out), "current-branch")
+	}
+}
+
+func TestNoteShow_NotFound(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "show", itemID, "nonexistent"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("note show with nonexistent note should fail")
+	}
+	if !strings.Contains(err.Error(), "nonexistent") {
+		t.Errorf("error should mention note name; got %v", err)
+	}
+}
+
 func TestRmWithExplicitId(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()
