@@ -34,24 +34,29 @@ func TestReadSettings_withSort(t *testing.T) {
 	}
 }
 
-func TestReadSettings_withAgentOrch(t *testing.T) {
+func TestReadSettings_newStructure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 	body := `{
 		"sort": "updated:desc",
-		"cleanup": {
-			"close_done_items_age": "30d"
+		"next": {
+			"tag": "agent"
 		},
-		"agent_orch": {
-			"claim": "2h",
+		"worktree": {
+			"base": "./.wn/worktrees",
+			"branch_prefix": "keith/",
+			"default_branch": "main",
+			"claim": "2h"
+		},
+		"agent": {
+			"cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
+			"prompt": "{{.Description}}",
 			"delay": "5m",
 			"poll": "60s",
-			"agent_cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
-			"prompt_tpl": "{{.Description}}",
-			"worktrees": "./.wn/worktrees",
-			"leave_worktree": true,
-			"branch": "main",
-			"branch_prefix": "keith/"
+			"leave_worktree": true
+		},
+		"cleanup": {
+			"close_done_items_age": "30d"
 		}
 	}`
 	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
@@ -64,34 +69,34 @@ func TestReadSettings_withAgentOrch(t *testing.T) {
 	if got.Sort != "updated:desc" {
 		t.Errorf("Sort = %q, want updated:desc", got.Sort)
 	}
+	if got.Next.Tag != "agent" {
+		t.Errorf("Next.Tag = %q, want agent", got.Next.Tag)
+	}
+	wt := got.Worktree
+	if wt.Base != "./.wn/worktrees" || wt.BranchPrefix != "keith/" || wt.DefaultBranch != "main" || wt.Claim != "2h" {
+		t.Errorf("Worktree = %+v, unexpected values", wt)
+	}
+	ag := got.Agent
+	if ag.Cmd == "" || ag.Prompt != "{{.Description}}" || ag.Delay != "5m" || ag.Poll != "60s" || !ag.LeaveWorktree {
+		t.Errorf("Agent = %+v, unexpected values", ag)
+	}
 	if got.Cleanup.CloseDoneItemsAge != "30d" {
 		t.Errorf("Cleanup.CloseDoneItemsAge = %q, want 30d", got.Cleanup.CloseDoneItemsAge)
-	}
-	ao := got.AgentOrch
-	if ao.Claim != "2h" || ao.Delay != "5m" || ao.Poll != "60s" {
-		t.Errorf("AgentOrch claim/delay/poll = %q / %q / %q", ao.Claim, ao.Delay, ao.Poll)
-	}
-	if ao.AgentCmd == "" || ao.PromptTpl != "{{.Description}}" {
-		t.Errorf("AgentOrch agent_cmd or prompt_tpl wrong: %q, %q", ao.AgentCmd, ao.PromptTpl)
-	}
-	if ao.Worktrees != "./.wn/worktrees" || !ao.LeaveWorktree || ao.Branch != "main" {
-		t.Errorf("AgentOrch worktrees/leave_worktree/branch = %q / %v / %q", ao.Worktrees, ao.LeaveWorktree, ao.Branch)
-	}
-	if ao.BranchPrefix != "keith/" {
-		t.Errorf("AgentOrch branch_prefix = %q, want keith/", ao.BranchPrefix)
 	}
 }
 
 func TestMergeSettings_projectOverridesUser(t *testing.T) {
 	user := Settings{
-		Sort:      "updated:desc",
-		Cleanup:   CleanupSettings{CloseDoneItemsAge: "30d"},
-		AgentOrch: AgentOrch{Claim: "1h", Delay: "5m", Tag: "user-tag"},
+		Sort:     "updated:desc",
+		Cleanup:  CleanupSettings{CloseDoneItemsAge: "30d"},
+		Worktree: WorktreeSettings{Claim: "1h", DefaultBranch: "main"},
+		Next:     NextSettings{Tag: "user-tag"},
+		Agent:    AgentSettings{Delay: "5m"},
 	}
 	project := Settings{
-		Sort:      "created:asc",
-		Cleanup:   CleanupSettings{CloseDoneItemsAge: "7d"},
-		AgentOrch: AgentOrch{Claim: "2h"},
+		Sort:     "created:asc",
+		Cleanup:  CleanupSettings{CloseDoneItemsAge: "7d"},
+		Worktree: WorktreeSettings{Claim: "2h"},
 	}
 	merged := MergeSettings(user, project)
 	if merged.Sort != "created:asc" {
@@ -100,21 +105,24 @@ func TestMergeSettings_projectOverridesUser(t *testing.T) {
 	if merged.Cleanup.CloseDoneItemsAge != "7d" {
 		t.Errorf("Cleanup.CloseDoneItemsAge = %q, want 7d", merged.Cleanup.CloseDoneItemsAge)
 	}
-	if merged.AgentOrch.Claim != "2h" {
-		t.Errorf("AgentOrch.Claim = %q, want 2h", merged.AgentOrch.Claim)
+	if merged.Worktree.Claim != "2h" {
+		t.Errorf("Worktree.Claim = %q, want 2h", merged.Worktree.Claim)
 	}
-	if merged.AgentOrch.Delay != "5m" {
-		t.Errorf("AgentOrch.Delay = %q, want 5m (from user)", merged.AgentOrch.Delay)
+	if merged.Worktree.DefaultBranch != "main" {
+		t.Errorf("Worktree.DefaultBranch = %q, want main (from user)", merged.Worktree.DefaultBranch)
 	}
-	if merged.AgentOrch.Tag != "user-tag" {
-		t.Errorf("AgentOrch.Tag = %q, want user-tag (from user)", merged.AgentOrch.Tag)
+	if merged.Agent.Delay != "5m" {
+		t.Errorf("Agent.Delay = %q, want 5m (from user)", merged.Agent.Delay)
+	}
+	if merged.Next.Tag != "user-tag" {
+		t.Errorf("Next.Tag = %q, want user-tag (from user)", merged.Next.Tag)
 	}
 }
 
 func TestMergeSettings_emptyProjectReturnsUser(t *testing.T) {
-	user := Settings{Sort: "updated:desc", AgentOrch: AgentOrch{Claim: "1h"}}
+	user := Settings{Sort: "updated:desc", Worktree: WorktreeSettings{Claim: "1h"}}
 	merged := MergeSettings(user, Settings{})
-	if merged.Sort != "updated:desc" || merged.AgentOrch.Claim != "1h" {
+	if merged.Sort != "updated:desc" || merged.Worktree.Claim != "1h" {
 		t.Errorf("merged = %+v, want user settings unchanged", merged)
 	}
 }
@@ -151,7 +159,7 @@ func TestReadSettings_withShow(t *testing.T) {
 func TestReadSettingsInRoot_withProjectFile_mergesProjectOverUser(t *testing.T) {
 	userDir := t.TempDir()
 	userPath := filepath.Join(userDir, "settings.json")
-	if err := os.WriteFile(userPath, []byte(`{"sort":"updated:desc","agent_orch":{"claim":"1h"}}`), 0644); err != nil {
+	if err := os.WriteFile(userPath, []byte(`{"sort":"updated:desc","worktree":{"claim":"1h"}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
 	projectRoot := t.TempDir()
@@ -175,8 +183,8 @@ func TestReadSettingsInRoot_withProjectFile_mergesProjectOverUser(t *testing.T) 
 	if merged.Sort != "created:asc" {
 		t.Errorf("Sort = %q, want created:asc", merged.Sort)
 	}
-	if merged.AgentOrch.Claim != "1h" {
-		t.Errorf("AgentOrch.Claim = %q, want 1h (from user)", merged.AgentOrch.Claim)
+	if merged.Worktree.Claim != "1h" {
+		t.Errorf("Worktree.Claim = %q, want 1h (from user)", merged.Worktree.Claim)
 	}
 }
 

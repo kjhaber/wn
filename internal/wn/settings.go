@@ -8,10 +8,36 @@ import (
 
 // Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
 type Settings struct {
-	Sort      string          `json:"sort,omitempty"`       // e.g. "updated:desc,priority,tags"
-	AgentOrch AgentOrch       `json:"agent_orch,omitempty"` // defaults for wn agent-orch
-	Cleanup   CleanupSettings `json:"cleanup,omitempty"`    // options for cleanup subcommands
-	Show      ShowSettings    `json:"show,omitempty"`       // defaults for wn show / bare wn
+	Sort     string           `json:"sort,omitempty"`     // e.g. "updated:desc,priority,tags"
+	Next     NextSettings     `json:"next,omitempty"`     // defaults for next-item selection
+	Worktree WorktreeSettings `json:"worktree,omitempty"` // defaults for worktree setup (wn worktree, wn do, wn agent-orch)
+	Agent    AgentSettings    `json:"agent,omitempty"`    // defaults for headless agent runs (wn do, wn agent-orch)
+	Cleanup  CleanupSettings  `json:"cleanup,omitempty"`  // options for cleanup subcommands
+	Show     ShowSettings     `json:"show,omitempty"`     // defaults for wn show / bare wn
+}
+
+// NextSettings controls how the next work item is selected (wn next, wn worktree --next, wn agent-orch).
+type NextSettings struct {
+	Tag string `json:"tag,omitempty"` // only consider items that have this tag, e.g. "agent"
+}
+
+// WorktreeSettings controls worktree creation (wn worktree, wn do, wn agent-orch).
+// Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
+type WorktreeSettings struct {
+	Base          string `json:"base,omitempty"`           // base directory for worktrees, e.g. "../worktrees"
+	BranchPrefix  string `json:"branch_prefix,omitempty"`  // prefix for generated branch names, e.g. "keith/"
+	DefaultBranch string `json:"default_branch,omitempty"` // override default branch detection, e.g. "main"
+	Claim         string `json:"claim,omitempty"`          // how long to claim an item, e.g. "2h"
+}
+
+// AgentSettings controls headless agent execution (wn do, wn agent-orch).
+// Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
+type AgentSettings struct {
+	Cmd           string `json:"cmd,omitempty"`            // command template, e.g. "cursor agent --print --trust \"{{.Prompt}}\""
+	Prompt        string `json:"prompt,omitempty"`         // prompt template, e.g. "{{.Description}}"
+	Delay         string `json:"delay,omitempty"`          // delay between items, e.g. "5m"
+	Poll          string `json:"poll,omitempty"`           // poll interval when queue empty, e.g. "60s"
+	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // if true, keep worktree after agent finishes
 }
 
 // ShowSettings holds user-level defaults for the show command and bare 'wn [id]'.
@@ -20,21 +46,6 @@ type ShowSettings struct {
 	// Valid fields: title, body, status, deps, notes, log.
 	// Example: "title,body,deps,notes"
 	DefaultFields string `json:"default_fields,omitempty"`
-}
-
-// AgentOrch holds user-level defaults for the agent orchestrator (wn agent-orch).
-// Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
-type AgentOrch struct {
-	Claim         string `json:"claim,omitempty"`          // claim duration per item, e.g. "2h"
-	Delay         string `json:"delay,omitempty"`          // delay between runs, e.g. "5m"
-	Poll          string `json:"poll,omitempty"`           // poll interval when queue empty, e.g. "60s"
-	AgentCmd      string `json:"agent_cmd,omitempty"`      // command template, e.g. "cursor agent --print --trust \"{{.Prompt}}\""
-	PromptTpl     string `json:"prompt_tpl,omitempty"`     // prompt template, e.g. "{{.Description}}"
-	Worktrees     string `json:"worktrees,omitempty"`      // worktree base path, e.g. "./.wn/worktrees"
-	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // true = leave worktree after run (default)
-	Branch        string `json:"branch,omitempty"`         // default branch override, e.g. "main"
-	BranchPrefix  string `json:"branch_prefix,omitempty"`  // prefix for generated branch names, e.g. "keith/"
-	Tag           string `json:"tag,omitempty"`            // only consider items that have this tag
 }
 
 // CleanupSettings holds user-level defaults for cleanup utilities (wn cleanup ...).
@@ -64,9 +75,56 @@ func MergeSettings(user, project Settings) Settings {
 	if project.Sort != "" {
 		out.Sort = project.Sort
 	}
+	out.Next = mergeNext(user.Next, project.Next)
+	out.Worktree = mergeWorktree(user.Worktree, project.Worktree)
+	out.Agent = mergeAgent(user.Agent, project.Agent)
 	out.Cleanup = mergeCleanup(user.Cleanup, project.Cleanup)
-	out.AgentOrch = mergeAgentOrch(user.AgentOrch, project.AgentOrch)
 	out.Show = mergeShow(user.Show, project.Show)
+	return out
+}
+
+func mergeNext(user, project NextSettings) NextSettings {
+	out := user
+	if project.Tag != "" {
+		out.Tag = project.Tag
+	}
+	return out
+}
+
+func mergeWorktree(user, project WorktreeSettings) WorktreeSettings {
+	out := user
+	if project.Base != "" {
+		out.Base = project.Base
+	}
+	if project.BranchPrefix != "" {
+		out.BranchPrefix = project.BranchPrefix
+	}
+	if project.DefaultBranch != "" {
+		out.DefaultBranch = project.DefaultBranch
+	}
+	if project.Claim != "" {
+		out.Claim = project.Claim
+	}
+	return out
+}
+
+func mergeAgent(user, project AgentSettings) AgentSettings {
+	out := user
+	if project.Cmd != "" {
+		out.Cmd = project.Cmd
+	}
+	if project.Prompt != "" {
+		out.Prompt = project.Prompt
+	}
+	if project.Delay != "" {
+		out.Delay = project.Delay
+	}
+	if project.Poll != "" {
+		out.Poll = project.Poll
+	}
+	if project.LeaveWorktree {
+		out.LeaveWorktree = project.LeaveWorktree
+	}
 	return out
 }
 
@@ -82,41 +140,6 @@ func mergeCleanup(user, project CleanupSettings) CleanupSettings {
 	out := user
 	if project.CloseDoneItemsAge != "" {
 		out.CloseDoneItemsAge = project.CloseDoneItemsAge
-	}
-	return out
-}
-
-func mergeAgentOrch(user, project AgentOrch) AgentOrch {
-	out := user
-	if project.Claim != "" {
-		out.Claim = project.Claim
-	}
-	if project.Delay != "" {
-		out.Delay = project.Delay
-	}
-	if project.Poll != "" {
-		out.Poll = project.Poll
-	}
-	if project.AgentCmd != "" {
-		out.AgentCmd = project.AgentCmd
-	}
-	if project.PromptTpl != "" {
-		out.PromptTpl = project.PromptTpl
-	}
-	if project.Worktrees != "" {
-		out.Worktrees = project.Worktrees
-	}
-	if project.LeaveWorktree {
-		out.LeaveWorktree = project.LeaveWorktree
-	}
-	if project.Branch != "" {
-		out.Branch = project.Branch
-	}
-	if project.BranchPrefix != "" {
-		out.BranchPrefix = project.BranchPrefix
-	}
-	if project.Tag != "" {
-		out.Tag = project.Tag
 	}
 	return out
 }

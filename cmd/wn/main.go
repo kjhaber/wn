@@ -1742,11 +1742,12 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ao := settings.AgentOrch
+	ws := settings.Worktree
+	ns := settings.Next
 
 	claimFor := 2 * time.Hour
-	if ao.Claim != "" {
-		if d, err := time.ParseDuration(ao.Claim); err == nil {
+	if ws.Claim != "" {
+		if d, err := time.ParseDuration(ws.Claim); err == nil {
 			claimFor = d
 		}
 	}
@@ -1758,15 +1759,15 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 		claimFor = d
 	}
 
-	branchPrefix := ao.BranchPrefix
+	branchPrefix := ws.BranchPrefix
 	if flagBranchPrefix != "" {
 		branchPrefix = flagBranchPrefix
 	}
-	worktreesBase := ao.Worktrees
+	worktreesBase := ws.Base
 	if flagWorktreeBase != "" {
 		worktreesBase = flagWorktreeBase
 	}
-	tag := ao.Tag
+	tag := ns.Tag
 	if flagTag != "" {
 		tag = flagTag
 	}
@@ -1857,40 +1858,42 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 		LeaveWorktree: true,
 	}
 	// Apply settings defaults
-	ao := settings.AgentOrch
-	if ao.Claim != "" {
-		if d, err := time.ParseDuration(ao.Claim); err == nil {
+	ws := settings.Worktree
+	as := settings.Agent
+	ns := settings.Next
+	if ws.Claim != "" {
+		if d, err := time.ParseDuration(ws.Claim); err == nil {
 			opts.ClaimFor = d
 		}
 	}
-	if ao.Delay != "" {
-		if d, err := time.ParseDuration(ao.Delay); err == nil {
+	if as.Delay != "" {
+		if d, err := time.ParseDuration(as.Delay); err == nil {
 			opts.Delay = d
 		}
 	}
-	if ao.Poll != "" {
-		if d, err := time.ParseDuration(ao.Poll); err == nil {
+	if as.Poll != "" {
+		if d, err := time.ParseDuration(as.Poll); err == nil {
 			opts.Poll = d
 		}
 	}
-	if ao.AgentCmd != "" {
-		opts.AgentCmd = ao.AgentCmd
+	if as.Cmd != "" {
+		opts.AgentCmd = as.Cmd
 	}
-	if ao.PromptTpl != "" {
-		opts.PromptTpl = ao.PromptTpl
+	if as.Prompt != "" {
+		opts.PromptTpl = as.Prompt
 	}
-	if ao.Worktrees != "" {
-		opts.WorktreesBase = ao.Worktrees
+	if ws.Base != "" {
+		opts.WorktreesBase = ws.Base
 	}
-	opts.LeaveWorktree = ao.LeaveWorktree
-	if ao.Branch != "" {
-		opts.DefaultBranch = ao.Branch
+	opts.LeaveWorktree = as.LeaveWorktree
+	if ws.DefaultBranch != "" {
+		opts.DefaultBranch = ws.DefaultBranch
 	}
-	if ao.BranchPrefix != "" {
-		opts.BranchPrefix = ao.BranchPrefix
+	if ws.BranchPrefix != "" {
+		opts.BranchPrefix = ws.BranchPrefix
 	}
-	if ao.Tag != "" {
-		opts.Tag = ao.Tag
+	if ns.Tag != "" {
+		opts.Tag = ns.Tag
 	}
 	// Flags override
 	if agentOrchClaim != "" {
@@ -1951,9 +1954,7 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 	if opts.Poll == 0 {
 		opts.Poll = 60 * time.Second
 	}
-	if opts.AgentCmd == "" {
-		return fmt.Errorf("agent_cmd is required (set in settings, --agent-cmd, or WN_AGENT_CMD)")
-	}
+	// Resolve work item before validating agent config so item errors surface first.
 	if agentOrchCurrent {
 		if agentOrchWorkID != "" {
 			return fmt.Errorf("use either --work-id or --current, not both")
@@ -1968,6 +1969,9 @@ func runAgentOrch(cmd *cobra.Command, args []string) error {
 		opts.WorkID = meta.CurrentID
 	} else if agentOrchWorkID != "" {
 		opts.WorkID = agentOrchWorkID
+	}
+	if opts.AgentCmd == "" {
+		return fmt.Errorf("agent_cmd is required (set in settings, --agent-cmd, or WN_AGENT_CMD)")
 	}
 	ctx := context.Background()
 	return wn.RunAgentOrch(ctx, opts)
