@@ -129,6 +129,75 @@ func TestFindRootForCLI_UsesWN_ROOT(t *testing.T) {
 	}
 }
 
+func TestFindRootForCLI_GitWorktree(t *testing.T) {
+	// Set up a main repo with .wn and a linked worktree (no .wn there).
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	// Create .wn in the main repo.
+	if err := os.MkdirAll(filepath.Join(mainRepo, ".wn", "items"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a linked worktree.
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-test-worktree")
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := FindRootForCLI()
+	if err != nil {
+		t.Fatalf("FindRootForCLI() from worktree: %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("FindRootForCLI() from worktree = %q (norm %q), want main repo %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
+func TestFindRootForCLI_GitWorktree_NoWn(t *testing.T) {
+	// Worktree of a repo without .wn should still return ErrNoRoot.
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-no-wn-test")
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := FindRootForCLI()
+	if err == nil {
+		t.Error("FindRootForCLI() from worktree without .wn: expected error, got nil")
+	}
+}
+
 func TestFindRootFromDir_Empty(t *testing.T) {
 	_, err := FindRootFromDir("")
 	if err == nil {

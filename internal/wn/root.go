@@ -3,20 +3,60 @@ package wn
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 var ErrNoRoot = errors.New("wn root not found: no .wn directory in current or parent directories")
 
-// FindRootForCLI resolves the wn project root for CLI use. If WN_ROOT is set
-// (e.g. by agent-orch when running a subagent in a worktree), uses that path
-// so subagent commands like wn list and wn export find the main repo's .wn.
-// Otherwise falls back to FindRoot() (walking up from cwd).
+// FindRootForCLI resolves the wn project root for CLI use. Tries in order:
+//  1. WN_ROOT env var (set e.g. by agent-orch for subagents)
+//  2. Walk up from cwd looking for .wn
+//  3. Git worktree detection: if cwd is a linked worktree, find the main
+//     repo via git rev-parse --git-common-dir and look for .wn there
 func FindRootForCLI() (string, error) {
 	if r := os.Getenv("WN_ROOT"); r != "" {
 		return FindRootFromDir(r)
 	}
-	return FindRoot()
+	root, err := FindRoot()
+	if err == nil {
+		return root, nil
+	}
+	if err != ErrNoRoot {
+		return "", err
+	}
+	return findRootViaGitWorktree()
+}
+
+// findRootViaGitWorktree detects if cwd is a git linked worktree and, if so,
+// looks for .wn in the main repo. git rev-parse --git-common-dir returns the
+// common .git directory (absolute path when in a worktree), whose parent is
+// the main repo root.
+func findRootViaGitWorktree() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	cmd.Dir = cwd
+	out, err := cmd.Output()
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	gitCommonDir := strings.TrimSpace(string(out))
+	if gitCommonDir == "" {
+		return "", ErrNoRoot
+	}
+	if !filepath.IsAbs(gitCommonDir) {
+		gitCommonDir = filepath.Join(cwd, gitCommonDir)
+	}
+	mainRepoRoot := filepath.Dir(gitCommonDir)
+	root, err := FindRootFromDir(mainRepoRoot)
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	return root, nil
 }
 
 // FindRoot walks up from the current directory until it finds a directory
