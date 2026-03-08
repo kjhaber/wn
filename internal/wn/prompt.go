@@ -18,9 +18,3 @@ func PromptContent(description string) string {
 	}
 	return description
 }
-
-// FormatPrompt replaces the first "{}" in template with content and returns the result.
-// Used by the prompt subcommand to wrap work item content in a user-provided template.
-func FormatPrompt(template, content string) string {
-	return strings.Replace(template, "{}", content, 1)
-}

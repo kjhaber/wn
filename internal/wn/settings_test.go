@@ -119,6 +119,35 @@ func TestMergeSettings_emptyProjectReturnsUser(t *testing.T) {
 	}
 }
 
+func TestMergeSettings_showDefaultFields(t *testing.T) {
+	user := Settings{Show: ShowSettings{DefaultFields: "title,body"}}
+	project := Settings{Show: ShowSettings{DefaultFields: "title,body,deps"}}
+	merged := MergeSettings(user, project)
+	if merged.Show.DefaultFields != "title,body,deps" {
+		t.Errorf("Show.DefaultFields = %q, want title,body,deps (project overrides user)", merged.Show.DefaultFields)
+	}
+	// Empty project show leaves user value
+	merged2 := MergeSettings(user, Settings{})
+	if merged2.Show.DefaultFields != "title,body" {
+		t.Errorf("Show.DefaultFields = %q, want title,body (user unchanged)", merged2.Show.DefaultFields)
+	}
+}
+
+func TestReadSettings_withShow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"show":{"default_fields":"title,body,status"}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.Show.DefaultFields != "title,body,status" {
+		t.Errorf("Show.DefaultFields = %q, want title,body,status", got.Show.DefaultFields)
+	}
+}
+
 func TestReadSettingsInRoot_withProjectFile_mergesProjectOverUser(t *testing.T) {
 	userDir := t.TempDir()
 	userPath := filepath.Join(userDir, "settings.json")

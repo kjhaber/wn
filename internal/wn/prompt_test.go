@@ -22,26 +22,6 @@ func TestHasDescriptionBody(t *testing.T) {
 	}
 }
 
-func TestFormatPrompt(t *testing.T) {
-	tests := []struct {
-		tpl     string
-		content string
-		want    string
-	}{
-		{"Please implement: {}", "add a feature", "Please implement: add a feature"},
-		{"Work item: {}", "one line", "Work item: one line"},
-		{"Please implement the following:\n\n{}", "Title\n\nBody.", "Please implement the following:\n\nTitle\n\nBody."},
-		{"{}", "only content", "only content"},
-		{"Prefix {} suffix", "x", "Prefix x suffix"},
-	}
-	for _, tt := range tests {
-		got := FormatPrompt(tt.tpl, tt.content)
-		if got != tt.want {
-			t.Errorf("FormatPrompt(%q, %q) = %q, want %q", tt.tpl, tt.content, got, tt.want)
-		}
-	}
-}
-
 func TestPromptContent(t *testing.T) {
 	tests := []struct {
 		desc string

@@ -11,6 +11,15 @@ type Settings struct {
 	Sort      string          `json:"sort,omitempty"`       // e.g. "updated:desc,priority,tags"
 	AgentOrch AgentOrch       `json:"agent_orch,omitempty"` // defaults for wn agent-orch
 	Cleanup   CleanupSettings `json:"cleanup,omitempty"`    // options for cleanup subcommands
+	Show      ShowSettings    `json:"show,omitempty"`       // defaults for wn show / bare wn
+}
+
+// ShowSettings holds user-level defaults for the show command and bare 'wn [id]'.
+type ShowSettings struct {
+	// DefaultFields is a comma-separated list of fields to display.
+	// Valid fields: title, body, status, deps, notes, log.
+	// Example: "title,body,deps,notes"
+	DefaultFields string `json:"default_fields,omitempty"`
 }
 
 // AgentOrch holds user-level defaults for the agent orchestrator (wn agent-orch).
@@ -57,6 +66,15 @@ func MergeSettings(user, project Settings) Settings {
 	}
 	out.Cleanup = mergeCleanup(user.Cleanup, project.Cleanup)
 	out.AgentOrch = mergeAgentOrch(user.AgentOrch, project.AgentOrch)
+	out.Show = mergeShow(user.Show, project.Show)
+	return out
+}
+
+func mergeShow(user, project ShowSettings) ShowSettings {
+	out := user
+	if project.DefaultFields != "" {
+		out.DefaultFields = project.DefaultFields
+	}
 	return out
 }
 

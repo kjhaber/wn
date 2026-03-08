@@ -16,6 +16,14 @@ import (
 // resetPickFlags clears pick filter flags to avoid Cobra's flag persistence across
 // Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
 // each test that invokes "pick" with different flags.
+// resetShowFlags clears show flags to avoid Cobra's flag persistence across Execute() calls.
+func resetShowFlags() {
+	showJson = false
+	showPlain = false
+	showAll = false
+	showFields = ""
+}
+
 func resetPickFlags() {
 	pickUndone = false
 	pickDone = false
@@ -149,79 +157,109 @@ func TestListJSON(t *testing.T) {
 	}
 }
 
-func TestDescJSON(t *testing.T) {
-	dir, _ := setupWnRoot(t)
-	cwd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer func() { _ = os.Chdir(cwd) }()
-
-	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"desc", "--json"})
-		if err := rootCmd.Execute(); err != nil {
-			t.Errorf("Execute: %v", err)
-		}
-	})
-
-	var doc struct {
-		Description string `json:"description"`
-	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		t.Fatalf("Unmarshal desc: %v\noutput: %s", err, out)
-	}
-	// PromptBody of "first line\nsecond line" is "second line"
-	if doc.Description != "second line" {
-		t.Errorf("description = %q, want second line", doc.Description)
-	}
-}
-
-func TestPromptMultiLineUsesTemplateBody(t *testing.T) {
+func TestShowPlain(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
+	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"prompt", itemID})
+		rootCmd.SetArgs([]string{"show", "--plain", itemID})
 		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	// Default template-body is "Please implement the following:\n\n{}"; item has "first line\nsecond line"
-	want := "Please implement the following:\n\nfirst line\nsecond line"
-	if out != want+"\n" {
-		t.Errorf("prompt (multi-line) = %q, want %q", out, want+"\n")
-	}
-}
-
-func TestPromptOneLineUsesTemplate(t *testing.T) {
-	dir, _ := setupWnRoot(t)
-	cwd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer func() { _ = os.Chdir(cwd) }()
-	// Add a one-line item and set as current
-	rootCmd.SetArgs([]string{"add", "-m", "add a prompt template feature"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("add: %v", err)
-	}
-	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"prompt"})
-		if err := rootCmd.Execute(); err != nil {
-			t.Errorf("Execute: %v", err)
-		}
-	})
-	want := "Please implement the following work item: add a prompt template feature\n"
+	// PromptContent of "first line\nsecond line" (multi-line) returns the full description
+	want := "first line\nsecond line\n"
 	if out != want {
-		t.Errorf("prompt (one-line) = %q, want %q", out, want)
+		t.Errorf("show --plain = %q, want %q", out, want)
 	}
 }
 
-func TestPromptCustomTemplate(t *testing.T) {
+func TestShowPlainOneLine(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{ID: "aaa111", Description: "one liner task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "aaa111"}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetShowFlags()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", "--plain"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if out != "one liner task\n" {
+		t.Errorf("show --plain (one-line) = %q, want %q", out, "one liner task\n")
+	}
+}
+
+func TestShowFields(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetShowFlags()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", "--fields", "title", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// Only title line; should contain ID and first line but not body
+	if !strings.Contains(out, itemID) || !strings.Contains(out, "first line") {
+		t.Errorf("show --fields=title should contain id and first line; got %q", out)
+	}
+	if strings.Contains(out, "second line") {
+		t.Errorf("show --fields=title should not contain body; got %q", out)
+	}
+}
+
+func TestShowAll(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetShowFlags()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", "--all", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// --all should include log entries
+	if !strings.Contains(out, "log:") || !strings.Contains(out, "created") {
+		t.Errorf("show --all should include log section; got %q", out)
+	}
+}
+
+func TestBareWnAcceptsID(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -229,15 +267,57 @@ func TestPromptCustomTemplate(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
+	// A second item (not current) to verify we can view it by ID
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	other := &wn.Item{ID: "zzz999", Description: "other item", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(other); err != nil {
+		t.Fatal(err)
+	}
+	_ = itemID // current task stays as abc123
+
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"prompt", "--template-body", "Task: {}", itemID})
+		rootCmd.SetArgs([]string{"zzz999"})
 		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	want := "Task: first line\nsecond line"
-	if out != want+"\n" {
-		t.Errorf("prompt (custom template-body) = %q, want %q", out, want+"\n")
+	if !strings.Contains(out, "zzz999") || !strings.Contains(out, "other item") {
+		t.Errorf("bare wn <id> should show item zzz999; got %q", out)
+	}
+	if strings.Contains(out, "abc123") {
+		t.Errorf("bare wn <id> should show zzz999, not abc123; got %q", out)
+	}
+}
+
+func TestShowRespectsSettingsDefaultFields(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Write project settings that include "log" in default fields
+	wnDir := filepath.Join(dir, ".wn")
+	settingsPath := filepath.Join(wnDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"show":{"default_fields":"title,body,log"}}`), 0644); err != nil {
+		t.Fatalf("WriteFile settings: %v", err)
+	}
+	resetShowFlags()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// settings includes log, so log section should appear
+	if !strings.Contains(out, "log:") || !strings.Contains(out, "created") {
+		t.Errorf("show should include log when settings.show.default_fields contains log; got %q", out)
 	}
 }
 
@@ -281,9 +361,7 @@ func TestShowDefaultIsHumanReadable(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-
-	// Cobra does not reset flags between Execute() calls; reset so default is human-readable.
-	_ = showCmd.Flags().Set("json", "false")
+	resetShowFlags()
 
 	out := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"show", itemID})
@@ -294,9 +372,6 @@ func TestShowDefaultIsHumanReadable(t *testing.T) {
 	// Default show should be human-readable, not JSON.
 	if strings.HasPrefix(strings.TrimSpace(out), "{") {
 		t.Errorf("show (default) should be human-readable, not JSON; got: %s", out)
-	}
-	if !strings.Contains(out, "id:") || !strings.Contains(out, "description:") {
-		t.Errorf("show (default) should contain id: and description:; got: %s", out)
 	}
 	if !strings.Contains(out, itemID) || !strings.Contains(out, "first line") {
 		t.Errorf("show (default) should contain item id and description text; got: %s", out)
@@ -392,9 +467,7 @@ func TestShowShowsDependentTasks(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-
-	// Cobra does not reset flags between Execute() calls; reset so default is human-readable.
-	_ = showCmd.Flags().Set("json", "false")
+	resetShowFlags()
 
 	out := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"show", "aa1111"})
@@ -1109,8 +1182,8 @@ func TestCurrentTaskShowsState(t *testing.T) {
 		if bytes.Contains([]byte(out), []byte("(undone)")) {
 			t.Errorf("current task output should not show (undone); got %q", out)
 		}
-		if !bytes.Contains([]byte(out), []byte("current task:")) || !bytes.Contains([]byte(out), []byte("abc123")) {
-			t.Errorf("current task output should show id and description; got %q", out)
+		if !bytes.Contains([]byte(out), []byte("abc123")) {
+			t.Errorf("current task output should show item id; got %q", out)
 		}
 	})
 

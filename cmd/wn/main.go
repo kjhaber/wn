@@ -27,15 +27,20 @@ var rootCmd = &cobra.Command{
 	Use:   "wn",
 	Short: "What's Next — local task/work item tracker",
 	Long:  `wn is a CLI for tracking work items. Use wn init to create a tracker in the current directory.`,
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runCurrent,
 }
 
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, descCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, promptCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, agentOrchCmd, doCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
+
+// defaultShowFields is the built-in default for bare 'wn [id]' and 'wn show [id]'
+// when no --fields flag is given and settings.Show.DefaultFields is empty.
+const defaultShowFields = "title,body,deps,notes"
 
 func runCurrent(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
@@ -46,120 +51,15 @@ func runCurrent(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if meta.CurrentID == "" {
-		fmt.Println("No current task. Use 'wn pick' to choose one or 'wn next' to advance.")
-		return nil
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(meta.CurrentID)
-	if err != nil {
-		fmt.Printf("Current task ID %s not found. Use 'wn pick' to choose one.\n", meta.CurrentID)
-		return nil
-	}
-	var state string
-	if item.Done {
-		switch item.DoneStatus {
-		case wn.DoneStatusClosed:
-			state = " (closed)"
-		case wn.DoneStatusSuspend:
-			state = " (suspend)"
-		default:
-			state = " (done)"
-		}
-	} else if wn.IsInProgress(item, time.Now().UTC()) {
-		state = " (claimed)"
-	} else if item.ReviewReady {
-		state = " (review)"
-	}
-	firstLine := wn.FirstLine(item.Description)
-	tagsStr := formatTags(item.Tags)
-	const currentTaskContentWidth = 56 // pad so tags/state align on the right
-	content := fmt.Sprintf("current task: [%s] %s", item.ID, firstLine)
-	if tagsStr != "" {
-		if len(content) > currentTaskContentWidth {
-			content = content[:currentTaskContentWidth-3] + "..."
-		} else {
-			content = content + strings.Repeat(" ", currentTaskContentWidth-len(content))
-		}
-		fmt.Printf("%s  %s%s\n", content, tagsStr, state)
+	var id string
+	if len(args) > 0 {
+		id = args[0]
 	} else {
-		fmt.Printf("%s%s\n", content, state)
-	}
-	// Remaining description lines, if any (preserve blank lines)
-	if rest := getRestOfDescription(item.Description); rest != "" {
-		fmt.Print(rest)
-		if !strings.HasSuffix(rest, "\n") {
-			fmt.Println()
+		if meta.CurrentID == "" {
+			fmt.Println("No current task. Use 'wn pick' to choose one or 'wn next' to advance.")
+			return nil
 		}
-	}
-	// Dependencies: what this task depends on, and what depends on it
-	if len(item.DependsOn) > 0 {
-		fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
-	}
-	dependents, err := wn.Dependents(store, item.ID)
-	if err == nil && len(dependents) > 0 {
-		fmt.Printf("dependent tasks: %s\n", strings.Join(dependents, ", "))
-	}
-	return nil
-}
-
-// getRestOfDescription returns all but the first line of s (unchanged, so blank lines are preserved).
-func getRestOfDescription(s string) string {
-	_, rest, _ := strings.Cut(s, "\n")
-	return rest
-}
-
-var descCmd = &cobra.Command{
-	Use:   "desc [id]",
-	Short: "Print a work item description (prompt-ready: title only or body only)",
-	Long:  "Output is suitable for pasting into an agent prompt. If id is omitted, uses current task. Single-line descriptions are printed as-is; multi-line descriptions print only the lines after the title. Use --json for machine-readable output.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDesc,
-}
-var descJson bool
-
-func init() {
-	descCmd.Flags().BoolVar(&descJson, "json", false, "Output as JSON object with description field")
-}
-
-const (
-	defaultPromptTplOneLine = "Please implement the following work item: {}"
-	defaultPromptTplBody    = "Please implement the following:\n\n{}"
-)
-
-var promptCmd = &cobra.Command{
-	Use:   "prompt [id]",
-	Short: "Output work item in a prompt template (for pasting into an agent)",
-	Long:  "Prints the work item wrapped in a template. If id is omitted, uses current task. Use --template for title-only one-liners and --template-body for items with a longer description (title + body). The placeholder {} in the template is replaced by the item content.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runPrompt,
-}
-var promptTpl, promptTplBody string
-
-func init() {
-	promptCmd.Flags().StringVar(&promptTpl, "template", defaultPromptTplOneLine, "Template for title-only work items; {} is replaced by the title")
-	promptCmd.Flags().StringVar(&promptTplBody, "template-body", defaultPromptTplBody, "Template for work items with title and description; {} is replaced by the full description")
-}
-
-func runPrompt(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
-	}
-	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
-	if err != nil {
-		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
+		id = meta.CurrentID
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
@@ -167,65 +67,42 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	}
 	item, err := store.Get(id)
 	if err != nil {
+		if len(args) == 0 {
+			fmt.Printf("Current task ID %s not found. Use 'wn pick' to choose one.\n", id)
+			return nil
+		}
 		return fmt.Errorf("item %s not found", id)
 	}
-	tpl := promptTpl
-	if wn.HasDescriptionBody(item.Description) {
-		tpl = promptTplBody
-	}
-	content := wn.PromptContent(item.Description)
-	fmt.Println(wn.FormatPrompt(tpl, content))
-	return nil
-}
-
-func runDesc(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
-	}
-	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
-	if err != nil {
-		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
-	if err != nil {
-		return fmt.Errorf("item %s not found", id)
-	}
-	body := wn.PromptBody(item.Description)
-	if descJson {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetEscapeHTML(false)
-		return enc.Encode(struct {
-			Description string `json:"description"`
-		}{Description: body})
-	}
-	fmt.Println(body)
-	return nil
+	settings, _ := wn.ReadSettingsInRoot(root)
+	fields := resolveShowFields(false, "", settings)
+	return renderItemHuman(item, fields, store)
 }
 
 var showCmd = &cobra.Command{
 	Use:   "show [id]",
-	Short: "Show one work item (human-readable by default)",
-	Long:  "Prints the full work item. If id is omitted, uses current task. Default output is human-readable; use --json for machine-readable JSON.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runShow,
+	Short: "Show a work item",
+	Long: `Show a work item. If id is omitted, uses current task.
+
+Output modes:
+  (default)  Human-readable; fields controlled by --fields or --all
+  --plain    Description text only, suitable for pasting into an agent
+  --json     Full item as machine-readable JSON
+
+Field selection (human-readable mode only):
+  --fields title,body,status,deps,notes,log
+  --all      Show all fields (equivalent to --fields title,body,status,deps,notes,log)`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runShow,
 }
-var showJson bool
+
+var showJson, showPlain, showAll bool
+var showFields string
 
 func init() {
 	showCmd.Flags().BoolVar(&showJson, "json", false, "Output as JSON")
+	showCmd.Flags().BoolVar(&showPlain, "plain", false, "Output description text only (for agents/scripts)")
+	showCmd.Flags().BoolVar(&showAll, "all", false, "Show all fields including log")
+	showCmd.Flags().StringVar(&showFields, "fields", "", "Comma-separated fields: title,body,status,deps,notes,log")
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
@@ -258,34 +135,118 @@ func runShow(cmd *cobra.Command, args []string) error {
 		enc.SetEscapeHTML(false)
 		return enc.Encode(item)
 	}
-	// Human-readable format
-	const timeFmt = "2006-01-02 15:04:05"
-	fmt.Printf("id: %s\n", item.ID)
-	fmt.Printf("description:\n%s\n", item.Description)
-	status := wn.ItemListStatus(item, time.Now().UTC())
-	if item.Done && item.DoneMessage != "" {
-		status += " (" + item.DoneMessage + ")"
-	} else if !item.InProgressUntil.IsZero() && item.InProgressUntil.After(time.Now().UTC()) {
-		status = "in progress until " + item.InProgressUntil.Format(timeFmt)
-		if item.InProgressBy != "" {
-			status += " (by " + item.InProgressBy + ")"
+	if showPlain {
+		fmt.Println(wn.PromptContent(item.Description))
+		return nil
+	}
+	settings, _ := wn.ReadSettingsInRoot(root)
+	fields := resolveShowFields(showAll, showFields, settings)
+	return renderItemHuman(item, fields, store)
+}
+
+// resolveShowFields returns the active field set for human-readable output.
+// Priority: --all > --fields flag > settings default > built-in default.
+func resolveShowFields(all bool, fieldsFlag string, settings wn.Settings) map[string]bool {
+	const allFields = "title,body,status,deps,notes,log"
+	if all {
+		return parseFieldSet(allFields)
+	}
+	if fieldsFlag != "" {
+		return parseFieldSet(fieldsFlag)
+	}
+	if settings.Show.DefaultFields != "" {
+		return parseFieldSet(settings.Show.DefaultFields)
+	}
+	return parseFieldSet(defaultShowFields)
+}
+
+func parseFieldSet(s string) map[string]bool {
+	m := make(map[string]bool)
+	for _, f := range strings.Split(s, ",") {
+		f = strings.TrimSpace(f)
+		if f != "" {
+			m[f] = true
 		}
 	}
-	fmt.Printf("status: %s\n", status)
-	if len(item.Tags) > 0 {
-		fmt.Printf("tags: %s\n", strings.Join(item.Tags, ", "))
+	return m
+}
+
+// renderItemHuman prints a work item in human-readable format, showing only the requested fields.
+func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) error {
+	const timeFmt = "2006-01-02 15:04:05"
+
+	if fields["title"] {
+		var state string
+		if item.Done {
+			switch item.DoneStatus {
+			case wn.DoneStatusClosed:
+				state = " (closed)"
+			case wn.DoneStatusSuspend:
+				state = " (suspend)"
+			default:
+				state = " (done)"
+			}
+		} else if wn.IsInProgress(item, time.Now().UTC()) {
+			state = " (claimed)"
+		} else if item.ReviewReady {
+			state = " (review)"
+		}
+		firstLine := wn.FirstLine(item.Description)
+		tagsStr := formatTags(item.Tags)
+		const titleWidth = 56 // pad so tags/state align on the right
+		content := fmt.Sprintf("[%s] %s", item.ID, firstLine)
+		if tagsStr != "" {
+			if len(content) > titleWidth {
+				content = content[:titleWidth-3] + "..."
+			} else {
+				content = content + strings.Repeat(" ", titleWidth-len(content))
+			}
+			fmt.Printf("%s  %s%s\n", content, tagsStr, state)
+		} else {
+			fmt.Printf("%s%s\n", content, state)
+		}
 	}
-	if len(item.DependsOn) > 0 {
-		fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
+
+	if fields["body"] {
+		if _, rest, ok := strings.Cut(item.Description, "\n"); ok && strings.TrimSpace(rest) != "" {
+			fmt.Print(rest)
+			if !strings.HasSuffix(rest, "\n") {
+				fmt.Println()
+			}
+		}
 	}
-	dependents, err := wn.Dependents(store, id)
-	if err == nil && len(dependents) > 0 {
-		fmt.Printf("dependent tasks: %s\n", strings.Join(dependents, ", "))
+
+	if fields["status"] {
+		status := wn.ItemListStatus(item, time.Now().UTC())
+		if item.Done && item.DoneMessage != "" {
+			status += " (" + item.DoneMessage + ")"
+		} else if !item.InProgressUntil.IsZero() && item.InProgressUntil.After(time.Now().UTC()) {
+			status = "in progress until " + item.InProgressUntil.Format(timeFmt)
+			if item.InProgressBy != "" {
+				status += " (by " + item.InProgressBy + ")"
+			}
+		}
+		fmt.Printf("status: %s\n", status)
 	}
-	if item.Order != nil {
-		fmt.Printf("order: %d\n", *item.Order)
+
+	if fields["deps"] {
+		if len(item.DependsOn) > 0 {
+			fmt.Printf("depends on: %s\n", strings.Join(item.DependsOn, ", "))
+		}
+		dependents, err := wn.Dependents(store, item.ID)
+		if err == nil && len(dependents) > 0 {
+			fmt.Printf("dependent tasks: %s\n", strings.Join(dependents, ", "))
+		}
 	}
-	if len(item.Log) > 0 {
+
+	if fields["notes"] && len(item.Notes) > 0 {
+		fmt.Println("notes:")
+		for _, n := range item.Notes {
+			fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
+		}
+	}
+
+	if fields["log"] && len(item.Log) > 0 {
 		fmt.Println("log:")
 		for _, e := range item.Log {
 			fmt.Printf("  %s %s", e.At.Format(timeFmt), e.Kind)
@@ -295,12 +256,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			fmt.Println()
 		}
 	}
-	if len(item.Notes) > 0 {
-		fmt.Println("notes:")
-		for _, n := range item.Notes {
-			fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
-		}
-	}
+
 	return nil
 }
 
