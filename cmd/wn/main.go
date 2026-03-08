@@ -50,7 +50,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
