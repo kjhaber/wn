@@ -17,15 +17,27 @@ import (
 const tuiLeftWidth = 40
 
 var (
-	styleCursor     = lipgloss.NewStyle().Background(lipgloss.Color("99")).Foreground(lipgloss.Color("230")).Bold(true)
-	styleDone       = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	styleInProgress = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
-	styleDivider    = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
-	styleHeader     = lipgloss.NewStyle().Bold(true)
-	styleKey        = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
-	styleFooter     = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
-	styleErrMsg     = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	styleTag        = lipgloss.NewStyle().Foreground(lipgloss.Color("32"))
+	styleCursor       = lipgloss.NewStyle().Background(lipgloss.Color("99")).Foreground(lipgloss.Color("230")).Bold(true)
+	styleDone         = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	styleInProgress   = lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+	styleDivider      = lipgloss.NewStyle().Foreground(lipgloss.Color("238"))
+	styleHeader       = lipgloss.NewStyle().Bold(true)
+	styleKey          = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
+	styleFooter       = lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+	styleErrMsg       = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+	styleTag          = lipgloss.NewStyle().Foreground(lipgloss.Color("32"))
+	styleCurrent      = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true) // gold star
+	styleFilterActive = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)  // green badge
+	styleFilterReview = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)  // blue badge
+	styleFilterDone   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true) // gray badge
+)
+
+// statusFilter values
+const (
+	tuiFilterAll    = ""
+	tuiFilterActive = "active"
+	tuiFilterReview = "review"
+	tuiFilterDone   = "done"
 )
 
 type tuiEditorAction int
@@ -53,12 +65,14 @@ type tuiModel struct {
 	items      []*wn.Item
 	cursor     int
 	listOffset int
+	currentID  string // ID of the active work item (from meta)
 
 	vp      viewport.Model
 	vpReady bool
 
-	filterMode bool
-	filterText string
+	filterMode   bool
+	filterText   string
+	statusFilter string // tuiFilterAll / tuiFilterActive / tuiFilterReview / tuiFilterDone
 
 	width  int
 	height int
@@ -67,8 +81,8 @@ type tuiModel struct {
 	err error
 }
 
-func newTUI(store wn.Store, root string, settings wn.Settings) tuiModel {
-	return tuiModel{store: store, root: root, settings: settings}
+func newTUI(store wn.Store, root string, settings wn.Settings, currentID string) tuiModel {
+	return tuiModel{store: store, root: root, settings: settings, currentID: currentID}
 }
 
 func (m tuiModel) Init() tea.Cmd {
@@ -87,23 +101,57 @@ func (m tuiModel) cmdLoad() tea.Cmd {
 }
 
 func (m *tuiModel) applyFilter() {
-	if m.filterText == "" {
-		m.items = m.allItems
-		return
-	}
-	lower := strings.ToLower(m.filterText)
 	var out []*wn.Item
+
+	// Determine text search mode: "#tag" prefix = tag-only match.
+	tagOnly := strings.HasPrefix(m.filterText, "#")
+	search := strings.ToLower(strings.TrimPrefix(m.filterText, "#"))
+
 	for _, it := range m.allItems {
-		if strings.Contains(strings.ToLower(it.Description), lower) {
-			out = append(out, it)
-			continue
-		}
-		for _, t := range it.Tags {
-			if strings.Contains(strings.ToLower(t), lower) {
-				out = append(out, it)
-				break
+		// Status filter
+		switch m.statusFilter {
+		case tuiFilterActive:
+			if it.Done {
+				continue
+			}
+		case tuiFilterReview:
+			if !it.ReviewReady {
+				continue
+			}
+		case tuiFilterDone:
+			if !it.Done {
+				continue
 			}
 		}
+
+		// Text / tag filter
+		if search != "" {
+			if tagOnly {
+				matched := false
+				for _, t := range it.Tags {
+					if strings.Contains(strings.ToLower(t), search) {
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					continue
+				}
+			} else {
+				matchDesc := strings.Contains(strings.ToLower(it.Description), search)
+				matchTag := false
+				for _, t := range it.Tags {
+					if strings.Contains(strings.ToLower(t), search) {
+						matchTag = true
+						break
+					}
+				}
+				if !matchDesc && !matchTag {
+					continue
+				}
+			}
+		}
+		out = append(out, it)
 	}
 	m.items = out
 }
@@ -245,6 +293,7 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 			}); err != nil {
 				m.err = err
 			} else {
+				m.currentID = it.ID
 				m.msg = "current: " + it.ID
 			}
 		}
@@ -308,9 +357,30 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.filterMode = true
 		m.filterText = ""
 
+	case "#":
+		m.filterMode = true
+		m.filterText = "#"
+
+	case "f":
+		switch m.statusFilter {
+		case tuiFilterAll:
+			m.statusFilter = tuiFilterActive
+		case tuiFilterActive:
+			m.statusFilter = tuiFilterReview
+		case tuiFilterReview:
+			m.statusFilter = tuiFilterDone
+		default:
+			m.statusFilter = tuiFilterAll
+		}
+		m.applyFilter()
+		m.cursor = 0
+		m.listOffset = 0
+		m.refreshViewport()
+
 	case "esc":
 		m.filterMode = false
 		m.filterText = ""
+		m.statusFilter = tuiFilterAll
 		m.applyFilter()
 		m.clampCursor()
 		m.refreshViewport()
@@ -422,6 +492,7 @@ func (m tuiModel) handleEditor(msg tuiEditorMsg) (tuiModel, tea.Cmd) {
 			meta.CurrentID = id
 			return meta, nil
 		})
+		m.currentID = id
 		m.msg = "added: " + id
 	case tuiEditorEdit:
 		err := m.store.UpdateItem(msg.id, func(it *wn.Item) (*wn.Item, error) {
@@ -448,16 +519,31 @@ func (m tuiModel) View() string {
 	// Header
 	it := m.selected()
 	leftHdr := fmt.Sprintf(" Items (%d)", len(m.items))
+	// Status filter badge
+	switch m.statusFilter {
+	case tuiFilterActive:
+		leftHdr += " " + styleFilterActive.Render("[active]")
+	case tuiFilterReview:
+		leftHdr += " " + styleFilterReview.Render("[review]")
+	case tuiFilterDone:
+		leftHdr += " " + styleFilterDone.Render("[done]")
+	}
+	// Text filter badge
 	if m.filterText != "" || m.filterMode {
+		var badge string
 		if m.filterMode {
-			leftHdr += fmt.Sprintf(" [/%s_]", m.filterText)
+			badge = fmt.Sprintf("[%s_]", m.filterText)
 		} else {
-			leftHdr += fmt.Sprintf(" [/%s]", m.filterText)
+			badge = fmt.Sprintf("[%s]", m.filterText)
 		}
+		leftHdr += " " + styleFilterActive.Render(badge)
 	}
 	rightHdr := ""
 	if it != nil {
 		rightHdr = " " + it.ID
+		if it.ID == m.currentID {
+			rightHdr += " " + styleCurrent.Render("★ current")
+		}
 	}
 	header := styleHeader.Width(tuiLeftWidth).Render(leftHdr) +
 		styleDivider.Render("│") +
@@ -501,6 +587,12 @@ func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
 		cursor = "> "
 	}
 
+	// Current item star (gold ★ if this is the active work item)
+	star := " "
+	if it.ID == m.currentID {
+		star = styleCurrent.Render("★")
+	}
+
 	indicator := " "
 	switch {
 	case it.Done && it.DoneStatus == wn.DoneStatusSuspend:
@@ -517,9 +609,9 @@ func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
 	}
 
 	desc := wn.FirstLine(it.Description)
-	// available = left width minus cursor(2) + indicator(1) + space(1) + tags + margin(1)
+	// available = leftWidth minus cursor(2) + star(1) + indicator(1) + space(1) + tags + margin(1)
 	tagLen := lipgloss.Width(tagPart)
-	available := tuiLeftWidth - 5 - tagLen
+	available := tuiLeftWidth - 6 - tagLen
 	if available < 3 {
 		available = 3
 	}
@@ -528,7 +620,7 @@ func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
 		desc = string(runes[:available-1]) + "…"
 	}
 
-	line := cursor + indicator + " " + desc + tagPart
+	line := cursor + star + indicator + " " + desc + tagPart
 	switch {
 	case selected:
 		return styleCursor.Width(tuiLeftWidth).Render(line)
@@ -559,8 +651,8 @@ func (m tuiModel) renderHints() string {
 	hints := []hint{
 		{"a", "add"}, {"e", "edit"}, {"x", "done"},
 		{"-", "suspend"}, {"u", "undone"}, {"D", "delete"},
-		{"↵", "set current"}, {"/", "filter"},
-		{"PgUp/Dn", "scroll detail"}, {"q", "quit"},
+		{"↵", "set current"}, {"/", "search"}, {"#", "tag filter"},
+		{"f", "cycle filter"}, {"PgUp/Dn", "scroll"}, {"q", "quit"},
 	}
 	var parts []string
 	for _, h := range hints {
@@ -655,7 +747,8 @@ func runTUI(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	settings, _ := wn.ReadSettingsInRoot(root)
-	m := newTUI(store, root, settings)
+	meta, _ := wn.ReadMeta(root)
+	m := newTUI(store, root, settings, meta.CurrentID)
 	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }

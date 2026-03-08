@@ -156,7 +156,8 @@ func TestApplyFilter_ByDescription(t *testing.T) {
 	}
 }
 
-func TestApplyFilter_ByTag(t *testing.T) {
+func TestApplyFilter_ByTagText(t *testing.T) {
+	// plain text filter should still match on tags
 	m := tuiModel{
 		allItems: []*wn.Item{
 			{ID: "a", Description: "task A", Tags: []string{"agent"}},
@@ -169,6 +170,95 @@ func TestApplyFilter_ByTag(t *testing.T) {
 	if len(m.items) != 2 {
 		t.Errorf("expected 2 items with 'agent' tag, got %d", len(m.items))
 	}
+}
+
+func TestApplyFilter_HashTagOnly(t *testing.T) {
+	// "#tag" prefix = tag-only match; should not match description text
+	m := tuiModel{
+		allItems: []*wn.Item{
+			{ID: "a", Description: "agent task", Tags: []string{"manual"}},     // desc matches but tag doesn't
+			{ID: "b", Description: "some task", Tags: []string{"agent"}},       // tag matches
+			{ID: "c", Description: "other task", Tags: []string{"agent", "x"}}, // tag matches
+		},
+	}
+	m.filterText = "#agent"
+	m.applyFilter()
+	if len(m.items) != 2 {
+		t.Errorf("expected 2 items with #agent tag filter, got %d", len(m.items))
+	}
+	for _, it := range m.items {
+		if it.ID == "a" {
+			t.Error("item 'a' matched by description should be excluded by #tag filter")
+		}
+	}
+}
+
+func TestApplyFilter_StatusActive(t *testing.T) {
+	m := tuiModel{
+		allItems: []*wn.Item{
+			{ID: "a", Description: "undone task", Done: false},
+			{ID: "b", Description: "done task", Done: true, DoneStatus: wn.DoneStatusDone},
+		},
+		statusFilter: tuiFilterActive,
+	}
+	m.applyFilter()
+	if len(m.items) != 1 || m.items[0].ID != "a" {
+		t.Errorf("active filter should show only undone items, got %v", tuiItemIDs(m.items))
+	}
+}
+
+func TestApplyFilter_StatusDone(t *testing.T) {
+	m := tuiModel{
+		allItems: []*wn.Item{
+			{ID: "a", Description: "undone task", Done: false},
+			{ID: "b", Description: "done task", Done: true, DoneStatus: wn.DoneStatusDone},
+			{ID: "c", Description: "suspended", Done: true, DoneStatus: wn.DoneStatusSuspend},
+		},
+		statusFilter: tuiFilterDone,
+	}
+	m.applyFilter()
+	if len(m.items) != 2 {
+		t.Errorf("done filter should show only done items, got %v", tuiItemIDs(m.items))
+	}
+}
+
+func TestApplyFilter_StatusReview(t *testing.T) {
+	m := tuiModel{
+		allItems: []*wn.Item{
+			{ID: "a", Description: "normal task", Done: false, ReviewReady: false},
+			{ID: "b", Description: "review task", Done: false, ReviewReady: true},
+		},
+		statusFilter: tuiFilterReview,
+	}
+	m.applyFilter()
+	if len(m.items) != 1 || m.items[0].ID != "b" {
+		t.Errorf("review filter should show only review-ready items, got %v", tuiItemIDs(m.items))
+	}
+}
+
+func TestApplyFilter_StatusAndTextCombined(t *testing.T) {
+	// Both filters must pass
+	m := tuiModel{
+		allItems: []*wn.Item{
+			{ID: "a", Description: "login feature", Done: false},
+			{ID: "b", Description: "login bug", Done: true, DoneStatus: wn.DoneStatusDone},
+			{ID: "c", Description: "other thing", Done: false},
+		},
+		statusFilter: tuiFilterActive,
+		filterText:   "login",
+	}
+	m.applyFilter()
+	if len(m.items) != 1 || m.items[0].ID != "a" {
+		t.Errorf("combined filter: expected [a], got %v", tuiItemIDs(m.items))
+	}
+}
+
+func tuiItemIDs(items []*wn.Item) []string {
+	ids := make([]string, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	return ids
 }
 
 func TestApplyFilter_CaseInsensitive(t *testing.T) {
