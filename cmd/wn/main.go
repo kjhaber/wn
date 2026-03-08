@@ -383,10 +383,10 @@ func runAdd(cmd *cobra.Command, args []string) error {
 }
 
 var rmCmd = &cobra.Command{
-	Use:   "rm [id]",
+	Use:   "rm [id ...]",
 	Short: "Remove a work item",
-	Long:  "If id is omitted, removes the current task.",
-	Args:  cobra.MaximumNArgs(1),
+	Long:  "If no id is given, shows an interactive list (fzf or numbered) with multi-select to remove several items at once. Pass one or more ids to remove those directly.",
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runRm,
 }
 
@@ -395,29 +395,56 @@ func runRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
-	if err != nil {
-		return err
-	}
-	explicitID := ""
-	if len(args) > 0 {
-		explicitID = args[0]
-	}
-	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
-	if err != nil {
-		return fmt.Errorf("no id provided and no current task")
-	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {
 		return err
 	}
-	if _, err := store.Get(id); err != nil {
-		return fmt.Errorf("item %s not found", id)
+
+	var idsToRemove []string
+	if len(args) == 0 {
+		items, err := store.List()
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			fmt.Println("No tasks.")
+			return nil
+		}
+		items = wn.ApplySort(items, interactiveSortSpec(root))
+		idsToRemove, err = wn.PickMultiInteractive(items)
+		if err != nil {
+			return err
+		}
+		if len(idsToRemove) == 0 {
+			return nil
+		}
+	} else {
+		idsToRemove = args
 	}
-	if err := store.Delete(id); err != nil {
+
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("removed entry %s\n", id)
+	clearCurrent := false
+	for _, id := range idsToRemove {
+		if _, err := store.Get(id); err != nil {
+			return fmt.Errorf("item %s not found", id)
+		}
+		if id == meta.CurrentID {
+			clearCurrent = true
+		}
+		if err := store.Delete(id); err != nil {
+			return err
+		}
+		fmt.Printf("removed entry %s\n", id)
+	}
+	if clearCurrent {
+		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			m.CurrentID = ""
+			return m, nil
+		})
+	}
 	return nil
 }
 

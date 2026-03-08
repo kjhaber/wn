@@ -2444,6 +2444,150 @@ func TestNoteRm(t *testing.T) {
 	}
 }
 
+func TestRmWithExplicitId(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rm", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rm %s: %v", itemID, err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	if _, err := store.Get(itemID); err == nil {
+		t.Error("item should be removed")
+	}
+}
+
+func TestRmMultipleIds(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "cc3333", Description: "third", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rm", "abc123", "bb2222", "cc3333"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rm multiple: %v", err)
+	}
+	for _, id := range []string{"abc123", "bb2222", "cc3333"} {
+		if _, err := store.Get(id); err == nil {
+			t.Errorf("item %s should be removed", id)
+		}
+	}
+}
+
+func TestRmInteractiveMultiSelect(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("1 2\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir, _ := setupWnRoot(t)
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	if err := store.Put(&wn.Item{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rm"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rm (interactive): %v", err)
+	}
+	// Items 1 and 2 in the list (abc123, bb2222) should be removed
+	if _, err := store.Get("abc123"); err == nil {
+		t.Error("item abc123 should be removed")
+	}
+	if _, err := store.Get("bb2222"); err == nil {
+		t.Error("item bb2222 should be removed")
+	}
+}
+
+func TestRmInteractiveCancel(t *testing.T) {
+	origPath := os.Getenv("PATH")
+	os.Setenv("PATH", "")
+	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir, itemID := setupWnRoot(t)
+	store, _ := wn.NewFileStore(dir)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rm"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rm (cancel): %v", err)
+	}
+	if _, err := store.Get(itemID); err != nil {
+		t.Error("item should still exist after cancel")
+	}
+}
+
+func TestRmClearsCurrentWhenDeleted(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"rm", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("rm: %v", err)
+	}
+	meta, _ := wn.ReadMeta(dir)
+	if meta.CurrentID != "" {
+		t.Errorf("CurrentID should be cleared when current task is removed; got %q", meta.CurrentID)
+	}
+}
+
 func TestShowIncludesNotes(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()

@@ -39,7 +39,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn` | Show current task (or suggest `wn pick` / `wn next`) |
 | `wn init` | Create `.wn/` in the current directory |
 | `wn add -m "..."` | Add a work item (use `-t tag` for tags; omit `-m` to use `$EDITOR`) |
-| `wn rm <id>` | Remove a work item |
+| `wn rm [id ...]` | Remove work item(s). Omit id to show an interactive list (fzf or numbered) with multi-select; pass one or more ids to remove those directly. |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
@@ -179,6 +179,7 @@ When no sort preference is set, `wn list` uses dependency order (topological) fo
 
 If `fzf` is in your `PATH` (and `WN_NO_FZF` is not set, e.g. in CI or when running tests):
 - **`wn pick`** uses it for fuzzy selection of the current task. Otherwise a numbered list is shown and you type the number.
+- **`wn rm`** with no id uses fzf with multi-select (Tab to select, Enter to confirm) to remove several items at once. Without fzf, a numbered list is shown—enter space-separated numbers to select items.
 - **`wn tag add -i <tag>`** uses fzf with multi-select (Tab to select, Enter to confirm); the list shows each item’s tags. Selected items have the tag toggled (added if missing, removed if present). Without fzf, a numbered list is shown—enter space-separated numbers to select items.
 - **`wn depend add -i`** uses fzf to pick the depended-on item from undone work items; the selected item is used as the `--on` target. Without fzf, a numbered list is shown. The work item (current task or `--wid`) is the item that will gain the dependency; that item is excluded from the list.
 - **`wn depend rm -i`** uses fzf to pick which dependency to remove from the work item (current task or `--wid`); the list shows the item’s current dependencies. Without fzf, a numbered list is shown.
