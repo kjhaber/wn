@@ -127,6 +127,35 @@ func TestMergeSettings_emptyProjectReturnsUser(t *testing.T) {
 	}
 }
 
+func TestReadSettings_withPicker(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"picker":"fzf"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.Picker != "fzf" {
+		t.Errorf("Picker = %q, want fzf", got.Picker)
+	}
+}
+
+func TestMergeSettings_picker(t *testing.T) {
+	user := Settings{Picker: "fzf"}
+	project := Settings{Picker: "numbered"}
+	merged := MergeSettings(user, project)
+	if merged.Picker != "numbered" {
+		t.Errorf("Picker = %q, want numbered (project overrides user)", merged.Picker)
+	}
+	// Empty project leaves user value
+	merged2 := MergeSettings(user, Settings{})
+	if merged2.Picker != "fzf" {
+		t.Errorf("Picker = %q, want fzf (user preserved)", merged2.Picker)
+	}
+}
+
 func TestMergeSettings_showDefaultFields(t *testing.T) {
 	user := Settings{Show: ShowSettings{DefaultFields: "title,body"}}
 	project := Settings{Show: ShowSettings{DefaultFields: "title,body,deps"}}

@@ -56,7 +56,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done). |
 | `wn review-ready [id]` / `wn rr [id]` | Set item to review-ready state directly. |
 | `wn next` | Set the first available undone item (dependency order) as current; excludes review-ready and in-progress. Use `--tag <tag>` to filter (or set `next.tag` in settings). Use `--claim 30m` to also claim it. |
-| `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. |
+| `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. Use `--picker fzf\|numbered` to override picker. |
 | `wn worktree [id]` | Claim a work item, create its branch and git worktree, and print the worktree path to stdout. Omit id to use current task; use `--next` to claim next from the queue. See [Worktree workflow](#worktree-workflow). |
 | `wn do [id]` | Claim a work item, set up its worktree, run the configured agent command, commit any changes, and release. Omit id to use current task; use `--next` to claim next from the queue; use `--loop` to process items continuously. See [Headless agent runner](#headless-agent-runner-wn-do). |
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
@@ -130,6 +130,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 ```json
 {
   "sort": "tags,priority,updated,alpha",
+  "picker": "fzf",
 
   "next": {
     "tag": "agent"
@@ -163,6 +164,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | Key | Description |
 |-----|-------------|
 | `sort` | Default sort order for `wn list`, `wn pick`, and interactive lists. See [Sort order](#sort-order). |
+| `picker` | Interactive picker: `"fzf"` (always use fzf), `"numbered"` (always use numbered list), or omit for auto-detect (fzf if in PATH). Overridden by `--picker` flag or `WN_PICKER` env var. |
 | `next.tag` | Only consider items with this tag when selecting the next item (`wn next`, `wn worktree --next`, `wn do --next/--loop`). Overridden by `--tag` flag. |
 | `worktree.base` | Base directory for git worktrees. Default: parent of the main worktree. |
 | `worktree.branch_prefix` | Prefix for generated branch names (e.g. `"keith/"` → `keith/wn-abc123-add-feature`). |
@@ -258,24 +260,28 @@ When no sort preference is set, `wn list` uses dependency order (topological) fo
 
 ## Optional: fzf for interactive commands
 
-If `fzf` is in your `PATH` (and `WN_NO_FZF` is not set):
+If `fzf` is in your `PATH`:
 - **`wn pick`** uses it for fuzzy selection of the current task.
 - **`wn rm`** with no id uses fzf with multi-select (Tab to select, Enter to confirm).
 - **`wn tag add -i <tag>`** uses fzf with multi-select; selected items have the tag toggled.
 - **`wn depend add -i`** uses fzf to pick the depended-on item.
 - **`wn depend rm -i`** uses fzf to pick which dependency to remove.
 
-Without fzf, a numbered list is shown instead. Set `WN_NO_FZF=1` to force the numbered list in scripts or CI.
+Without fzf, a numbered list is shown instead. Picker behavior can be controlled at three levels (highest priority wins):
+
+1. **`WN_PICKER` env var** — `WN_PICKER=numbered` forces numbered list; `WN_PICKER=fzf` forces fzf. Useful for CI scripts.
+2. **`--picker` flag** — `wn pick --picker numbered` or `wn pick --picker fzf`. Applies to any command for that invocation.
+3. **`picker` in settings** — Set `"picker": "fzf"` or `"picker": "numbered"` in `~/.config/wn/settings.json`. Omit (or set to `""`) for auto-detect.
 
 ## Testing
 
 ```bash
-make          # runs fmt, lint, cover, build (cover uses WN_NO_FZF=1)
+make          # runs fmt, lint, cover, build (cover uses WN_PICKER=numbered)
 go test ./...
 go test ./internal/wn/... -cover   # aim for 80%+ coverage
 ```
 
-When running tests, set `WN_NO_FZF=1` (or use `make test` / `make cover`) so interactive pick uses the numbered list and tests do not block on fzf.
+When running tests, set `WN_PICKER=numbered` (or use `make test` / `make cover`) so interactive pick uses the numbered list and tests do not block on fzf.
 
 Development follows red/green TDD: write tests first, see expected failures, then implement.
 

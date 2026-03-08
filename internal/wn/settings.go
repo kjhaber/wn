@@ -9,6 +9,7 @@ import (
 // Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
 type Settings struct {
 	Sort     string           `json:"sort,omitempty"`     // e.g. "updated:desc,priority,tags"
+	Picker   string           `json:"picker,omitempty"`   // interactive picker: "fzf", "numbered", or "" (auto-detect)
 	Next     NextSettings     `json:"next,omitempty"`     // defaults for next-item selection
 	Worktree WorktreeSettings `json:"worktree,omitempty"` // defaults for worktree setup (wn worktree, wn do, wn agent-orch)
 	Agent    AgentSettings    `json:"agent,omitempty"`    // defaults for headless agent runs (wn do, wn agent-orch)
@@ -74,6 +75,9 @@ func MergeSettings(user, project Settings) Settings {
 	out := user
 	if project.Sort != "" {
 		out.Sort = project.Sort
+	}
+	if project.Picker != "" {
+		out.Picker = project.Picker
 	}
 	out.Next = mergeNext(user.Next, project.Next)
 	out.Worktree = mergeWorktree(user.Worktree, project.Worktree)

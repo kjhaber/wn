@@ -871,6 +871,82 @@ func TestPickStateFlagsMutualExclusion(t *testing.T) {
 	}
 }
 
+func TestPickWithPickerNumberedFlag(t *testing.T) {
+	// --picker numbered forces numbered list even when fzf is in PATH
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = origStdin
+		pickerFlag = ""
+		_ = wn.SetPickerMode("")
+	})
+	if _, err := w.WriteString("1\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Put(&wn.Item{ID: "task1", Description: "task one", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick", "--picker", "numbered"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick --picker numbered: %v", err)
+	}
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "task1" {
+		t.Errorf("after pick --picker numbered: CurrentID = %q, want task1", meta.CurrentID)
+	}
+}
+
+func TestPickWithPickerInvalidFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		pickerFlag = ""
+		_ = wn.SetPickerMode("")
+	}()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick", "--picker", "invalid"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("pick --picker invalid: expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid picker mode") {
+		t.Errorf("pick --picker invalid: error = %v, want containing \"invalid picker mode\"", err)
+	}
+}
+
 func TestExportWithCriteria(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {

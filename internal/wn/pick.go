@@ -9,11 +9,32 @@ import (
 	"strings"
 )
 
-// useFzf reports whether to use fzf for interactive picking. False if WN_NO_FZF is set
-// (e.g. in CI or when running tests), otherwise true when fzf is in PATH.
+// globalPickerMode is set by SetPickerMode; "" means auto-detect.
+var globalPickerMode string
+
+// SetPickerMode sets the picker mode for all subsequent interactive picks.
+// Valid modes: "" (auto-detect), "fzf", "numbered".
+func SetPickerMode(mode string) error {
+	switch mode {
+	case "", "fzf", "numbered":
+		globalPickerMode = mode
+		return nil
+	default:
+		return fmt.Errorf("invalid picker mode %q: must be fzf, numbered, or empty (auto)", mode)
+	}
+}
+
+// useFzf reports whether to use fzf for interactive picking.
+// Precedence (highest to lowest): WN_PICKER env var, globalPickerMode (settings/--picker flag), PATH auto-detect.
 func useFzf() bool {
-	if os.Getenv("WN_NO_FZF") != "" {
+	if p := os.Getenv("WN_PICKER"); p != "" {
+		return p == "fzf"
+	}
+	if globalPickerMode == "numbered" {
 		return false
+	}
+	if globalPickerMode == "fzf" {
+		return true
 	}
 	_, err := exec.LookPath("fzf")
 	return err == nil

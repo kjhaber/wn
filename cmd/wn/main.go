@@ -23,17 +23,33 @@ func main() {
 	}
 }
 
+var pickerFlag string
+
 var rootCmd = &cobra.Command{
 	Use:   "wn",
 	Short: "What's Next — local task/work item tracker",
 	Long:  `wn is a CLI for tracking work items. Use wn init to create a tracker in the current directory.`,
 	Args:  cobra.MaximumNArgs(1),
-	RunE:  runCurrent,
+	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Determine effective picker mode: settings, overridden by --picker flag.
+		mode := ""
+		root, err := wn.FindRootForCLI()
+		if err == nil {
+			settings, _ := wn.ReadSettingsInRoot(root)
+			mode = settings.Picker
+		}
+		if cmd.Root().PersistentFlags().Changed("picker") {
+			mode = pickerFlag
+		}
+		return wn.SetPickerMode(mode)
+	},
+	RunE: runCurrent,
 }
 
 func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
+	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
 	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
@@ -2009,7 +2025,6 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	fmt.Println(worktreePath)
 	return nil
 }
-
 
 var settingsCmd = &cobra.Command{
 	Use:   "settings",
