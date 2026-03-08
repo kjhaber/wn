@@ -114,6 +114,7 @@ type AgentOrchOpts struct {
 	DefaultBranch string        // override default branch (empty = detect)
 	BranchPrefix  string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
 	Tag           string        // if non-empty, only consider items that have this tag
+	FailIfEmpty   bool          // if true, return error immediately when queue is empty instead of polling
 	Audit         io.Writer     // timestamped command log (can be nil)
 }
 
@@ -386,6 +387,9 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 			return err
 		}
 		if item == nil {
+			if opts.FailIfEmpty {
+				return fmt.Errorf("no items in queue")
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

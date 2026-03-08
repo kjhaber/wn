@@ -3299,3 +3299,107 @@ func TestWorktreeSetup_claimsNext(t *testing.T) {
 		t.Error("next item should be claimed after wn worktree")
 	}
 }
+
+// resetDoFlags resets wn do flags between test invocations.
+func resetDoFlags() {
+	doNext = false
+	doLoop = false
+	doMaxTasks = 0
+}
+
+// TestDoUnified_nextAndIdArgError verifies that "wn do --next <id>" is rejected.
+func TestDoUnified_nextAndIdArgError(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"do", "--next", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do --next <id> should fail")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+// TestDoUnified_loopAndIdArgError verifies that "wn do --loop <id>" is rejected.
+func TestDoUnified_loopAndIdArgError(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"do", "--loop", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do --loop <id> should fail")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+// TestDoUnified_nextEmptyQueue verifies that "wn do --next" errors immediately when no items are queued.
+func TestDoUnified_nextEmptyQueue(t *testing.T) {
+	// Needs a git repo so default branch detection doesn't fail before we reach the queue check.
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	// No items added — queue is empty.
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"do", "--next", "--agent-cmd", "echo hello"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do --next on empty queue should fail")
+	}
+	if !strings.Contains(err.Error(), "no items") {
+		t.Errorf("want 'no items' error; got: %v", err)
+	}
+}
+
+// TestDoUnified_nCurrentError verifies that "wn do -n N" without --loop is rejected.
+func TestDoUnified_nWithoutLoopError(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"do", "-n", "3"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn do -n N without --loop should fail")
+	}
+	if !strings.Contains(err.Error(), "--loop") {
+		t.Errorf("want error mentioning --loop; got: %v", err)
+	}
+}

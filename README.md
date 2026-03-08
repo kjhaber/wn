@@ -58,8 +58,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn next` | Set the first available undone item (dependency order) as current; excludes review-ready and in-progress. Use `--tag <tag>` to filter (or set `next.tag` in settings). Use `--claim 30m` to also claim it. |
 | `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. |
 | `wn worktree [id]` | Claim a work item, create its branch and git worktree, and print the worktree path to stdout. Omit id to use current task; use `--next` to claim next from the queue. See [Worktree workflow](#worktree-workflow). |
-| `wn do [id]` | Claim a work item, set up its worktree, run the configured agent command, commit any changes, and release. Omit id to use current task. See [Headless agent runner](#headless-agent-runner-wn-do--wn-agent-orch). |
-| `wn agent-orch` | Like `wn do` but loops continuously, processing items from the queue until stopped. See [Headless agent runner](#headless-agent-runner-wn-do--wn-agent-orch). |
+| `wn do [id]` | Claim a work item, set up its worktree, run the configured agent command, commit any changes, and release. Omit id to use current task; use `--next` to claim next from the queue; use `--loop` to process items continuously. See [Headless agent runner](#headless-agent-runner-wn-do). |
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
 | `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Use `--dry-run` to preview. |
 | `wn merge [--wid <id>]` | Merge a review-ready item's branch into main: rebase, merge, validate (e.g. `make`), mark done, delete branch. Omit `--wid` for current task. Use `--main-branch` and `--validate` to override defaults. |
@@ -164,12 +163,12 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | Key | Description |
 |-----|-------------|
 | `sort` | Default sort order for `wn list`, `wn pick`, and interactive lists. See [Sort order](#sort-order). |
-| `next.tag` | Only consider items with this tag when selecting the next item (`wn next`, `wn worktree --next`, `wn agent-orch`). Overridden by `--tag` flag. |
+| `next.tag` | Only consider items with this tag when selecting the next item (`wn next`, `wn worktree --next`, `wn do --next/--loop`). Overridden by `--tag` flag. |
 | `worktree.base` | Base directory for git worktrees. Default: parent of the main worktree. |
 | `worktree.branch_prefix` | Prefix for generated branch names (e.g. `"keith/"` → `keith/wn-abc123-add-feature`). |
 | `worktree.default_branch` | Override default branch detection (e.g. `"main"`). |
 | `worktree.claim` | How long to claim an item when setting up a worktree (e.g. `"2h"`). |
-| `agent.cmd` | Command template for the agent. `{{.Prompt}}` is replaced by the prompt; `{{.Worktree}}` and `{{.Branch}}` are also available. Required for `wn do` / `wn agent-orch`. |
+| `agent.cmd` | Command template for the agent. `{{.Prompt}}` is replaced by the prompt; `{{.Worktree}}` and `{{.Branch}}` are also available. Required for `wn do`. |
 | `agent.prompt` | Prompt template (default `{{.Description}}`). Fields: `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`. |
 | `agent.delay` | Delay between items in the orchestrator loop (e.g. `"10s"`). |
 | `agent.poll` | Poll interval when the queue is empty (e.g. `"60s"`). |
@@ -177,7 +176,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | `show.default_fields` | Default fields for `wn show` / bare `wn`. Comma-separated from: `title`, `body`, `status`, `deps`, `notes`, `log`. |
 | `cleanup.close_done_items_age` | Default age threshold for `wn cleanup close-done-items` (e.g. `"30d"`). Accepts `d`, `h`, `m`, `s`. |
 
-All `worktree.*` settings are shared by `wn worktree`, `wn do`, and `wn agent-orch`. CLI flags override settings.
+All `worktree.*` settings are shared by `wn worktree` and `wn do`. CLI flags override settings.
 
 ## Worktree workflow
 
@@ -201,13 +200,15 @@ WORKTREE=$(wn worktree --next)
 
 **Branch notes:** The worktree path is derived from the branch name, which is stored as a `branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `branch` note before running: `wn note add branch -m "my-branch-name"`.
 
-## Headless agent runner (`wn do` / `wn agent-orch`)
+## Headless agent runner (`wn do`)
 
 For unattended, automated agent runs. Requires `agent.cmd` to be set in settings (or `--agent-cmd` flag, or `WN_AGENT_CMD` env var).
 
 **`wn do [id]`** runs the full flow for one item then exits: claim → worktree → run agent → commit any uncommitted changes → release. Omit id to use the current task.
 
-**`wn agent-orch`** is the same flow but loops continuously, picking the next item each time. When the queue is empty it waits and polls. Interrupted by Ctrl-C.
+**`wn do --next`** claims the next undone item from the queue, runs the full flow, then exits. Fails immediately if the queue is empty.
+
+**`wn do --loop`** loops continuously, picking the next item each time. When the queue is empty it waits and polls. Interrupted by Ctrl-C. Use `-n N` to stop after N items.
 
 **Flow per item:**
 1. Atomically claim the next undone item (filtered by `next.tag` if set).
@@ -232,9 +233,9 @@ For unattended, automated agent runs. Requires `agent.cmd` to be set in settings
 }
 ```
 
-Then: `wn agent-orch` (or `wn agent-orch -n 1` to process one item and exit).
+Then: `wn do --loop` (or `wn do --next` to process one item and exit, or `wn do --loop -n 5` to process at most 5).
 
-**Limiting runs:** Use `-n` / `--max-tasks N` to process at most N items (default 0 = indefinite). Use `--work-id <id>` or `--current` to run a specific item and exit (same as `wn do`).
+**Limiting runs:** `wn do --loop -n N` stops after N items. `wn do [id]` or `wn do --next` both process exactly one item and exit.
 
 **Subagent contract:** The agent runs in the worktree with `WN_ROOT` pointing at the main repo. It should implement the work, optionally add follow-up items via `wn` MCP, and call `wn_release` (or `wn release`) when done. The runner will commit any remaining uncommitted changes automatically.
 
@@ -242,7 +243,7 @@ All git commands and agent invocations are logged with timestamps to stderr.
 
 ### Tags and suspend
 
-- **Tags:** Add tags when creating items (`wn add -t priority:high -m "..."`) or after (`wn tag add priority:high`). Filter with `wn list --tag priority:high`, `wn next --tag agent`, or MCP `wn_list` / `wn_next`. Set `next.tag` in settings to permanently scope which items `wn next` and `wn agent-orch` consider.
+- **Tags:** Add tags when creating items (`wn add -t priority:high -m "..."`) or after (`wn tag add priority:high`). Filter with `wn list --tag priority:high`, `wn next --tag agent`, or MCP `wn_list` / `wn_next`. Set `next.tag` in settings to permanently scope which items `wn next` and `wn do` consider.
 - **Suspend:** For items you might revisit but don't want in the active queue, use `wn status suspend [id] -m "reason"`. Suspended items are excluded from `wn next` and agent claim but stay visible in `wn list`.
 - **Dependencies:** When adding follow-up items via MCP, use `wn_add` with `depends_on` (e.g. current task id) to preserve queue order without a separate `wn_depend` call.
 
