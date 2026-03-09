@@ -1531,6 +1531,32 @@ func runPick(cmd *cobra.Command, args []string) error {
 	// If id passed, set current to that item (must exist)
 	if len(args) == 1 {
 		id := args[0]
+		// "." is a special argument: resolve item from current directory's git branch
+		if id == "." {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			branch, err := wn.CurrentBranchInDir(cwd)
+			if err != nil {
+				return fmt.Errorf("could not determine git branch: %w", err)
+			}
+			item, err := wn.FindItemByBranch(store, branch)
+			if err != nil {
+				return err
+			}
+			if item == nil {
+				return fmt.Errorf("no work item found for branch %q", branch)
+			}
+			if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+				m.CurrentID = item.ID
+				return m, nil
+			}); err != nil {
+				return err
+			}
+			fmt.Printf("%s %s\n", item.ID, wn.FirstLine(item.Description))
+			return nil
+		}
 		if _, err := store.Get(id); err != nil {
 			return fmt.Errorf("item %s not found", id)
 		}

@@ -3598,6 +3598,8 @@ func TestLaunchNoLaunchRunnerConfigured(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
+	// Isolate from global settings so no default_launch runner is inherited.
+	t.Setenv("WN_CONFIG_DIR", t.TempDir())
 
 	// No settings file, so no default_launch runner configured.
 	rootCmd.SetArgs([]string{"launch"})
@@ -3625,5 +3627,96 @@ func TestLaunchNextAndIdArgError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not both") {
 		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+func gitExecIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+func TestPickDot_selectsItemForCurrentBranch(t *testing.T) {
+	dir := t.TempDir()
+	gitExecIn(t, dir, "init")
+	if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "init").CombinedOutput(); err != nil {
+		t.Skipf("git commit failed (no git config?): %s", out)
+	}
+
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	branchName := "keith/wn-abc123-fix-the-thing"
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []wn.Note{{Name: "branch", Body: branchName, Created: now}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	gitExecIn(t, dir, "checkout", "-b", branchName)
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"pick", "."})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("pick .: %v", err)
+		}
+	})
+
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "abc123" {
+		t.Errorf("CurrentID = %q, want abc123", meta.CurrentID)
+	}
+	if !strings.Contains(out, "abc123") {
+		t.Errorf("output %q does not contain abc123", out)
+	}
+}
+
+func TestPickDot_noMatchingItem(t *testing.T) {
+	dir := t.TempDir()
+	gitExecIn(t, dir, "init")
+	if out, err := exec.Command("git", "-C", dir, "commit", "--allow-empty", "-m", "init").CombinedOutput(); err != nil {
+		t.Skipf("git commit failed (no git config?): %s", out)
+	}
+
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick", "."})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn pick . with no matching item should error")
+	}
+	if !strings.Contains(err.Error(), "no work item") {
+		t.Errorf("want 'no work item' error; got: %v", err)
 	}
 }

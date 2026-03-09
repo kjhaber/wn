@@ -93,7 +93,11 @@ func ResolveLaunchRunner(settings Settings, name string) (RunnerConfig, error) {
 }
 
 // SettingsPath returns the path to the user's wn settings file.
+// If WN_CONFIG_DIR is set, it is used instead of the OS config dir (useful for tests).
 func SettingsPath() (string, error) {
+	if dir := os.Getenv("WN_CONFIG_DIR"); dir != "" {
+		return filepath.Join(dir, "settings.json"), nil
+	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

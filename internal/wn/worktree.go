@@ -127,7 +127,7 @@ func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool
 
 	// If worktree path already exists and is checked out to this branch, reuse it (e.g. restart after Ctrl-C).
 	if _, err := os.Stat(absPath); err == nil {
-		if current, err := worktreeBranch(absPath); err == nil && current == branchName {
+		if current, err := CurrentBranchInDir(absPath); err == nil && current == branchName {
 			auditLog(audit, "reuse existing worktree %s (branch %s)", absPath, branchName)
 			return absPath, nil
 		}
@@ -142,10 +142,10 @@ func EnsureWorktree(mainRoot, worktreePath, branchName string, createBranch bool
 	return absPath, nil
 }
 
-// worktreeBranch returns the current branch name in the given worktree path, or error if not a valid worktree.
-func worktreeBranch(worktreePath string) (string, error) {
+// CurrentBranchInDir returns the current git branch name for the repo at dir.
+func CurrentBranchInDir(dir string) (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = worktreePath
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

@@ -87,7 +87,7 @@ func RunMerge(store Store, opts MergeOpts) error {
 	}
 
 	// Checkout work item branch if not already on it
-	currentBranch, err := worktreeBranch(root)
+	currentBranch, err := CurrentBranchInDir(root)
 	if err != nil {
 		return fmt.Errorf("detect current branch: %w", err)
 	}

@@ -262,6 +262,22 @@ func releaseItemClaim(store Store, itemID string) error {
 	})
 }
 
+// FindItemByBranch searches all items for one whose "branch" note matches the given branch name.
+// Returns (nil, nil) if no matching item is found.
+func FindItemByBranch(store Store, branch string) (*Item, error) {
+	all, err := store.List()
+	if err != nil {
+		return nil, err
+	}
+	for _, it := range all {
+		idx := it.NoteIndexByName("branch")
+		if idx >= 0 && strings.TrimSpace(it.Notes[idx].Body) == branch {
+			return it, nil
+		}
+	}
+	return nil, nil
+}
+
 // SetupItemWorktree creates the branch and worktree for item, records the branch note,
 // and returns the resolved worktree path and branch name. On error the item claim is NOT
 // released; caller is responsible for cleanup.
@@ -355,6 +371,10 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		worktreesBase = filepath.Dir(opts.Root) // default: sibling of main worktree (peer dirs)
 	}
 	mainDirname := filepath.Base(opts.Root)
+	agentCmd := opts.AgentCmd
+	if agentCmd == "" {
+		return fmt.Errorf("agent_cmd is required")
+	}
 	if opts.DefaultBranch == "" {
 		if _, err = DefaultBranch(opts.Root); err != nil {
 			return fmt.Errorf("default branch: %w", err)
@@ -363,10 +383,6 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 	promptTpl := opts.PromptTpl
 	if promptTpl == "" {
 		promptTpl = "{{.Description}}"
-	}
-	agentCmd := opts.AgentCmd
-	if agentCmd == "" {
-		return fmt.Errorf("agent_cmd is required")
 	}
 
 	// Single item mode: run one item then exit

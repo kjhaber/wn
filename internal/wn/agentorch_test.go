@@ -509,3 +509,80 @@ func TestSetupItemWorktree_withBranchPrefix(t *testing.T) {
 	var audit bytes.Buffer
 	_ = RemoveWorktree(repoDir, worktreePath, &audit)
 }
+
+func TestFindItemByBranch_found(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: "branch", Body: "keith/wn-abc123-fix-the-thing", Created: now}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := FindItemByBranch(store, "keith/wn-abc123-fix-the-thing")
+	if err != nil {
+		t.Fatalf("FindItemByBranch: %v", err)
+	}
+	if got == nil || got.ID != "abc123" {
+		t.Errorf("FindItemByBranch = %v, want item abc123", got)
+	}
+}
+
+func TestFindItemByBranch_notFound(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: "branch", Body: "keith/wn-abc123-fix-the-thing", Created: now}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := FindItemByBranch(store, "nonexistent-branch")
+	if err != nil {
+		t.Fatalf("FindItemByBranch: %v", err)
+	}
+	if got != nil {
+		t.Errorf("FindItemByBranch(nonexistent) = %v, want nil", got)
+	}
+}
+
+func TestFindItemByBranch_noBranchNote(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := FindItemByBranch(store, "main")
+	if err != nil {
+		t.Fatalf("FindItemByBranch: %v", err)
+	}
+	if got != nil {
+		t.Errorf("FindItemByBranch(no-branch-note) = %v, want nil", got)
+	}
+}

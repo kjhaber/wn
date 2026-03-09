@@ -56,7 +56,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done). |
 | `wn review-ready [id]` / `wn rr [id]` | Set item to review-ready state directly. |
 | `wn next` | Set the first available undone item (dependency order) as current; excludes review-ready and in-progress. Use `--tag <tag>` to filter (or set `next.tag` in settings). Use `--claim 30m` to also claim it. |
-| `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. Use `--picker fzf\|numbered` to override picker. |
+| `wn pick [id\|.]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Pass `.` to select the item for the current directory's git branch (useful when switching between worktrees). Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. Use `--picker fzf\|numbered` to override picker. |
 | `wn worktree [id]` | Claim a work item, create its branch and git worktree, and print the worktree path to stdout. Omit id to use current task; use `--next` to claim next from the queue. See [Worktree workflow](#worktree-workflow). |
 | `wn do [runner] [id]` | Claim a work item, set up its worktree, run the configured runner command, commit any changes, and release. Omit id to use current task; specify a runner name (e.g. `wn do claude`) or omit to use `agent.default`. Use `--next` to claim next from the queue; `--loop` to process items continuously. See [Agent runners](#agent-runners-wn-do-wn-launch). |
 | `wn launch [runner] [id]` | Dispatch a work item to an async runner (e.g. tmux window, IDE) and return immediately. Worktree is created and item stays claimed; the agent or user releases it later via `wn release`. Uses `agent.default_launch`. See [Agent runners](#agent-runners-wn-do-wn-launch). |
@@ -217,6 +217,8 @@ WORKTREE=$(wn worktree --next)
 **After the work is done:** run `wn release [id]` to mark the item review-ready (or `wn done` if you want to skip review). The worktree stays until you remove it — `git worktree remove <path>` or `wn merge` (which rebases, merges to main, and marks done in one step).
 
 **Branch notes:** The worktree path is derived from the branch name, which is stored as a `branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `branch` note before running: `wn note add branch -m "my-branch-name"`.
+
+**Switching between worktrees:** When you `cd` into a worktree (e.g. after `wn launch` opens a tmux window), run `wn pick .` to re-select the associated work item as current. This looks up the current git branch and finds the item whose `branch` note matches.
 
 ## Agent runners (`wn do`, `wn launch`)
 
