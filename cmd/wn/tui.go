@@ -243,6 +243,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tuiEditorMsg:
 		return m.handleEditor(msg)
 
+	case tuiLaunchMsg:
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.msg = "launched: " + msg.id
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		if m.filterMode {
 			return m.handleFilterKey(msg)
@@ -384,8 +392,30 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.applyFilter()
 		m.clampCursor()
 		m.refreshViewport()
+
+	case ">":
+		if it := m.selected(); it != nil {
+			return m, m.cmdLaunch(it.ID)
+		}
 	}
 	return m, nil
+}
+
+type tuiLaunchMsg struct {
+	id  string
+	err error
+}
+
+func (m tuiModel) cmdLaunch(id string) tea.Cmd {
+	return func() tea.Msg {
+		exe, err := os.Executable()
+		if err != nil {
+			exe = "wn"
+		}
+		cmd := exec.Command(exe, "launch", id)
+		err = cmd.Run()
+		return tuiLaunchMsg{id: id, err: err}
+	}
 }
 
 func (m tuiModel) handleFilterKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
@@ -651,7 +681,7 @@ func (m tuiModel) renderHints() string {
 	hints := []hint{
 		{"a", "add"}, {"e", "edit"}, {"x", "done"},
 		{"-", "suspend"}, {"u", "undone"}, {"D", "delete"},
-		{"↵", "set current"}, {"/", "search"}, {"#", "tag filter"},
+		{"↵", "set current"}, {">", "launch"}, {"/", "search"}, {"#", "tag filter"},
 		{"f", "cycle filter"}, {"PgUp/Dn", "scroll"}, {"q", "quit"},
 	}
 	var parts []string

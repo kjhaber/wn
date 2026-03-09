@@ -58,7 +58,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn next` | Set the first available undone item (dependency order) as current; excludes review-ready and in-progress. Use `--tag <tag>` to filter (or set `next.tag` in settings). Use `--claim 30m` to also claim it. |
 | `wn pick [id]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. Use `--picker fzf\|numbered` to override picker. |
 | `wn worktree [id]` | Claim a work item, create its branch and git worktree, and print the worktree path to stdout. Omit id to use current task; use `--next` to claim next from the queue. See [Worktree workflow](#worktree-workflow). |
-| `wn do [id]` | Claim a work item, set up its worktree, run the configured agent command, commit any changes, and release. Omit id to use current task; use `--next` to claim next from the queue; use `--loop` to process items continuously. See [Headless agent runner](#headless-agent-runner-wn-do). |
+| `wn do [runner] [id]` | Claim a work item, set up its worktree, run the configured runner command, commit any changes, and release. Omit id to use current task; specify a runner name (e.g. `wn do claude`) or omit to use `agent.default`. Use `--next` to claim next from the queue; `--loop` to process items continuously. See [Agent runners](#agent-runners-wn-do-wn-launch). |
+| `wn launch [runner] [id]` | Dispatch a work item to an async runner (e.g. tmux window, IDE) and return immediately. Worktree is created and item stays claimed; the agent or user releases it later via `wn release`. Uses `agent.default_launch`. See [Agent runners](#agent-runners-wn-do-wn-launch). |
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
 | `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Use `--dry-run` to preview. |
 | `wn merge [--wid <id>]` | Merge a review-ready item's branch into main: rebase, merge, validate (e.g. `make`), mark done, delete branch. Omit `--wid` for current task. Use `--main-branch` and `--validate` to override defaults. |
@@ -144,12 +145,24 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
     "claim": "2h"
   },
 
+  "runners": {
+    "cursor": {
+      "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\""
+    },
+    "claude": {
+      "cmd": "claude --print --dangerously-skip-permissions \"{{.Prompt}}\""
+    },
+    "tmux-claude": {
+      "cmd": "tmux new-window -c {{.Worktree}} 'claude -p \"{{.Prompt}}\"'",
+      "leave_worktree": true
+    }
+  },
+
   "agent": {
-    "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"",
-    "prompt": "{{.Description}}",
+    "default": "cursor",
+    "default_launch": "tmux-claude",
     "delay": "10s",
-    "poll": "60s",
-    "leave_worktree": true
+    "poll": "60s"
   },
 
   "show": {
@@ -171,15 +184,17 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | `worktree.branch_prefix` | Prefix for generated branch names (e.g. `"keith/"` → `keith/wn-abc123-add-feature`). |
 | `worktree.default_branch` | Override default branch detection (e.g. `"main"`). |
 | `worktree.claim` | How long to claim an item when setting up a worktree (e.g. `"2h"`). |
-| `agent.cmd` | Command template for the agent. `{{.Prompt}}` is replaced by the prompt; `{{.Worktree}}` and `{{.Branch}}` are also available. Required for `wn do`. |
-| `agent.prompt` | Prompt template (default `{{.Description}}`). Fields: `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`. |
-| `agent.delay` | Delay between items in the orchestrator loop (e.g. `"10s"`). |
+| `runners.<name>.cmd` | Command template for a named runner. `{{.Prompt}}`, `{{.Worktree}}`, and `{{.Branch}}` are available. |
+| `runners.<name>.prompt` | Per-runner prompt template (default `{{.Description}}`). Fields: `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`. |
+| `runners.<name>.leave_worktree` | If true, keep the worktree after the runner finishes. Defaults to false; recommended true for async runners. |
+| `agent.default` | Default runner name for `wn do` (sync). |
+| `agent.default_launch` | Default runner name for `wn launch` (async). |
+| `agent.delay` | Delay between items in loop mode (e.g. `"10s"`). |
 | `agent.poll` | Poll interval when the queue is empty (e.g. `"60s"`). |
-| `agent.leave_worktree` | If true, keep the worktree after the agent finishes (default false). |
 | `show.default_fields` | Default fields for `wn show` / bare `wn`. Comma-separated from: `title`, `body`, `status`, `deps`, `notes`, `log`. |
 | `cleanup.close_done_items_age` | Default age threshold for `wn cleanup close-done-items` (e.g. `"30d"`). Accepts `d`, `h`, `m`, `s`. |
 
-All `worktree.*` settings are shared by `wn worktree` and `wn do`. CLI flags override settings.
+All `worktree.*` settings are shared by `wn worktree`, `wn do`, and `wn launch`. Runners are merged by key between user and project settings (project overrides same-named runners, unique keys from each are preserved). CLI flags override settings.
 
 ## Worktree workflow
 
@@ -203,11 +218,15 @@ WORKTREE=$(wn worktree --next)
 
 **Branch notes:** The worktree path is derived from the branch name, which is stored as a `branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `branch` note before running: `wn note add branch -m "my-branch-name"`.
 
-## Headless agent runner (`wn do`)
+## Agent runners (`wn do`, `wn launch`)
 
-For unattended, automated agent runs. Requires `agent.cmd` to be set in settings (or `--agent-cmd` flag, or `WN_AGENT_CMD` env var).
+Runners are named command profiles defined in `settings.runners`. Each runner has a `cmd` template (and optionally a `prompt` template and `leave_worktree` flag). You can define as many as you like and switch between them by name.
 
-**`wn do [id]`** runs the full flow for one item then exits: claim → worktree → run agent → commit any uncommitted changes → release. Omit id to use the current task.
+### `wn do` — sync runner
+
+For unattended, automated agent runs. Requires `agent.default` to be set in settings (or pass a runner name explicitly).
+
+**`wn do [runner] [id]`** runs the full flow for one item then exits: claim → worktree → run agent → commit any uncommitted changes → release. Omit id to use the current task. Omit runner to use `agent.default`; pass a runner name (e.g. `wn do claude`) to override.
 
 **`wn do --next`** claims the next undone item from the queue, runs the full flow, then exits. Fails immediately if the queue is empty.
 
@@ -217,10 +236,10 @@ For unattended, automated agent runs. Requires `agent.cmd` to be set in settings
 1. Atomically claim the next undone item (filtered by `next.tag` if set).
 2. Create a git worktree and branch (e.g. `wn-<id>-<slug>`, or reuse the branch from the item's `branch` note).
 3. Record the branch name as a `branch` note on the item.
-4. Run `agent.cmd` in the worktree with `WN_ROOT` set to the main repo, so the subagent's `wn mcp` uses the same queue.
+4. Run the runner's `cmd` in the worktree with `WN_ROOT` set to the main repo, so the subagent's `wn mcp` uses the same queue.
 5. Stage and commit any uncommitted changes with message `wn <id>: <first line of description>`.
 6. Release the claim and mark the item review-ready.
-7. Optionally remove the worktree (`agent.leave_worktree: false`) or leave it for a PR.
+7. Optionally remove the worktree (per runner's `leave_worktree`) or leave it for a PR.
 8. Wait `agent.delay`, then loop.
 
 **Configuration example** (in `~/.config/wn/settings.json`):
@@ -228,19 +247,36 @@ For unattended, automated agent runs. Requires `agent.cmd` to be set in settings
 {
   "next": { "tag": "agent" },
   "worktree": { "claim": "2h", "branch_prefix": "keith/" },
-  "agent": {
-    "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"",
-    "delay": "60s",
-    "poll": "60s"
-  }
+  "runners": {
+    "cursor": { "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"" },
+    "claude": { "cmd": "claude --print --dangerously-skip-permissions \"{{.Prompt}}\"" }
+  },
+  "agent": { "default": "cursor", "delay": "60s", "poll": "60s" }
 }
 ```
 
-Then: `wn do --loop` (or `wn do --next` to process one item and exit, or `wn do --loop -n 5` to process at most 5).
-
-**Limiting runs:** `wn do --loop -n N` stops after N items. `wn do [id]` or `wn do --next` both process exactly one item and exit.
+Then: `wn do --loop` (uses `cursor`), `wn do claude --next` (uses `claude` for one item), `wn do --loop -n 5` (at most 5 items).
 
 **Subagent contract:** The agent runs in the worktree with `WN_ROOT` pointing at the main repo. It should implement the work, optionally add follow-up items via `wn` MCP, and call `wn_release` (or `wn release`) when done. The runner will commit any remaining uncommitted changes automatically.
+
+### `wn launch` — async dispatch
+
+For interactive workflows: open a tmux window, launch an IDE, or any command that should run in the background while you continue working.
+
+**`wn launch [runner] [id]`** sets up the worktree and fires the runner's `cmd` without waiting. The item stays claimed; the agent (or you) releases it later via `wn release` or `wn_release`. Omit runner to use `agent.default_launch`.
+
+**`wn launch --next`** dispatches the next undone item from the queue.
+
+The worktree is always preserved for async runners (regardless of `leave_worktree`).
+
+**Example:** with `tmux-claude` configured as `default_launch`:
+```bash
+wn launch               # dispatches current item to a new tmux window
+wn launch cursor        # uses cursor runner instead
+wn launch --next        # dispatches next queue item
+```
+
+In `wn tui`, press `>` to launch the selected item using `agent.default_launch`.
 
 All git commands and agent invocations are logged with timestamps to stderr.
 

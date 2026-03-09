@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,6 +114,20 @@ func setupWnRoot(t *testing.T) (dir string, itemID string) {
 		t.Fatalf("WriteMeta: %v", err)
 	}
 	return dir, "abc123"
+}
+
+// writeRunnerSettings writes a project-level settings file configuring a single runner
+// named runnerName with the given cmd, set as agent.default.
+func writeRunnerSettings(t *testing.T, root, runnerName, cmd string) {
+	t.Helper()
+	wnDir := filepath.Join(root, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := fmt.Sprintf(`{"runners":{%q:{"cmd":%q}},"agent":{"default":%q}}`, runnerName, cmd, runnerName)
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), []byte(body), 0644); err != nil {
+		t.Fatalf("WriteFile settings: %v", err)
+	}
 }
 
 func captureStdout(t *testing.T, fn func()) string {
@@ -3522,7 +3537,8 @@ func TestDoUnified_nextEmptyQueue(t *testing.T) {
 		resetDoFlags()
 	}()
 
-	rootCmd.SetArgs([]string{"do", "--next", "--agent-cmd", "echo hello"})
+	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"do", "--next"})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Error("wn do --next on empty queue should fail")
@@ -3551,5 +3567,63 @@ func TestDoUnified_nWithoutLoopError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--loop") {
 		t.Errorf("want error mentioning --loop; got: %v", err)
+	}
+}
+
+func TestLaunchWithoutArgNoCurrent(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"launch"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch without current task should fail")
+	}
+	if !strings.Contains(err.Error(), "no current task") {
+		t.Errorf("want 'no current task' error; got: %v", err)
+	}
+}
+
+func TestLaunchNoLaunchRunnerConfigured(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// No settings file, so no default_launch runner configured.
+	rootCmd.SetArgs([]string{"launch"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch without configured launch runner should fail")
+	}
+	if !strings.Contains(err.Error(), "no runner") {
+		t.Errorf("want 'no runner' error; got: %v", err)
+	}
+}
+
+func TestLaunchNextAndIdArgError(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"launch", "--next", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch --next <id> should fail")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("want mutual exclusion error; got: %v", err)
 	}
 }

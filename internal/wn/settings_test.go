@@ -39,25 +39,27 @@ func TestReadSettings_newStructure(t *testing.T) {
 	path := filepath.Join(dir, "settings.json")
 	body := `{
 		"sort": "updated:desc",
-		"next": {
-			"tag": "agent"
-		},
+		"next": { "tag": "agent" },
 		"worktree": {
 			"base": "./.wn/worktrees",
 			"branch_prefix": "keith/",
 			"default_branch": "main",
 			"claim": "2h"
 		},
-		"agent": {
-			"cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
-			"prompt": "{{.Description}}",
-			"delay": "5m",
-			"poll": "60s",
-			"leave_worktree": true
+		"runners": {
+			"cursor": {
+				"cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
+				"prompt": "{{.Description}}",
+				"leave_worktree": true
+			}
 		},
-		"cleanup": {
-			"close_done_items_age": "30d"
-		}
+		"agent": {
+			"default": "cursor",
+			"default_launch": "tmux-cursor",
+			"delay": "5m",
+			"poll": "60s"
+		},
+		"cleanup": { "close_done_items_age": "30d" }
 	}`
 	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
 		t.Fatal(err)
@@ -77,8 +79,15 @@ func TestReadSettings_newStructure(t *testing.T) {
 		t.Errorf("Worktree = %+v, unexpected values", wt)
 	}
 	ag := got.Agent
-	if ag.Cmd == "" || ag.Prompt != "{{.Description}}" || ag.Delay != "5m" || ag.Poll != "60s" || !ag.LeaveWorktree {
+	if ag.Default != "cursor" || ag.DefaultLaunch != "tmux-cursor" || ag.Delay != "5m" || ag.Poll != "60s" {
 		t.Errorf("Agent = %+v, unexpected values", ag)
+	}
+	runner, ok := got.Runners["cursor"]
+	if !ok {
+		t.Fatal("Runners[cursor] not found")
+	}
+	if runner.Cmd == "" || runner.Prompt != "{{.Description}}" || !runner.LeaveWorktree {
+		t.Errorf("Runners[cursor] = %+v, unexpected values", runner)
 	}
 	if got.Cleanup.CloseDoneItemsAge != "30d" {
 		t.Errorf("Cleanup.CloseDoneItemsAge = %q, want 30d", got.Cleanup.CloseDoneItemsAge)
@@ -222,5 +231,166 @@ func TestProjectSettingsPath(t *testing.T) {
 	want := filepath.Join("/foo/bar", ".wn", "settings.json")
 	if got != want {
 		t.Errorf("ProjectSettingsPath = %q, want %q", got, want)
+	}
+}
+
+func TestReadSettings_withRunners(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	body := `{
+		"runners": {
+			"claude": {"cmd": "claude --print \"{{.Prompt}}\""},
+			"cursor": {"cmd": "cursor agent --print \"{{.Prompt}}\"", "leave_worktree": true}
+		},
+		"agent": {"default": "claude", "default_launch": "cursor"}
+	}`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got.Runners) != 2 {
+		t.Fatalf("len(Runners) = %d, want 2", len(got.Runners))
+	}
+	claude, ok := got.Runners["claude"]
+	if !ok || claude.Cmd == "" {
+		t.Errorf("Runners[claude] = %+v, want non-empty cmd", claude)
+	}
+	cursor, ok := got.Runners["cursor"]
+	if !ok || !cursor.LeaveWorktree {
+		t.Errorf("Runners[cursor] = %+v, want leave_worktree true", cursor)
+	}
+	if got.Agent.Default != "claude" {
+		t.Errorf("Agent.Default = %q, want claude", got.Agent.Default)
+	}
+	if got.Agent.DefaultLaunch != "cursor" {
+		t.Errorf("Agent.DefaultLaunch = %q, want cursor", got.Agent.DefaultLaunch)
+	}
+}
+
+func TestResolveRunner_found(t *testing.T) {
+	s := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude": {Cmd: "claude --print \"{{.Prompt}}\""},
+		},
+		Agent: AgentSettings{Default: "claude"},
+	}
+	r, err := ResolveRunner(s, "claude")
+	if err != nil {
+		t.Fatalf("ResolveRunner: %v", err)
+	}
+	if r.Cmd == "" {
+		t.Error("RunnerConfig.Cmd is empty")
+	}
+}
+
+func TestResolveRunner_usesDefault(t *testing.T) {
+	s := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude": {Cmd: "claude --print \"{{.Prompt}}\""},
+		},
+		Agent: AgentSettings{Default: "claude"},
+	}
+	r, err := ResolveRunner(s, "")
+	if err != nil {
+		t.Fatalf("ResolveRunner with empty name: %v", err)
+	}
+	if r.Cmd == "" {
+		t.Error("RunnerConfig.Cmd is empty")
+	}
+}
+
+func TestResolveRunner_notFound(t *testing.T) {
+	s := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude": {Cmd: "claude --print \"{{.Prompt}}\""},
+		},
+	}
+	_, err := ResolveRunner(s, "nonexistent")
+	if err == nil {
+		t.Error("ResolveRunner(nonexistent) should error")
+	}
+}
+
+func TestResolveRunner_noDefault(t *testing.T) {
+	s := Settings{}
+	_, err := ResolveRunner(s, "")
+	if err == nil {
+		t.Error("ResolveRunner with empty name and no agent.default should error")
+	}
+}
+
+func TestResolveLaunchRunner_usesDefaultLaunch(t *testing.T) {
+	s := Settings{
+		Runners: map[string]RunnerConfig{
+			"tmux-claude": {Cmd: "tmux new-window -c {{.Worktree}} 'claude -p \"{{.Prompt}}\"'", LeaveWorktree: true},
+		},
+		Agent: AgentSettings{DefaultLaunch: "tmux-claude"},
+	}
+	r, err := ResolveLaunchRunner(s, "")
+	if err != nil {
+		t.Fatalf("ResolveLaunchRunner: %v", err)
+	}
+	if !r.LeaveWorktree {
+		t.Error("RunnerConfig.LeaveWorktree should be true for tmux-claude")
+	}
+}
+
+func TestResolveLaunchRunner_noDefaultLaunch(t *testing.T) {
+	s := Settings{}
+	_, err := ResolveLaunchRunner(s, "")
+	if err == nil {
+		t.Error("ResolveLaunchRunner with no agent.default_launch should error")
+	}
+}
+
+func TestMergeSettings_runnersMergeByKey(t *testing.T) {
+	user := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude": {Cmd: "claude-user-cmd"},
+			"cursor": {Cmd: "cursor-user-cmd"},
+		},
+	}
+	project := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude":      {Cmd: "claude-project-cmd"}, // overrides user
+			"tmux-claude": {Cmd: "tmux-cmd"},           // new runner
+		},
+	}
+	merged := MergeSettings(user, project)
+	if merged.Runners["claude"].Cmd != "claude-project-cmd" {
+		t.Errorf("claude runner = %q, want project override", merged.Runners["claude"].Cmd)
+	}
+	if merged.Runners["cursor"].Cmd != "cursor-user-cmd" {
+		t.Errorf("cursor runner = %q, want user value preserved", merged.Runners["cursor"].Cmd)
+	}
+	if merged.Runners["tmux-claude"].Cmd != "tmux-cmd" {
+		t.Errorf("tmux-claude runner = %q, want project addition", merged.Runners["tmux-claude"].Cmd)
+	}
+}
+
+func TestMergeSettings_runnersEmptyProjectPreservesUser(t *testing.T) {
+	user := Settings{
+		Runners: map[string]RunnerConfig{
+			"claude": {Cmd: "claude-cmd"},
+		},
+	}
+	merged := MergeSettings(user, Settings{})
+	if merged.Runners["claude"].Cmd != "claude-cmd" {
+		t.Errorf("claude runner = %q, want user value preserved", merged.Runners["claude"].Cmd)
+	}
+}
+
+func TestMergeSettings_agentDefaultMerged(t *testing.T) {
+	user := Settings{Agent: AgentSettings{Default: "claude", Delay: "5m"}}
+	project := Settings{Agent: AgentSettings{Default: "cursor"}}
+	merged := MergeSettings(user, project)
+	if merged.Agent.Default != "cursor" {
+		t.Errorf("Agent.Default = %q, want cursor (project overrides)", merged.Agent.Default)
+	}
+	if merged.Agent.Delay != "5m" {
+		t.Errorf("Agent.Delay = %q, want 5m (from user)", merged.Agent.Delay)
 	}
 }

@@ -115,6 +115,7 @@ type AgentOrchOpts struct {
 	BranchPrefix  string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
 	Tag           string        // if non-empty, only consider items that have this tag
 	FailIfEmpty   bool          // if true, return error immediately when queue is empty instead of polling
+	Async         bool          // if true, dispatch cmd without waiting; skip commit/release (for wn launch)
 	Audit         io.Writer     // timestamped command log (can be nil)
 }
 
@@ -310,6 +311,14 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	cmd := exec.Command("sh", "-c", expandedCmd)
 	cmd.Dir = worktreePath
 	cmd.Env = append(os.Environ(), "WN_ROOT="+mainRoot)
+
+	if opts.Async {
+		// Fire and forget: agent runs in another context (e.g. tmux window).
+		// Item stays claimed; agent or user releases it later via MCP or wn release.
+		_ = cmd.Start()
+		return nil
+	}
+
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

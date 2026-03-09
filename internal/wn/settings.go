@@ -2,27 +2,36 @@ package wn
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
 
-// Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
-type Settings struct {
-	Sort     string           `json:"sort,omitempty"`     // e.g. "updated:desc,priority,tags"
-	Picker   string           `json:"picker,omitempty"`   // interactive picker: "fzf", "numbered", or "" (auto-detect)
-	Next     NextSettings     `json:"next,omitempty"`     // defaults for next-item selection
-	Worktree WorktreeSettings `json:"worktree,omitempty"` // defaults for worktree setup (wn worktree, wn do, wn agent-orch)
-	Agent    AgentSettings    `json:"agent,omitempty"`    // defaults for headless agent runs (wn do, wn agent-orch)
-	Cleanup  CleanupSettings  `json:"cleanup,omitempty"`  // options for cleanup subcommands
-	Show     ShowSettings     `json:"show,omitempty"`     // defaults for wn show / bare wn
+// RunnerConfig defines an agent command profile (cmd template, optional prompt override, worktree behavior).
+type RunnerConfig struct {
+	Cmd           string `json:"cmd"`
+	Prompt        string `json:"prompt,omitempty"`
+	LeaveWorktree bool   `json:"leave_worktree,omitempty"`
 }
 
-// NextSettings controls how the next work item is selected (wn next, wn worktree --next, wn agent-orch).
+// Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).
+type Settings struct {
+	Sort     string                  `json:"sort,omitempty"`     // e.g. "updated:desc,priority,tags"
+	Picker   string                  `json:"picker,omitempty"`   // interactive picker: "fzf", "numbered", or "" (auto-detect)
+	Runners  map[string]RunnerConfig `json:"runners,omitempty"`  // named agent profiles, e.g. "claude", "cursor"
+	Next     NextSettings            `json:"next,omitempty"`     // defaults for next-item selection
+	Worktree WorktreeSettings        `json:"worktree,omitempty"` // defaults for worktree setup
+	Agent    AgentSettings           `json:"agent,omitempty"`    // defaults for agent runs (wn do, wn launch)
+	Cleanup  CleanupSettings         `json:"cleanup,omitempty"`  // options for cleanup subcommands
+	Show     ShowSettings            `json:"show,omitempty"`     // defaults for wn show / bare wn
+}
+
+// NextSettings controls how the next work item is selected.
 type NextSettings struct {
 	Tag string `json:"tag,omitempty"` // only consider items that have this tag, e.g. "agent"
 }
 
-// WorktreeSettings controls worktree creation (wn worktree, wn do, wn agent-orch).
+// WorktreeSettings controls worktree creation.
 // Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
 type WorktreeSettings struct {
 	Base          string `json:"base,omitempty"`           // base directory for worktrees, e.g. "../worktrees"
@@ -31,29 +40,56 @@ type WorktreeSettings struct {
 	Claim         string `json:"claim,omitempty"`          // how long to claim an item, e.g. "2h"
 }
 
-// AgentSettings controls headless agent execution (wn do, wn agent-orch).
+// AgentSettings controls agent execution (wn do, wn launch).
 // Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
 type AgentSettings struct {
-	Cmd           string `json:"cmd,omitempty"`            // command template, e.g. "cursor agent --print --trust \"{{.Prompt}}\""
-	Prompt        string `json:"prompt,omitempty"`         // prompt template, e.g. "{{.Description}}"
-	Delay         string `json:"delay,omitempty"`          // delay between items, e.g. "5m"
+	Default       string `json:"default,omitempty"`        // default runner name for wn do (sync)
+	DefaultLaunch string `json:"default_launch,omitempty"` // default runner name for wn launch (async)
+	Delay         string `json:"delay,omitempty"`          // delay between runs in loop mode, e.g. "5m"
 	Poll          string `json:"poll,omitempty"`           // poll interval when queue empty, e.g. "60s"
-	LeaveWorktree bool   `json:"leave_worktree,omitempty"` // if true, keep worktree after agent finishes
 }
 
 // ShowSettings holds user-level defaults for the show command and bare 'wn [id]'.
 type ShowSettings struct {
-	// DefaultFields is a comma-separated list of fields to display.
-	// Valid fields: title, body, status, deps, notes, log.
-	// Example: "title,body,deps,notes"
 	DefaultFields string `json:"default_fields,omitempty"`
 }
 
 // CleanupSettings holds user-level defaults for cleanup utilities (wn cleanup ...).
 type CleanupSettings struct {
-	// CloseDoneItemsAge is the default age threshold for "wn cleanup close-done-items"
-	// when --age is not provided (e.g. "30d", "7d", "48h").
 	CloseDoneItemsAge string `json:"close_done_items_age,omitempty"`
+}
+
+// ResolveRunner returns the RunnerConfig for the given name. If name is empty, uses agent.default.
+// Returns an error if no runner name can be determined or the named runner is not found.
+func ResolveRunner(settings Settings, name string) (RunnerConfig, error) {
+	resolved := name
+	if resolved == "" {
+		resolved = settings.Agent.Default
+	}
+	if resolved == "" {
+		return RunnerConfig{}, fmt.Errorf("no runner specified and no agent.default configured in settings")
+	}
+	r, ok := settings.Runners[resolved]
+	if !ok {
+		return RunnerConfig{}, fmt.Errorf("runner %q not found in settings.runners", resolved)
+	}
+	return r, nil
+}
+
+// ResolveLaunchRunner is like ResolveRunner but uses agent.default_launch as the fallback.
+func ResolveLaunchRunner(settings Settings, name string) (RunnerConfig, error) {
+	resolved := name
+	if resolved == "" {
+		resolved = settings.Agent.DefaultLaunch
+	}
+	if resolved == "" {
+		return RunnerConfig{}, fmt.Errorf("no runner specified and no agent.default_launch configured in settings")
+	}
+	r, ok := settings.Runners[resolved]
+	if !ok {
+		return RunnerConfig{}, fmt.Errorf("runner %q not found in settings.runners", resolved)
+	}
+	return r, nil
 }
 
 // SettingsPath returns the path to the user's wn settings file.
@@ -71,6 +107,7 @@ func ProjectSettingsPath(root string) string {
 }
 
 // MergeSettings overlays project onto user. Non-empty project fields override user; empty project fields leave user values.
+// Runners are merged by key: project runners override same-named user runners; unique keys from each are kept.
 func MergeSettings(user, project Settings) Settings {
 	out := user
 	if project.Sort != "" {
@@ -79,11 +116,26 @@ func MergeSettings(user, project Settings) Settings {
 	if project.Picker != "" {
 		out.Picker = project.Picker
 	}
+	out.Runners = mergeRunners(user.Runners, project.Runners)
 	out.Next = mergeNext(user.Next, project.Next)
 	out.Worktree = mergeWorktree(user.Worktree, project.Worktree)
 	out.Agent = mergeAgent(user.Agent, project.Agent)
 	out.Cleanup = mergeCleanup(user.Cleanup, project.Cleanup)
 	out.Show = mergeShow(user.Show, project.Show)
+	return out
+}
+
+func mergeRunners(user, project map[string]RunnerConfig) map[string]RunnerConfig {
+	if len(user) == 0 && len(project) == 0 {
+		return nil
+	}
+	out := make(map[string]RunnerConfig)
+	for k, v := range user {
+		out[k] = v
+	}
+	for k, v := range project {
+		out[k] = v
+	}
 	return out
 }
 
@@ -114,20 +166,17 @@ func mergeWorktree(user, project WorktreeSettings) WorktreeSettings {
 
 func mergeAgent(user, project AgentSettings) AgentSettings {
 	out := user
-	if project.Cmd != "" {
-		out.Cmd = project.Cmd
+	if project.Default != "" {
+		out.Default = project.Default
 	}
-	if project.Prompt != "" {
-		out.Prompt = project.Prompt
+	if project.DefaultLaunch != "" {
+		out.DefaultLaunch = project.DefaultLaunch
 	}
 	if project.Delay != "" {
 		out.Delay = project.Delay
 	}
 	if project.Poll != "" {
 		out.Poll = project.Poll
-	}
-	if project.LeaveWorktree {
-		out.LeaveWorktree = project.LeaveWorktree
 	}
 	return out
 }
@@ -191,7 +240,6 @@ func readSettingsFromPath(path string) (Settings, error) {
 }
 
 // SortSpecFromSettings returns parsed sort options from settings, or nil if empty/invalid.
-// Invalid spec is ignored (returns nil).
 func SortSpecFromSettings(settings Settings) []SortOption {
 	if settings.Sort == "" {
 		return nil

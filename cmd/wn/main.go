@@ -50,7 +50,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -1635,17 +1635,17 @@ func runMCP(cmd *cobra.Command, args []string) error {
 }
 
 var doCmd = &cobra.Command{
-	Use:   "do [id]",
+	Use:   "do [runner] [id]",
 	Short: "Run agent on a work item; optionally loop through the queue",
 	Long: `Run a headless agent on a work item, then exit.
 
-  wn do [id]       Run agent on the current item (or a specific id), then exit.
-  wn do --next     Claim the next item from the queue, run once, then exit. Fails immediately if the queue is empty.
-  wn do --loop     Continuously claim and process items from the queue (polls when empty).
-  wn do --loop -n N  Stop after processing N items.
+  wn do [runner] [id]  Run agent on the current item (or a specific id), then exit.
+  wn do --next         Claim the next item from the queue, run once, then exit. Fails immediately if the queue is empty.
+  wn do --loop         Continuously claim and process items from the queue (polls when empty).
+  wn do --loop -n N    Stop after processing N items.
 
-Agent command is read from settings (agent.cmd) or --agent-cmd / WN_AGENT_CMD.`,
-	Args: cobra.MaximumNArgs(1),
+Runner is resolved from settings.runners; defaults to agent.default.`,
+	Args: cobra.RangeArgs(0, 2),
 	RunE: runDo,
 }
 
@@ -1656,10 +1656,7 @@ var (
 	doClaim        string
 	doDelay        string
 	doPoll         string
-	doAgentCmd     string
-	doPromptTpl    string
 	doWorktreeBase string
-	doKeepWorktree bool
 	doBranch       string
 	doBranchPrefix string
 	doTag          string
@@ -1672,10 +1669,7 @@ func init() {
 	doCmd.Flags().StringVar(&doClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
 	doCmd.Flags().StringVar(&doDelay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
 	doCmd.Flags().StringVar(&doPoll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
-	doCmd.Flags().StringVar(&doAgentCmd, "agent-cmd", "", "Command template (e.g. cursor agent --print --trust \"{{.Prompt}}\"). Overrides settings. Env: WN_AGENT_CMD.")
-	doCmd.Flags().StringVar(&doPromptTpl, "prompt-tpl", "", "Prompt template (e.g. {{.Description}}). Overrides settings.")
 	doCmd.Flags().StringVar(&doWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
-	doCmd.Flags().BoolVar(&doKeepWorktree, "keep-worktree", false, "Leave worktree after run (default: remove). Overrides settings.")
 	doCmd.Flags().StringVar(&doBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
 	doCmd.Flags().StringVar(&doBranchPrefix, "branch-prefix", "", "Prefix for generated branch names (e.g. keith/). Overrides settings.")
 	doCmd.Flags().StringVar(&doTag, "tag", "", "Only consider items with this tag (queue modes). Overrides settings.")
@@ -1689,10 +1683,7 @@ func runDo(cmd *cobra.Command, args []string) error {
 	flagClaim, _ := cmd.Flags().GetString("claim")
 	flagDelay, _ := cmd.Flags().GetString("delay")
 	flagPoll, _ := cmd.Flags().GetString("poll")
-	flagAgentCmd, _ := cmd.Flags().GetString("agent-cmd")
-	flagPromptTpl, _ := cmd.Flags().GetString("prompt-tpl")
 	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
-	flagKeepWorktree, _ := cmd.Flags().GetBool("keep-worktree")
 	flagBranch, _ := cmd.Flags().GetString("branch")
 	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
 	flagTag, _ := cmd.Flags().GetString("tag")
@@ -1703,21 +1694,11 @@ func runDo(cmd *cobra.Command, args []string) error {
 	_ = cmd.Flags().Set("claim", "")
 	_ = cmd.Flags().Set("delay", "")
 	_ = cmd.Flags().Set("poll", "")
-	_ = cmd.Flags().Set("agent-cmd", "")
-	_ = cmd.Flags().Set("prompt-tpl", "")
 	_ = cmd.Flags().Set("worktree-base", "")
-	_ = cmd.Flags().Set("keep-worktree", "false")
 	_ = cmd.Flags().Set("branch", "")
 	_ = cmd.Flags().Set("branch-prefix", "")
 	_ = cmd.Flags().Set("tag", "")
 
-	// Mutual exclusion checks
-	if isNext && len(args) > 0 {
-		return fmt.Errorf("use either an id argument or --next, not both")
-	}
-	if isLoop && len(args) > 0 {
-		return fmt.Errorf("use either an id argument or --loop, not both")
-	}
 	if maxTasks != 0 && !isLoop {
 		return fmt.Errorf("-n / --max-tasks requires --loop")
 	}
@@ -1733,6 +1714,29 @@ func runDo(cmd *cobra.Command, args []string) error {
 	ws := settings.Worktree
 	as := settings.Agent
 	ns := settings.Next
+
+	// Parse positional args: optional runner name and/or item ID.
+	// With 2 args: first = runner, second = item ID.
+	// With 1 arg: if arg matches a runner name, treat as runner; else treat as item ID.
+	var runnerName, workID string
+	switch len(args) {
+	case 2:
+		runnerName = args[0]
+		workID = args[1]
+	case 1:
+		if _, ok := settings.Runners[args[0]]; ok {
+			runnerName = args[0]
+		} else {
+			workID = args[0]
+		}
+	}
+
+	if isNext && workID != "" {
+		return fmt.Errorf("use either an id argument or --next, not both")
+	}
+	if isLoop && workID != "" {
+		return fmt.Errorf("use either an id argument or --loop, not both")
+	}
 
 	opts := wn.AgentOrchOpts{
 		Root:  root,
@@ -1755,13 +1759,6 @@ func runDo(cmd *cobra.Command, args []string) error {
 			opts.Poll = d
 		}
 	}
-	if as.Cmd != "" {
-		opts.AgentCmd = as.Cmd
-	}
-	if as.Prompt != "" {
-		opts.PromptTpl = as.Prompt
-	}
-	opts.LeaveWorktree = as.LeaveWorktree
 	if ws.Base != "" {
 		opts.WorktreesBase = ws.Base
 	}
@@ -1797,20 +1794,8 @@ func runDo(cmd *cobra.Command, args []string) error {
 		}
 		opts.Poll = d
 	}
-	if flagAgentCmd != "" {
-		opts.AgentCmd = flagAgentCmd
-	}
-	if envCmd := os.Getenv("WN_AGENT_CMD"); opts.AgentCmd == "" && envCmd != "" {
-		opts.AgentCmd = envCmd
-	}
-	if flagPromptTpl != "" {
-		opts.PromptTpl = flagPromptTpl
-	}
 	if flagWorktreeBase != "" {
 		opts.WorktreesBase = flagWorktreeBase
-	}
-	if flagKeepWorktree {
-		opts.LeaveWorktree = true
 	}
 	if flagBranch != "" {
 		opts.DefaultBranch = flagBranch
@@ -1830,7 +1815,7 @@ func runDo(cmd *cobra.Command, args []string) error {
 		opts.Poll = 60 * time.Second
 	}
 
-	// Determine mode and resolve work item
+	// Determine mode and work item before resolving runner.
 	switch {
 	case isNext:
 		// --next: claim next from queue, run once, fail if empty
@@ -1839,11 +1824,9 @@ func runDo(cmd *cobra.Command, args []string) error {
 	case isLoop:
 		// --loop: queue mode, poll when empty
 		opts.MaxTasks = maxTasks // 0 = indefinite
-	case len(args) > 0:
-		// specific id
-		opts.WorkID = args[0]
+	case workID != "":
+		opts.WorkID = workID
 	default:
-		// current item
 		meta, err := wn.ReadMeta(root)
 		if err != nil {
 			return err
@@ -1854,11 +1837,182 @@ func runDo(cmd *cobra.Command, args []string) error {
 		opts.WorkID = meta.CurrentID
 	}
 
-	if opts.AgentCmd == "" {
-		return fmt.Errorf("agent_cmd is required (set in settings, --agent-cmd, or WN_AGENT_CMD)")
+	// Resolve runner and apply to opts
+	runner, err := wn.ResolveRunner(settings, runnerName)
+	if err != nil {
+		return err
 	}
+	opts.AgentCmd = runner.Cmd
+	opts.PromptTpl = runner.Prompt
+	opts.LeaveWorktree = runner.LeaveWorktree
+
 	ctx := context.Background()
 	return wn.RunAgentOrch(ctx, opts)
+}
+
+var launchCmd = &cobra.Command{
+	Use:   "launch [runner] [id]",
+	Short: "Dispatch agent on a work item asynchronously (fire-and-forget)",
+	Long: `Set up the worktree for a work item and dispatch the configured launch command without waiting.
+Intended for async workflows such as opening a new tmux window or launching an IDE.
+
+  wn launch [runner] [id]  Dispatch for a specific item (or current if id omitted).
+  wn launch --next         Dispatch for the next item in the queue.
+
+Runner is resolved from settings.runners; defaults to agent.default_launch.`,
+	Args: cobra.RangeArgs(0, 2),
+	RunE: runLaunch,
+}
+
+var (
+	launchNext         bool
+	launchClaim        string
+	launchWorktreeBase string
+	launchBranch       string
+	launchBranchPrefix string
+	launchTag          string
+)
+
+func init() {
+	launchCmd.Flags().BoolVar(&launchNext, "next", false, "Dispatch for the next undone item from the queue.")
+	launchCmd.Flags().StringVar(&launchClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
+	launchCmd.Flags().StringVar(&launchWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
+	launchCmd.Flags().StringVar(&launchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
+	launchCmd.Flags().StringVar(&launchBranchPrefix, "branch-prefix", "", "Prefix for generated branch names. Overrides settings.")
+	launchCmd.Flags().StringVar(&launchTag, "tag", "", "Only consider items with this tag (with --next). Overrides settings.")
+}
+
+func runLaunch(cmd *cobra.Command, args []string) error {
+	isNext, _ := cmd.Flags().GetBool("next")
+	flagClaim, _ := cmd.Flags().GetString("claim")
+	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
+	flagBranch, _ := cmd.Flags().GetString("branch")
+	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
+	flagTag, _ := cmd.Flags().GetString("tag")
+
+	_ = cmd.Flags().Set("next", "false")
+	_ = cmd.Flags().Set("claim", "")
+	_ = cmd.Flags().Set("worktree-base", "")
+	_ = cmd.Flags().Set("branch", "")
+	_ = cmd.Flags().Set("branch-prefix", "")
+	_ = cmd.Flags().Set("tag", "")
+
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	settings, err := wn.ReadSettingsInRoot(root)
+	if err != nil {
+		return err
+	}
+	ws := settings.Worktree
+	as := settings.Agent
+	ns := settings.Next
+
+	// Parse positional args: optional runner name and/or item ID.
+	var runnerName, workID string
+	switch len(args) {
+	case 2:
+		runnerName = args[0]
+		workID = args[1]
+	case 1:
+		if _, ok := settings.Runners[args[0]]; ok {
+			runnerName = args[0]
+		} else {
+			workID = args[0]
+		}
+	}
+
+	if isNext && workID != "" {
+		return fmt.Errorf("use either an id argument or --next, not both")
+	}
+
+	// Determine the work item (or validate current task) before resolving runner.
+	tag := ns.Tag
+	if flagTag != "" {
+		tag = flagTag
+	}
+	_ = as // suppress unused warning; orchestrator fields (delay/poll) not used for launch
+
+	var orchWorkID string
+	var orchFailIfEmpty bool
+	var orchMaxTasks int
+	switch {
+	case isNext:
+		orchFailIfEmpty = true
+		orchMaxTasks = 1
+	case workID != "":
+		orchWorkID = workID
+	default:
+		meta, err := wn.ReadMeta(root)
+		if err != nil {
+			return err
+		}
+		if meta.CurrentID == "" {
+			return fmt.Errorf("no current task (use wn pick or wn next first)")
+		}
+		orchWorkID = meta.CurrentID
+	}
+
+	runner, err := wn.ResolveLaunchRunner(settings, runnerName)
+	if err != nil {
+		return err
+	}
+
+	opts := wn.AgentOrchOpts{
+		Root:          root,
+		Audit:         os.Stderr,
+		Async:         true,
+		AgentCmd:      runner.Cmd,
+		PromptTpl:     runner.Prompt,
+		LeaveWorktree: true, // always leave worktree for async dispatch
+		WorkID:        orchWorkID,
+		FailIfEmpty:   orchFailIfEmpty,
+		MaxTasks:      orchMaxTasks,
+		Tag:           tag,
+	}
+
+	if ws.Claim != "" {
+		if d, err := time.ParseDuration(ws.Claim); err == nil {
+			opts.ClaimFor = d
+		}
+	}
+	if flagClaim != "" {
+		d, err := time.ParseDuration(flagClaim)
+		if err != nil {
+			return fmt.Errorf("--claim: %w", err)
+		}
+		opts.ClaimFor = d
+	}
+	if opts.ClaimFor == 0 {
+		opts.ClaimFor = 2 * time.Hour
+	}
+
+	if ws.Base != "" {
+		opts.WorktreesBase = ws.Base
+	}
+	if flagWorktreeBase != "" {
+		opts.WorktreesBase = flagWorktreeBase
+	}
+	if ws.DefaultBranch != "" {
+		opts.DefaultBranch = ws.DefaultBranch
+	}
+	if flagBranch != "" {
+		opts.DefaultBranch = flagBranch
+	}
+	if ws.BranchPrefix != "" {
+		opts.BranchPrefix = ws.BranchPrefix
+	}
+	if flagBranchPrefix != "" {
+		opts.BranchPrefix = flagBranchPrefix
+	}
+
+	ctx := context.Background()
+	if err := wn.RunAgentOrch(ctx, opts); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "launched %s\n", opts.WorkID)
+	return nil
 }
 
 var worktreeSetupCmd = &cobra.Command{
