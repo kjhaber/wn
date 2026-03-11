@@ -50,7 +50,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -412,6 +412,95 @@ func runRm(cmd *cobra.Command, args []string) error {
 		fmt.Printf("removed entry %s\n", id)
 	}
 	if clearCurrent {
+		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			m.CurrentID = ""
+			return m, nil
+		})
+	}
+	return nil
+}
+
+var archiveLocation string
+
+var archiveCmd = &cobra.Command{
+	Use:   "archive [id]",
+	Short: "Archive a work item",
+	Long: `Archive a work item: saves its content to an archive file then removes it from the project.
+
+The archived item can be recovered with 'wn import'.
+
+By default, archives are saved under .wn/archive/<id>.json. Use --location to override.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runArchive,
+}
+
+func init() {
+	archiveCmd.Flags().StringVar(&archiveLocation, "location", "", "Directory to write archive file (default: .wn/archive)")
+}
+
+func runArchive(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+
+	var id string
+	if len(args) == 0 {
+		meta, err := wn.ReadMeta(root)
+		if err != nil {
+			return err
+		}
+		items, err := store.List()
+		if err != nil {
+			return err
+		}
+		if len(items) == 0 {
+			fmt.Println("No tasks.")
+			return nil
+		}
+		items = wn.ApplySort(items, interactiveSortSpec(root))
+		ids, err := wn.PickMultiInteractive(items)
+		if err != nil {
+			return err
+		}
+		if len(ids) == 0 {
+			return nil
+		}
+		clearCurrent := false
+		for _, aid := range ids {
+			archivePath, err := wn.ArchiveItem(store, aid, archiveLocation)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("archived %s -> %s\n", aid, archivePath)
+			if aid == meta.CurrentID {
+				clearCurrent = true
+			}
+		}
+		if clearCurrent {
+			return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+				m.CurrentID = ""
+				return m, nil
+			})
+		}
+		return nil
+	}
+
+	id = args[0]
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	archivePath, err := wn.ArchiveItem(store, id, archiveLocation)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("archived %s -> %s\n", id, archivePath)
+	if id == meta.CurrentID {
 		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
 			m.CurrentID = ""
 			return m, nil

@@ -3720,3 +3720,128 @@ func TestPickDot_noMatchingItem(t *testing.T) {
 		t.Errorf("want 'no work item' error; got: %v", err)
 	}
 }
+
+func resetArchiveFlags() {
+	archiveLocation = ""
+}
+
+func TestArchiveCmd_RemovesItemFromStore(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"archive", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "archived "+itemID) {
+		t.Errorf("output = %q, want 'archived %s'", out, itemID)
+	}
+
+	// Item should be gone from store
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	items, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(items) != 0 {
+		t.Errorf("store should be empty after archive, got %d items", len(items))
+	}
+}
+
+func TestArchiveCmd_WritesArchiveFile(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"archive", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	archivePath := filepath.Join(dir, ".wn", "archive", itemID+".json")
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Errorf("archive file not created at %s: %v", archivePath, err)
+	}
+}
+
+func TestArchiveCmd_CustomLocation(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	customDir := filepath.Join(t.TempDir(), "custom-archive")
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"archive", "--location", customDir, itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	resetArchiveFlags()
+
+	archivePath := filepath.Join(customDir, itemID+".json")
+	if _, err := os.Stat(archivePath); err != nil {
+		t.Errorf("archive file not created at %s: %v", archivePath, err)
+	}
+}
+
+func TestArchiveCmd_ClearsCurrentID(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"archive", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "" {
+		t.Errorf("CurrentID = %q, want empty after archiving current item", meta.CurrentID)
+	}
+}
+
+func TestArchiveCmd_NotFound(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	rootCmd.SetArgs([]string{"archive", "nonexistent"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error archiving nonexistent item")
+	}
+}
