@@ -8,6 +8,7 @@ import (
 // Status values for work items. Used by wn status <state> and ItemListStatus.
 const (
 	StatusUndone  = "undone"
+	StatusBlocked = "blocked"
 	StatusClaimed = "claimed"
 	StatusReview  = "review"
 	StatusDone    = "done"

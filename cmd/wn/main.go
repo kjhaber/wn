@@ -191,6 +191,14 @@ func parseFieldSet(s string) map[string]bool {
 func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) error {
 	const timeFmt = "2006-01-02 15:04:05"
 
+	// Compute blocked state once: non-done items with unresolved deps.
+	blocked := false
+	if !item.Done && !item.ReviewReady && len(item.DependsOn) > 0 {
+		if allItems, err := store.List(); err == nil {
+			blocked = wn.BlockedSet(allItems)[item.ID]
+		}
+	}
+
 	if fields["title"] {
 		var state string
 		if item.Done {
@@ -202,10 +210,12 @@ func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) erro
 			default:
 				state = " (done)"
 			}
-		} else if wn.IsInProgress(item, time.Now().UTC()) {
-			state = " (claimed)"
 		} else if item.ReviewReady {
 			state = " (review)"
+		} else if blocked {
+			state = " (blocked)"
+		} else if wn.IsInProgress(item, time.Now().UTC()) {
+			state = " (claimed)"
 		}
 		firstLine := wn.FirstLine(item.Description)
 		tagsStr := formatTags(item.Tags)
@@ -233,7 +243,7 @@ func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) erro
 	}
 
 	if fields["status"] {
-		status := wn.ItemListStatus(item, time.Now().UTC())
+		status := wn.ItemListStatus(item, time.Now().UTC(), blocked)
 		if item.Done && item.DoneMessage != "" {
 			status += " (" + item.DoneMessage + ")"
 		} else if !item.InProgressUntil.IsZero() && item.InProgressUntil.After(time.Now().UTC()) {
@@ -2536,18 +2546,17 @@ func runList(cmd *cobra.Command, args []string) error {
 	}
 	// Default when no filter: undone (available for next/claim)
 	useUndone := listUndone || stateFlags == 0
+	// Load all items once for blocked state computation.
+	allItems, err := store.List()
+	if err != nil {
+		return err
+	}
+	blockedSet := wn.BlockedSet(allItems)
 	var items []*wn.Item
 	if listAll {
-		items, err = store.List()
-		if err != nil {
-			return err
-		}
+		items = allItems
 	} else if listDone {
-		all, err := store.List()
-		if err != nil {
-			return err
-		}
-		for _, it := range all {
+		for _, it := range allItems {
 			if it.Done {
 				items = append(items, it)
 			}
@@ -2608,7 +2617,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	const listStatusWidth = 7
 	const listDescWidth = 51 // so tags align on the right
 	for _, it := range ordered {
-		status := itemListStatus(it, now)
+		status := itemListStatus(it, now, blockedSet[it.ID])
 		desc := wn.FirstLine(it.Description)
 		if len(desc) > listDescWidth {
 			desc = desc[:listDescWidth-3] + "..."
@@ -2910,7 +2919,7 @@ func formatTags(tags []string) string {
 	return "[" + strings.Join(tags, ", ") + "]"
 }
 
-// itemListStatus returns "undone", "claimed", "review", "done", "closed", or "suspend" for list and JSON output.
-func itemListStatus(it *wn.Item, now time.Time) string {
-	return wn.ItemListStatus(it, now)
+// itemListStatus returns the display status for list output.
+func itemListStatus(it *wn.Item, now time.Time, blocked bool) string {
+	return wn.ItemListStatus(it, now, blocked)
 }

@@ -47,7 +47,7 @@ func TestTUIItemDetail_BasicFields(t *testing.T) {
 		Tags:        []string{"feature", "urgent"},
 		Log:         []wn.LogEntry{{At: time.Now().UTC(), Kind: "created"}},
 	}
-	got := tuiItemDetail(item, nil)
+	got := tuiItemDetail(item, false, nil)
 
 	if !strings.Contains(got, "My task") {
 		t.Error("expected description in detail")
@@ -78,7 +78,7 @@ func TestTUIItemDetail_DoneStatus(t *testing.T) {
 		Created:     time.Now().UTC(),
 		Updated:     time.Now().UTC(),
 	}
-	got := tuiItemDetail(item, nil)
+	got := tuiItemDetail(item, false, nil)
 	if !strings.Contains(got, "status:") {
 		t.Error("expected status in detail")
 	}
@@ -95,7 +95,7 @@ func TestTUIItemDetail_WithNotes(t *testing.T) {
 			{Name: "pr-url", Created: now, Body: "https://example.com/pr/1"},
 		},
 	}
-	got := tuiItemDetail(item, nil)
+	got := tuiItemDetail(item, false, nil)
 	if !strings.Contains(got, "notes:") {
 		t.Error("expected notes section")
 	}
@@ -114,7 +114,7 @@ func TestTUIItemDetail_NoDepsWhenEmpty(t *testing.T) {
 		Created:     time.Now().UTC(),
 		Updated:     time.Now().UTC(),
 	}
-	got := tuiItemDetail(item, nil)
+	got := tuiItemDetail(item, false, nil)
 	if strings.Contains(got, "deps:") {
 		t.Error("should not show deps when none")
 	}

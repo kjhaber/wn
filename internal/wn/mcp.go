@@ -234,6 +234,11 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
+	allItems, err := store.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	blockedSet := BlockedSet(allItems)
 	items, err := ListableUndoneItems(store)
 	if err != nil {
 		return nil, nil, err
@@ -289,7 +294,7 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 			ID:          it.ID,
 			Description: FirstLine(it.Description),
 			Tags:        tags,
-			Status:      ItemListStatus(it, now),
+			Status:      ItemListStatus(it, now, blockedSet[it.ID]),
 		}
 	}
 	raw, err := json.MarshalIndent(&out, "", "  ")

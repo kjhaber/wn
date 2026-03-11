@@ -62,6 +62,7 @@ type tuiModel struct {
 	settings wn.Settings
 
 	allItems   []*wn.Item
+	blockedSet map[string]bool
 	items      []*wn.Item
 	cursor     int
 	listOffset int
@@ -205,7 +206,7 @@ func (m *tuiModel) refreshViewport() {
 		m.vp.SetContent("(no items)")
 		return
 	}
-	m.vp.SetContent(tuiItemDetail(it, m.store))
+	m.vp.SetContent(tuiItemDetail(it, m.blockedSet[it.ID], m.store))
 	m.vp.GotoTop()
 }
 
@@ -231,6 +232,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tuiLoadedMsg:
 		m.allItems = []*wn.Item(msg)
+		m.blockedSet = wn.BlockedSet(m.allItems)
 		m.applyFilter()
 		m.clampCursor()
 		m.refreshViewport()
@@ -631,6 +633,8 @@ func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
 		indicator = "✓"
 	case wn.IsInProgress(it, time.Now().UTC()):
 		indicator = "●"
+	case m.blockedSet[it.ID]:
+		indicator = "!"
 	}
 
 	tagPart := ""
@@ -692,7 +696,7 @@ func (m tuiModel) renderHints() string {
 }
 
 // tuiItemDetail renders a work item as a multi-line string for the detail pane.
-func tuiItemDetail(item *wn.Item, store wn.Store) string {
+func tuiItemDetail(item *wn.Item, blocked bool, store wn.Store) string {
 	const timeFmt = "2006-01-02 15:04"
 	var b strings.Builder
 
@@ -700,7 +704,7 @@ func tuiItemDetail(item *wn.Item, store wn.Store) string {
 	b.WriteString("\n")
 
 	b.WriteString("\nstatus: ")
-	b.WriteString(wn.ItemListStatus(item, time.Now().UTC()))
+	b.WriteString(wn.ItemListStatus(item, time.Now().UTC(), blocked))
 	b.WriteString("\n")
 
 	if len(item.Tags) > 0 {

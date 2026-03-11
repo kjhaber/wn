@@ -10,23 +10,100 @@ func TestItemListStatus(t *testing.T) {
 	future := now.Add(time.Hour)
 
 	tests := []struct {
-		name string
-		item *Item
-		now  time.Time
-		want string
+		name    string
+		item    *Item
+		now     time.Time
+		blocked bool
+		want    string
 	}{
-		{"undone", &Item{Done: false}, now, "undone"},
-		{"claimed", &Item{Done: false, InProgressUntil: future}, now, "claimed"},
-		{"review", &Item{Done: false, ReviewReady: true}, now, "review"},
-		{"done (default)", &Item{Done: true}, now, "done"},
-		{"done (explicit)", &Item{Done: true, DoneStatus: DoneStatusDone}, now, "done"},
-		{"closed", &Item{Done: true, DoneStatus: DoneStatusClosed}, now, "closed"},
-		{"suspend", &Item{Done: true, DoneStatus: DoneStatusSuspend}, now, "suspend"},
+		{"undone", &Item{Done: false}, now, false, "undone"},
+		{"claimed", &Item{Done: false, InProgressUntil: future}, now, false, "claimed"},
+		{"review", &Item{Done: false, ReviewReady: true}, now, false, "review"},
+		{"done (default)", &Item{Done: true}, now, false, "done"},
+		{"done (explicit)", &Item{Done: true, DoneStatus: DoneStatusDone}, now, false, "done"},
+		{"closed", &Item{Done: true, DoneStatus: DoneStatusClosed}, now, false, "closed"},
+		{"suspend", &Item{Done: true, DoneStatus: DoneStatusSuspend}, now, false, "suspend"},
+		// blocked state
+		{"blocked undone", &Item{Done: false}, now, true, "blocked"},
+		{"blocked claimed", &Item{Done: false, InProgressUntil: future}, now, true, "blocked"},
+		{"blocked review-ready (review takes priority)", &Item{Done: false, ReviewReady: true}, now, true, "review"},
+		{"blocked done (done takes priority)", &Item{Done: true}, now, true, "done"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ItemListStatus(tt.item, tt.now); got != tt.want {
+			if got := ItemListStatus(tt.item, tt.now, tt.blocked); got != tt.want {
 				t.Errorf("ItemListStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBlockedSet(t *testing.T) {
+	now := time.Now().UTC()
+
+	mk := func(id string, done, reviewReady bool, deps []string) *Item {
+		return &Item{ID: id, Done: done, ReviewReady: reviewReady, DependsOn: deps,
+			Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}}
+	}
+
+	tests := []struct {
+		name        string
+		items       []*Item
+		wantBlocked []string // IDs expected in blocked set (nil = empty set)
+	}{
+		{"empty", nil, nil},
+		{"no deps", []*Item{mk("aaa", false, false, nil)}, nil},
+		{"dep is done", []*Item{
+			mk("aaa", false, false, []string{"bbb"}),
+			mk("bbb", true, false, nil),
+		}, nil},
+		{"dep is undone", []*Item{
+			mk("aaa", false, false, []string{"bbb"}),
+			mk("bbb", false, false, nil),
+		}, []string{"aaa"}},
+		{"dep is review-ready (not done)", []*Item{
+			mk("aaa", false, false, []string{"bbb"}),
+			mk("bbb", false, true, nil),
+		}, []string{"aaa"}},
+		{"done item with undone dep is not blocked", []*Item{
+			mk("aaa", true, false, []string{"bbb"}),
+			mk("bbb", false, false, nil),
+		}, nil},
+		{"review-ready item with undone dep is not blocked", []*Item{
+			mk("aaa", false, true, []string{"bbb"}),
+			mk("bbb", false, false, nil),
+		}, nil},
+		{"non-existent dep does not block", []*Item{
+			mk("aaa", false, false, []string{"zzz"}),
+		}, nil},
+		{"multiple deps all done", []*Item{
+			mk("aaa", false, false, []string{"bbb", "ccc"}),
+			mk("bbb", true, false, nil),
+			mk("ccc", true, false, nil),
+		}, nil},
+		{"multiple deps one undone", []*Item{
+			mk("aaa", false, false, []string{"bbb", "ccc"}),
+			mk("bbb", true, false, nil),
+			mk("ccc", false, false, nil),
+		}, []string{"aaa"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := BlockedSet(tt.items)
+			wantSet := make(map[string]bool, len(tt.wantBlocked))
+			for _, id := range tt.wantBlocked {
+				wantSet[id] = true
+			}
+			for _, id := range tt.wantBlocked {
+				if !got[id] {
+					t.Errorf("BlockedSet: expected %s to be blocked, got set=%v", id, got)
+				}
+			}
+			for id := range got {
+				if !wantSet[id] {
+					t.Errorf("BlockedSet: unexpected blocked item %s", id)
+				}
 			}
 		})
 	}

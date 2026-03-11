@@ -2,8 +2,10 @@ package wn
 
 import "time"
 
-// ItemListStatus returns "undone", "claimed", "review", "done", "closed", or "suspend" for list/JSON output.
-func ItemListStatus(it *Item, now time.Time) string {
+// ItemListStatus returns the display status for list/JSON output.
+// Possible values: "undone", "blocked", "claimed", "review", "done", "closed", "suspend".
+// blocked should be true when the item has unresolved dependencies (see BlockedSet).
+func ItemListStatus(it *Item, now time.Time, blocked bool) string {
 	if it.Done {
 		switch it.DoneStatus {
 		case DoneStatusClosed:
@@ -14,13 +16,39 @@ func ItemListStatus(it *Item, now time.Time) string {
 			return "done"
 		}
 	}
-	if IsInProgress(it, now) {
-		return "claimed"
-	}
 	if it.ReviewReady {
 		return "review"
 	}
+	if blocked {
+		return "blocked"
+	}
+	if IsInProgress(it, now) {
+		return "claimed"
+	}
 	return "undone"
+}
+
+// BlockedSet returns the set of item IDs that are blocked: non-done, non-review items
+// that have at least one dependency that is not done. allItems should be the complete
+// list of items from the store for accurate results.
+func BlockedSet(allItems []*Item) map[string]bool {
+	doneByID := make(map[string]bool, len(allItems))
+	for _, it := range allItems {
+		doneByID[it.ID] = it.Done
+	}
+	blocked := make(map[string]bool)
+	for _, it := range allItems {
+		if it.Done || it.ReviewReady {
+			continue
+		}
+		for _, depID := range it.DependsOn {
+			if isDone, exists := doneByID[depID]; exists && !isDone {
+				blocked[it.ID] = true
+				break
+			}
+		}
+	}
+	return blocked
 }
 
 // IsInProgress returns true if the item is currently in progress (has a future InProgressUntil).
