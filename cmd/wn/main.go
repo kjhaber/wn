@@ -1587,9 +1587,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 }
 
 var pickCmd = &cobra.Command{
-	Use:   "pick [id]",
+	Use:   "pick [id|.]",
 	Short: "Interactively pick a current task (uses fzf if available)",
-	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
+	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Pass '.' to select the item for the current directory's git branch (useful when switching between worktrees). Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runPick,
 }
