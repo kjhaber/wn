@@ -10,7 +10,8 @@ const metaLockName = "meta.lock"
 
 // Meta is stored in .wn/meta.json.
 type Meta struct {
-	CurrentID string `json:"current_id,omitempty"`
+	CurrentID  string `json:"current_id,omitempty"`
+	PreviousID string `json:"previous_id,omitempty"`
 }
 
 // ReadMeta reads .wn/meta.json from root. Missing file returns empty Meta, no error.
@@ -69,6 +70,10 @@ func WithMetaLock(root string, fn func(Meta) (Meta, error)) error {
 	updated, err := fn(m)
 	if err != nil {
 		return err
+	}
+	// Auto-track previous: when CurrentID changes and there was a prior value, record it.
+	if updated.CurrentID != m.CurrentID && m.CurrentID != "" {
+		updated.PreviousID = m.CurrentID
 	}
 	return WriteMeta(root, updated)
 }

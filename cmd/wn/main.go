@@ -1587,9 +1587,9 @@ func runNext(cmd *cobra.Command, args []string) error {
 }
 
 var pickCmd = &cobra.Command{
-	Use:   "pick [id|.]",
+	Use:   "pick [id|.|−]",
 	Short: "Interactively pick a current task (uses fzf if available)",
-	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Pass '.' to select the item for the current directory's git branch (useful when switching between worktrees). Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
+	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Pass '.' to select the item for the current directory's git branch (useful when switching between worktrees). Pass '-' to switch to the previously selected item (like git checkout -). Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
 	Args:  cobra.MaximumNArgs(1),
 	RunE:  runPick,
 }
@@ -1620,6 +1620,28 @@ func runPick(cmd *cobra.Command, args []string) error {
 	// If id passed, set current to that item (must exist)
 	if len(args) == 1 {
 		id := args[0]
+		// "-" is a special argument: switch to the previously selected item (like git checkout -)
+		if id == "-" {
+			meta, err := wn.ReadMeta(root)
+			if err != nil {
+				return err
+			}
+			if meta.PreviousID == "" {
+				return fmt.Errorf("no previous task")
+			}
+			item, err := store.Get(meta.PreviousID)
+			if err != nil {
+				return fmt.Errorf("previous task %s not found", meta.PreviousID)
+			}
+			if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+				m.CurrentID = meta.PreviousID
+				return m, nil
+			}); err != nil {
+				return err
+			}
+			fmt.Printf("%s %s\n", item.ID, wn.FirstLine(item.Description))
+			return nil
+		}
 		// "." is a special argument: resolve item from current directory's git branch
 		if id == "." {
 			cwd, err := os.Getwd()

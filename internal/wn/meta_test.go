@@ -42,6 +42,58 @@ func TestWithMetaLock_Concurrent(t *testing.T) {
 	}
 }
 
+func TestWithMetaLock_tracksPreviousID(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitRoot(dir); err != nil {
+		t.Fatal(err)
+	}
+	// Set initial current
+	if err := WithMetaLock(dir, func(m Meta) (Meta, error) {
+		m.CurrentID = "first"
+		return m, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Change current: PreviousID should be set to "first"
+	if err := WithMetaLock(dir, func(m Meta) (Meta, error) {
+		m.CurrentID = "second"
+		return m, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := ReadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.CurrentID != "second" {
+		t.Errorf("CurrentID = %q, want second", m.CurrentID)
+	}
+	if m.PreviousID != "first" {
+		t.Errorf("PreviousID = %q, want first", m.PreviousID)
+	}
+}
+
+func TestWithMetaLock_noPreviousWhenCurrentEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := InitRoot(dir); err != nil {
+		t.Fatal(err)
+	}
+	// First set: no prior CurrentID, so PreviousID should stay empty
+	if err := WithMetaLock(dir, func(m Meta) (Meta, error) {
+		m.CurrentID = "abc"
+		return m, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	m, err := ReadMeta(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.PreviousID != "" {
+		t.Errorf("PreviousID = %q, want empty (no previous)", m.PreviousID)
+	}
+}
+
 func TestReadMeta_Missing(t *testing.T) {
 	dir := t.TempDir()
 	m, err := ReadMeta(dir)

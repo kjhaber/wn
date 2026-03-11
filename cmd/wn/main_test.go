@@ -3630,6 +3630,73 @@ func TestLaunchNextAndIdArgError(t *testing.T) {
 	}
 }
 
+func TestPickDash_selectsPreviousItem(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	// Add a second item
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	if err := store.Put(&wn.Item{ID: "def456", Description: "second item", Created: now, Updated: now}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	// Start with abc123 as current (set by setupWnRoot), pick def456 to establish previous
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick", "def456"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("pick def456: %v", err)
+	}
+
+	// Now pick - should return to abc123
+	resetPickFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"pick", "-"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Fatalf("pick -: %v", err)
+		}
+	})
+
+	meta, err := wn.ReadMeta(dir)
+	if err != nil {
+		t.Fatalf("ReadMeta: %v", err)
+	}
+	if meta.CurrentID != "abc123" {
+		t.Errorf("CurrentID = %q, want abc123", meta.CurrentID)
+	}
+	if meta.PreviousID != "def456" {
+		t.Errorf("PreviousID = %q, want def456 (swapped)", meta.PreviousID)
+	}
+	if !strings.Contains(out, "abc123") {
+		t.Errorf("output %q does not contain abc123", out)
+	}
+}
+
+func TestPickDash_noPreviousItem(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetPickFlags()
+	rootCmd.SetArgs([]string{"pick", "-"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn pick - with no previous item should error")
+	}
+	if !strings.Contains(err.Error(), "no previous") {
+		t.Errorf("want 'no previous' error; got: %v", err)
+	}
+}
+
 func gitExecIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
