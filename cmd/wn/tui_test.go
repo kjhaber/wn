@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/keith/wn/internal/wn"
 )
 
@@ -328,5 +330,97 @@ func TestClampCursor_EmptyList(t *testing.T) {
 	}
 	if m.listOffset != 0 {
 		t.Errorf("listOffset should be 0 for empty list, got %d", m.listOffset)
+	}
+}
+
+// --- respond key ("r") ---
+
+func TestHandleEditor_RespondMarksItemDoneWithNote(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	prompt := &wn.Item{
+		ID: "pmt-tui01", Description: "Need answer?",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(prompt); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Write response text to a temp file (simulating editor output).
+	f, err := os.CreateTemp("", "wn-tui-resp-*.txt")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	tmpFile := f.Name()
+	_, _ = f.WriteString("Use approach B.")
+	_ = f.Close()
+	defer os.Remove(tmpFile)
+
+	m := tuiModel{store: store, root: root, width: 80, height: 24}
+	result, _ := m.handleEditor(tuiEditorMsg{
+		action:  tuiEditorRespond,
+		tmpFile: tmpFile,
+		id:      "pmt-tui01",
+	})
+
+	got, err := store.Get("pmt-tui01")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.Done {
+		t.Error("prompt item should be done after respond")
+	}
+	if got.PromptReady {
+		t.Error("PromptReady should be cleared after respond")
+	}
+	idx := got.NoteIndexByName(wn.NoteNameResponse)
+	if idx < 0 {
+		t.Error("response note not found")
+	} else if got.Notes[idx].Body != "Use approach B." {
+		t.Errorf("response note body = %q", got.Notes[idx].Body)
+	}
+	if !strings.Contains(result.msg, "pmt-tui01") {
+		t.Errorf("msg should mention item ID, got %q", result.msg)
+	}
+}
+
+func TestHandleKey_R_rejectsNonPromptItem(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID: "notpmt01", Description: "regular item",
+		Created: now, Updated: now,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	m := tuiModel{
+		store:    store,
+		root:     root,
+		width:    80,
+		height:   24,
+		allItems: []*wn.Item{item},
+		items:    []*wn.Item{item},
+	}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if result.err == nil {
+		t.Error("expected error when pressing 'r' on non-prompt item")
 	}
 }

@@ -45,6 +45,7 @@ type tuiEditorAction int
 const (
 	tuiEditorAdd tuiEditorAction = iota + 1
 	tuiEditorEdit
+	tuiEditorRespond
 )
 
 type tuiLoadedMsg []*wn.Item
@@ -395,6 +396,14 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.clampCursor()
 		m.refreshViewport()
 
+	case "r":
+		it := m.selected()
+		if it == nil || !it.PromptReady {
+			m.err = fmt.Errorf("selected item is not awaiting a response")
+			return m, nil
+		}
+		return m.openEditor(tuiEditorRespond, it.ID)
+
 	case ">":
 		if it := m.selected(); it != nil {
 			return m, m.cmdLaunch(it.ID)
@@ -538,6 +547,32 @@ func (m tuiModel) handleEditor(msg tuiEditorMsg) (tuiModel, tea.Cmd) {
 			return m, nil
 		}
 		m.msg = "updated: " + msg.id
+
+	case tuiEditorRespond:
+		now := time.Now().UTC()
+		trimmed := strings.TrimSpace(content)
+		err := m.store.UpdateItem(msg.id, func(it *wn.Item) (*wn.Item, error) {
+			it.Done = true
+			it.DoneStatus = wn.DoneStatusDone
+			it.PromptReady = false
+			it.Updated = now
+			it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: trimmed})
+			if it.Notes == nil {
+				it.Notes = []wn.Note{}
+			}
+			idx := it.NoteIndexByName(wn.NoteNameResponse)
+			if idx >= 0 {
+				it.Notes[idx].Body = trimmed
+			} else {
+				it.Notes = append(it.Notes, wn.Note{Name: wn.NoteNameResponse, Created: now, Body: trimmed})
+			}
+			return it, nil
+		})
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.msg = "responded: " + msg.id
 	}
 	return m, m.cmdLoad()
 }
@@ -683,7 +718,7 @@ func (m tuiModel) renderFooter() string {
 func (m tuiModel) renderHints() string {
 	type hint struct{ k, d string }
 	hints := []hint{
-		{"a", "add"}, {"e", "edit"}, {"x", "done"},
+		{"a", "add"}, {"e", "edit"}, {"x", "done"}, {"r", "respond"},
 		{"-", "suspend"}, {"u", "undone"}, {"D", "delete"},
 		{"↵", "set current"}, {">", "launch"}, {"/", "search"}, {"#", "tag filter"},
 		{"f", "cycle filter"}, {"PgUp/Dn", "scroll"}, {"q", "quit"},
