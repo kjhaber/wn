@@ -52,6 +52,7 @@ func resetListFlags() {
 	listLimit = 0
 	listOffset = 0
 	listJson = false
+	listGroup = ""
 }
 
 // resetDependFlags clears depend subcommand flags to avoid Cobra's flag persistence
@@ -1849,6 +1850,193 @@ func TestListLimitOffset(t *testing.T) {
 		t.Errorf("list --limit 1 --offset 1 = %v; want bbb", list.Items[0].ID)
 	}
 	listJson = false
+}
+
+func TestListGroupByTags(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa111", Description: "agent task", Created: now, Updated: now, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "backend task", Created: now, Updated: now, Tags: []string{"backend"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc333", Description: "another agent task", Created: now, Updated: now, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--group", "tags"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// Should have group headers for each tag set
+	if !strings.Contains(out, "#agent") {
+		t.Errorf("output should contain #agent group header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "#backend") {
+		t.Errorf("output should contain #backend group header; got:\n%s", out)
+	}
+	// Items in the same group (agent) should be adjacent — header appears once before both agent items
+	agentHeaderIdx := strings.Index(out, "--- #agent ---")
+	if agentHeaderIdx < 0 {
+		t.Fatalf("expected '--- #agent ---' header; got:\n%s", out)
+	}
+	backendHeaderIdx := strings.Index(out, "--- #backend ---")
+	if backendHeaderIdx < 0 {
+		t.Fatalf("expected '--- #backend ---' header; got:\n%s", out)
+	}
+	// Both agent items should appear before the backend header
+	aaa111Idx := strings.Index(out, "aaa111")
+	ccc333Idx := strings.Index(out, "ccc333")
+	bbb222Idx := strings.Index(out, "bbb222")
+	if aaa111Idx < 0 || ccc333Idx < 0 || bbb222Idx < 0 {
+		t.Fatalf("all item ids should appear in output; got:\n%s", out)
+	}
+	if aaa111Idx > backendHeaderIdx || ccc333Idx > backendHeaderIdx {
+		t.Errorf("agent items should appear before backend header; got:\n%s", out)
+	}
+	if bbb222Idx < backendHeaderIdx {
+		t.Errorf("backend item should appear after backend header; got:\n%s", out)
+	}
+}
+
+func TestListGroupByTagsNoTagsGroup(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa111", Description: "tagged task", Created: now, Updated: now, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "untagged task", Created: now, Updated: now, Tags: nil, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		resetListFlags()
+		rootCmd.SetArgs([]string{"list", "--group", "tags"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "(no tags)") {
+		t.Errorf("output should contain '(no tags)' group header for untagged items; got:\n%s", out)
+	}
+	if !strings.Contains(out, "#agent") {
+		t.Errorf("output should contain '#agent' group header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "bbb222") {
+		t.Errorf("output should contain untagged item id; got:\n%s", out)
+	}
+}
+
+func TestListGroupByStatus(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, item := range []*wn.Item{
+		{ID: "aaa111", Description: "done task", Created: now, Updated: now, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc333", Description: "another undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"list", "--all", "--group", "status"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// Group headers for done and undone
+	if !strings.Contains(out, "--- done ---") {
+		t.Errorf("output should contain '--- done ---' header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "--- undone ---") {
+		t.Errorf("output should contain '--- undone ---' header; got:\n%s", out)
+	}
+	// The two undone items should both appear after the undone header
+	undoneHeaderIdx := strings.Index(out, "--- undone ---")
+	bbb222Idx := strings.Index(out, "bbb222")
+	ccc333Idx := strings.Index(out, "ccc333")
+	if bbb222Idx < undoneHeaderIdx || ccc333Idx < undoneHeaderIdx {
+		t.Errorf("undone items should appear after '--- undone ---' header; got:\n%s", out)
+	}
+}
+
+func TestListGroupInvalidKey(t *testing.T) {
+	resetListFlags()
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"list", "--group", "bogus"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("list --group bogus should return an error")
+	}
+}
+
+func TestListGroupWithJSON(t *testing.T) {
+	resetListFlags()
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"list", "--group", "tags", "--json"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("list --group with --json should return an error")
+	}
 }
 
 func TestTagInteractive_Toggle(t *testing.T) {

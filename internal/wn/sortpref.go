@@ -107,6 +107,13 @@ func orderKeyFromPtr(p *int) int {
 	return *p
 }
 
+// TagsKey returns a canonical string for a tag set (sorted tags joined by comma).
+// Items with the same TagsKey have the same set of tags (order-independent).
+// Returns "" for empty/nil tags.
+func TagsKey(tags []string) string {
+	return tagsKey(tags)
+}
+
 func tagsKey(tags []string) string {
 	if len(tags) == 0 {
 		return ""

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -2524,6 +2525,7 @@ var listLimit int
 var listOffset int
 
 var listJson bool
+var listGroup string
 
 func init() {
 	listCmd.Flags().BoolVar(&listUndone, "undone", false, "List undone items (default when no filter; includes both available and review-ready; excludes in-progress)")
@@ -2536,6 +2538,7 @@ func init() {
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
 	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N items")
 	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (same format as export: version, exported_at, items with all attributes)")
+	listCmd.Flags().StringVar(&listGroup, "group", "", "Group items by key: tags, status")
 	initPick()
 }
 
@@ -2629,6 +2632,22 @@ func runList(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+	if listGroup != "" {
+		switch listGroup {
+		case "tags", "status":
+		default:
+			return fmt.Errorf("invalid --group key %q (use: tags, status)", listGroup)
+		}
+		if listJson {
+			return fmt.Errorf("--group and --json are incompatible")
+		}
+		// Group-first sort: when grouping by tags, sort by tags as primary key.
+		// When grouping by status, sort by status (computed) as primary.
+		now := time.Now().UTC()
+		ordered = applyGroupSort(ordered, listGroup, now, blockedSet)
+		printGroupedList(ordered, listGroup, now, blockedSet)
+		return nil
+	}
 	if listJson {
 		// Same format as wn export: version, exported_at, items (full attributes).
 		return wn.ExportItems(ordered, "")
@@ -2646,6 +2665,85 @@ func runList(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %-6s  %-*s  %-*s  %s\n", it.ID, listStatusWidth, status, listDescWidth, desc, tagsStr)
 	}
 	return nil
+}
+
+// applyGroupSort sorts items so that items with the same group key are adjacent.
+// For "tags", uses the canonical tag string. For "status", uses the computed status string.
+func applyGroupSort(items []*wn.Item, by string, now time.Time, blockedSet map[string]bool) []*wn.Item {
+	switch by {
+	case "tags":
+		// Prepend tags as primary sort key, preserving existing sort for items within a group.
+		spec, _ := wn.ParseSortSpec("tags")
+		return wn.ApplySort(items, spec)
+	case "status":
+		result := make([]*wn.Item, len(items))
+		copy(result, items)
+		sort.Slice(result, func(i, j int) bool {
+			si := itemListStatus(result[i], now, blockedSet[result[i].ID])
+			sj := itemListStatus(result[j], now, blockedSet[result[j].ID])
+			if si != sj {
+				return si < sj
+			}
+			return result[i].ID < result[j].ID
+		})
+		return result
+	}
+	return items
+}
+
+// itemGroupKey returns the display group key for an item under the given grouping.
+func itemGroupKey(it *wn.Item, by string, now time.Time, blockedSet map[string]bool) string {
+	switch by {
+	case "tags":
+		if len(it.Tags) == 0 {
+			return ""
+		}
+		return wn.TagsKey(it.Tags)
+	case "status":
+		return itemListStatus(it, now, blockedSet[it.ID])
+	}
+	return ""
+}
+
+// itemGroupHeader returns the formatted section header for a group key.
+func itemGroupHeader(key, by string) string {
+	switch by {
+	case "tags":
+		if key == "" {
+			return "--- (no tags) ---"
+		}
+		// Convert comma-separated canonical tag string to "#tag1 #tag2" display form.
+		tags := strings.Split(key, ",")
+		var parts []string
+		for _, t := range tags {
+			parts = append(parts, "#"+t)
+		}
+		return "--- " + strings.Join(parts, " ") + " ---"
+	case "status":
+		return "--- " + key + " ---"
+	}
+	return "--- " + key + " ---"
+}
+
+// printGroupedList prints items with section headers between groups.
+func printGroupedList(items []*wn.Item, by string, now time.Time, blockedSet map[string]bool) {
+	const listStatusWidth = 7
+	const listDescWidth = 51
+	var currentGroup *string
+	for _, it := range items {
+		key := itemGroupKey(it, by, now, blockedSet)
+		if currentGroup == nil || *currentGroup != key {
+			currentGroup = &key
+			fmt.Println(itemGroupHeader(key, by))
+		}
+		status := itemListStatus(it, now, blockedSet[it.ID])
+		desc := wn.FirstLine(it.Description)
+		if len(desc) > listDescWidth {
+			desc = desc[:listDescWidth-3] + "..."
+		}
+		tagsStr := formatTags(it.Tags)
+		fmt.Printf("  %-6s  %-*s  %-*s  %s\n", it.ID, listStatusWidth, status, listDescWidth, desc, tagsStr)
+	}
 }
 
 // listSortSpec returns sort options from --sort flag or effective settings (user + project). Invalid spec returns nil.

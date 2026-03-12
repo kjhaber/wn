@@ -44,7 +44,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
-| `wn list` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
+| `wn list` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window; `--group tags` or `--group status` to display items in labeled sections. |
 | `wn show [id]` | Show a work item (human-readable by default; `--json` for machine-readable; `--plain` for description text only, suitable for pasting into an agent). Omit id for current task. Control fields with `--fields title,body,status,deps,notes,log` or `--all`. |
 | `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item. |
 | `wn depend rm --on <id> [--wid <id>]` | Remove dependency. Omit `--wid` for current task. Use `-i` to pick which dependency to remove. |
@@ -316,7 +316,7 @@ Agents sometimes need input before they can continue—a clarifying question, a 
 - **Suspend:** For items you might revisit but don't want in the active queue, use `wn status suspend [id] -m "reason"`. Suspended items are excluded from `wn next` and agent claim but stay visible in `wn list`.
 - **Dependencies:** When adding follow-up items via MCP, use `wn_add` with `depends_on` (e.g. current task id) to preserve queue order without a separate `wn_depend` call.
 
-## Sort order
+## Sort order and grouping
 
 List order and fzf pick order are controlled by:
 
@@ -324,6 +324,13 @@ List order and fzf pick order are controlled by:
 - **`sort` in settings** — Applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag add -i`, `wn depend -i`, and `wn rm`.
 
 When no sort preference is set, `wn list` uses dependency order (topological) for undone items.
+
+**Grouping** (`--group <key>`) splits the list into labeled sections. Items are sorted by the group key first, then rendered with a `--- section ---` header between groups:
+
+- `--group tags` — groups by tag set. Items with the same tags appear together; items with no tags are collected under `(no tags)`. Example header: `--- #agent ---`, `--- #agent #backend ---`, `--- (no tags) ---`.
+- `--group status` — groups by computed status (e.g. `--- undone ---`, `--- blocked ---`, `--- done ---`).
+
+`--group` is incompatible with `--json`. Example: `wn list --all --group status`.
 
 ## Optional: fzf for interactive commands
 
