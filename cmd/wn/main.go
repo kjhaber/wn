@@ -1025,22 +1025,42 @@ func runDone(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
 	if !doneForce {
-		item, err := store.Get(id)
-		if err != nil {
-			return err
-		}
 		for _, depID := range item.DependsOn {
 			dep, err := store.Get(depID)
 			if err != nil {
 				return err
 			}
-			if !dep.Done {
-				return fmt.Errorf("dependency %s not complete, use --force to mark complete anyway", depID)
+			if dep.Done || dep.PromptReady {
+				continue
 			}
+			return fmt.Errorf("dependency %s not complete, use --force to mark complete anyway", depID)
 		}
 	}
 	now := time.Now().UTC()
+	// Auto-mark prompt deps as done.
+	for _, depID := range item.DependsOn {
+		dep, err := store.Get(depID)
+		if err != nil {
+			return err
+		}
+		if dep.PromptReady {
+			if err := store.UpdateItem(depID, func(it *wn.Item) (*wn.Item, error) {
+				it.Done = true
+				it.PromptReady = false
+				it.DoneStatus = wn.DoneStatusDone
+				it.Updated = now
+				it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: "auto-closed with parent"})
+				return it, nil
+			}); err != nil {
+				return err
+			}
+		}
+	}
 	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
 		it.DoneMessage = doneMessage

@@ -172,3 +172,93 @@ func TestArchiveItem_CreatesArchiveDirIfMissing(t *testing.T) {
 		t.Errorf("archive dir should have been created: %v", err)
 	}
 }
+
+func TestArchiveItem_includesPromptDeps(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	promptItem := &Item{
+		ID: "pmt-arch01", Description: "Is this right?",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []LogEntry{{At: now, Kind: "created"}},
+	}
+	parent := &Item{
+		ID: "arch05", Description: "main task",
+		Created: now, Updated: now,
+		DependsOn: []string{"pmt-arch01"},
+		Log:       []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(promptItem); err != nil {
+		t.Fatalf("Put prompt: %v", err)
+	}
+	if err := store.Put(parent); err != nil {
+		t.Fatalf("Put parent: %v", err)
+	}
+
+	archivePath, err := ArchiveItem(store, "arch05", "")
+	if err != nil {
+		t.Fatalf("ArchiveItem: %v", err)
+	}
+
+	// Both items should be removed from store
+	if _, err := store.Get("arch05"); err == nil {
+		t.Error("parent item should have been removed from store")
+	}
+	if _, err := store.Get("pmt-arch01"); err == nil {
+		t.Error("prompt dep should have been removed from store")
+	}
+
+	// Archive file should contain both items
+	root2 := t.TempDir()
+	store2, err := NewFileStore(root2)
+	if err != nil {
+		t.Fatalf("NewFileStore2: %v", err)
+	}
+	if err := ImportAppend(store2, archivePath); err != nil {
+		t.Fatalf("ImportAppend: %v", err)
+	}
+	if _, err := store2.Get("arch05"); err != nil {
+		t.Error("parent item not found in archive")
+	}
+	if _, err := store2.Get("pmt-arch01"); err != nil {
+		t.Error("prompt dep not found in archive")
+	}
+}
+
+func TestArchiveItem_nonPromptDepsNotIncluded(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	regularDep := &Item{
+		ID: "dep-arch01", Description: "regular dep",
+		Created: now, Updated: now,
+		Log: []LogEntry{{At: now, Kind: "created"}},
+	}
+	parent := &Item{
+		ID: "arch06", Description: "main task",
+		Created: now, Updated: now,
+		DependsOn: []string{"dep-arch01"},
+		Log:       []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(regularDep); err != nil {
+		t.Fatalf("Put dep: %v", err)
+	}
+	if err := store.Put(parent); err != nil {
+		t.Fatalf("Put parent: %v", err)
+	}
+
+	if _, err := ArchiveItem(store, "arch06", ""); err != nil {
+		t.Fatalf("ArchiveItem: %v", err)
+	}
+
+	// Regular dep should remain in store
+	if _, err := store.Get("dep-arch01"); err != nil {
+		t.Error("regular dep should NOT have been removed from store")
+	}
+}

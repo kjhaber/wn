@@ -4027,3 +4027,119 @@ func TestRespondCmd_rejectsNonPromptItem(t *testing.T) {
 		t.Error("expected error when responding to non-prompt item")
 	}
 }
+
+func TestDoneCmd_autoMarksPromptDepsAsDone(t *testing.T) {
+	dir, parentID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	promptItem := &wn.Item{
+		ID: "pmt-done01", Description: "Need answer",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	_ = store.Put(promptItem)
+	_ = store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
+		it.DependsOn = append(it.DependsOn, "pmt-done01")
+		return it, nil
+	})
+
+	rootCmd.SetArgs([]string{"done", parentID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Errorf("Execute done: %v", err)
+	}
+
+	parent, _ := store.Get(parentID)
+	if !parent.Done {
+		t.Error("parent should be done")
+	}
+	prompt, _ := store.Get("pmt-done01")
+	if !prompt.Done {
+		t.Error("prompt dep should be auto-marked done")
+	}
+}
+
+func TestDoneCmd_promptDepDoesNotBlockDone(t *testing.T) {
+	dir, parentID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	promptItem := &wn.Item{
+		ID: "pmt-done02", Description: "Need answer",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	_ = store.Put(promptItem)
+	_ = store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
+		it.DependsOn = append(it.DependsOn, "pmt-done02")
+		return it, nil
+	})
+
+	// Should succeed without --force even though prompt dep is undone
+	rootCmd.SetArgs([]string{"done", parentID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Errorf("done should not be blocked by prompt dep: %v", err)
+	}
+}
+
+func TestArchiveCmd_includesPromptDepsInArchive(t *testing.T) {
+	dir, parentID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	resetArchiveFlags()
+
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	promptItem := &wn.Item{
+		ID: "pmt-arc01", Description: "Is this right?",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	_ = store.Put(promptItem)
+	_ = store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
+		it.DependsOn = append(it.DependsOn, "pmt-arc01")
+		return it, nil
+	})
+
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"archive", parentID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute archive: %v", err)
+		}
+	})
+
+	// Both items removed from store
+	items, _ := store.List()
+	for _, it := range items {
+		if it.ID == parentID || it.ID == "pmt-arc01" {
+			t.Errorf("item %s should have been removed from store", it.ID)
+		}
+	}
+
+	// Archive file contains both items
+	archivePath := filepath.Join(dir, ".wn", "archive", parentID+".json")
+	root2 := t.TempDir()
+	store2, _ := wn.NewFileStore(root2)
+	if err := wn.ImportAppend(store2, archivePath); err != nil {
+		t.Fatalf("ImportAppend: %v", err)
+	}
+	if _, err := store2.Get(parentID); err != nil {
+		t.Error("parent not found in archive")
+	}
+	if _, err := store2.Get("pmt-arc01"); err != nil {
+		t.Error("prompt dep not found in archive")
+	}
+}
