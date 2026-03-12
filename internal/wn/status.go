@@ -11,13 +11,14 @@ const (
 	StatusBlocked = "blocked"
 	StatusClaimed = "claimed"
 	StatusReview  = "review"
+	StatusPrompt  = "prompt"
 	StatusDone    = "done"
 	StatusClosed  = "closed"
 	StatusSuspend = "suspend"
 )
 
 // ValidStatuses is the ordered list of valid status values for wn status.
-var ValidStatuses = []string{StatusUndone, StatusClaimed, StatusReview, StatusDone, StatusClosed, StatusSuspend}
+var ValidStatuses = []string{StatusUndone, StatusClaimed, StatusReview, StatusPrompt, StatusDone, StatusClosed, StatusSuspend}
 
 // ValidStatus returns true if s is one of the valid status values.
 func ValidStatus(s string) bool {
@@ -65,6 +66,7 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.DoneMessage = ""
 			it.DoneStatus = ""
 			it.ReviewReady = false
+			it.PromptReady = false
 			it.InProgressUntil = time.Time{}
 			it.InProgressBy = ""
 			it.Updated = now
@@ -76,6 +78,7 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.Done = false
 			it.DoneStatus = ""
 			it.ReviewReady = false
+			it.PromptReady = false
 			it.InProgressUntil = now.Add(opts.ClaimFor)
 			it.InProgressBy = opts.ClaimBy
 			it.Updated = now
@@ -86,13 +89,24 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.InProgressUntil = time.Time{}
 			it.InProgressBy = ""
 			it.ReviewReady = true
+			it.PromptReady = false
 			it.Updated = now
 			it.Log = append(it.Log, LogEntry{At: now, Kind: "review_ready"})
+		case StatusPrompt:
+			it.Done = false
+			it.DoneStatus = ""
+			it.InProgressUntil = time.Time{}
+			it.InProgressBy = ""
+			it.ReviewReady = false
+			it.PromptReady = true
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "prompt_ready"})
 		case StatusDone:
 			it.Done = true
 			it.DoneMessage = opts.DoneMessage
 			it.DoneStatus = DoneStatusDone
 			it.ReviewReady = false
+			it.PromptReady = false
 			it.InProgressUntil = time.Time{}
 			it.InProgressBy = ""
 			it.Updated = now
@@ -102,6 +116,7 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.DoneMessage = opts.DoneMessage
 			it.DoneStatus = DoneStatusClosed
 			it.ReviewReady = false
+			it.PromptReady = false
 			it.InProgressUntil = time.Time{}
 			it.InProgressBy = ""
 			it.Updated = now
@@ -123,6 +138,7 @@ func SetStatus(store Store, id, status string, opts StatusOpts) error {
 			it.DoneMessage = opts.DoneMessage
 			it.DoneStatus = DoneStatusSuspend
 			it.ReviewReady = false
+			it.PromptReady = false
 			it.InProgressUntil = time.Time{}
 			it.InProgressBy = ""
 			it.Updated = now

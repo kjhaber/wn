@@ -50,7 +50,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -2922,4 +2922,179 @@ func formatTags(tags []string) string {
 // itemListStatus returns the display status for list output.
 func itemListStatus(it *wn.Item, now time.Time, blocked bool) string {
 	return wn.ItemListStatus(it, now, blocked)
+}
+
+var promptMessage string
+
+var promptCmd = &cobra.Command{
+	Use:   "prompt [parent-id]",
+	Short: "Create a prompt item (question for user) and add as dependency of parent",
+	Long: `Creates a new prompt-state work item (a question for the user) and adds it as a
+dependency of the parent item. The parent item becomes blocked until the user responds.
+
+If parent-id is omitted, the current work item is used.
+Use -m to provide the question inline, or $EDITOR will be opened.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runPrompt,
+}
+
+func init() {
+	promptCmd.Flags().StringVarP(&promptMessage, "message", "m", "", "Question text (or open $EDITOR if omitted)")
+}
+
+func runPrompt(cmd *cobra.Command, args []string) error {
+	msg := promptMessage
+	if msg == "" {
+		var err error
+		msg, err = wn.EditWithEditor("")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(msg) == "" {
+			return fmt.Errorf("empty question")
+		}
+	}
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	parentID, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	// Verify parent exists
+	if _, err := store.Get(parentID); err != nil {
+		return err
+	}
+	// Create the prompt item
+	promptID, err := wn.GenerateID(store)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	promptItem := &wn.Item{
+		ID:          promptID,
+		Description: strings.TrimSpace(msg),
+		Created:     now,
+		Updated:     now,
+		PromptReady: true,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}, {At: now, Kind: "prompt_ready"}},
+	}
+	if err := store.Put(promptItem); err != nil {
+		return err
+	}
+	// Add prompt item as dependency of parent
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+	if wn.WouldCreateCycle(items, parentID, promptID) {
+		_ = store.Delete(promptID)
+		return fmt.Errorf("circular dependency would result")
+	}
+	if err := store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
+		it.DependsOn = append(it.DependsOn, promptID)
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "depend_added", Msg: promptID})
+		return it, nil
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("created prompt %s; %s is now blocked\n", promptID, parentID)
+	return nil
+}
+
+var respondMessage string
+
+var respondCmd = &cobra.Command{
+	Use:   "respond [prompt-id]",
+	Short: "Respond to a prompt item (marks it done and stores the response)",
+	Long: `Marks a prompt-state work item as done and stores the response as a note.
+This unblocks the parent item that was waiting for the response.
+
+If prompt-id is omitted, the current work item is used.
+Use -m to provide the answer inline, or $EDITOR will be opened.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runRespond,
+}
+
+func init() {
+	respondCmd.Flags().StringVarP(&respondMessage, "message", "m", "", "Response text (or open $EDITOR if omitted)")
+}
+
+func runRespond(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	meta, err := wn.ReadMeta(root)
+	if err != nil {
+		return err
+	}
+	explicitID := ""
+	if len(args) > 0 {
+		explicitID = args[0]
+	}
+	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
+	if err != nil {
+		return fmt.Errorf("no id provided and no current task")
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return err
+	}
+	if !item.PromptReady {
+		return fmt.Errorf("item %s is not in prompt state", id)
+	}
+	msg := respondMessage
+	if msg == "" {
+		var err error
+		msg, err = wn.EditWithEditor("")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(msg) == "" {
+			return fmt.Errorf("empty response")
+		}
+	}
+	now := time.Now().UTC()
+	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		it.Done = true
+		it.DoneStatus = wn.DoneStatusDone
+		it.PromptReady = false
+		it.Updated = now
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: msg})
+		// Store response as a note
+		if it.Notes == nil {
+			it.Notes = []wn.Note{}
+		}
+		idx := it.NoteIndexByName(wn.NoteNameResponse)
+		trimmed := strings.TrimSpace(msg)
+		if idx >= 0 {
+			it.Notes[idx].Body = trimmed
+		} else {
+			it.Notes = append(it.Notes, wn.Note{Name: wn.NoteNameResponse, Created: now, Body: trimmed})
+		}
+		return it, nil
+	}); err != nil {
+		return err
+	}
+	fmt.Printf("responded to %s; prompt marked done\n", id)
+	return nil
 }

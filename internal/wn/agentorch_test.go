@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -138,7 +139,7 @@ func TestExpandPromptTemplate(t *testing.T) {
 }
 
 func TestExpandCommandTemplate(t *testing.T) {
-	got, err := ExpandCommandTemplate("echo {{.Prompt}}", "hello world", "abc", "/wt", "br")
+	got, err := ExpandCommandTemplate("echo {{.Prompt}}", "hello world", "abc", "/wt", "br", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +155,7 @@ func TestExpandCommandTemplate(t *testing.T) {
 func TestExpandCommandTemplate_escapesQuotes(t *testing.T) {
 	prompt := `Add a "resolved" state similar to "done". Can be used for "won't fix", "duplicate".`
 	tpl := `printf '%s' "{{.Prompt}}"`
-	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br")
+	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func TestExpandCommandTemplate_escapesQuotes(t *testing.T) {
 func TestExpandCommandTemplate_escapesBackticksAndDollar(t *testing.T) {
 	prompt := "wn tag add <tag-name> [--wid <id>]\n`--wid <id>` should be used. Cost $5 or $(id) risky."
 	tpl := `printf '%s' "{{.Prompt}}"`
-	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br")
+	got, err := ExpandCommandTemplate(tpl, prompt, "abc", "/wt", "br", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +206,7 @@ func TestExpandCommandTemplate_escapesItemIDWorktreeBranch(t *testing.T) {
 	worktree := `/tmp/worktree with spaces`
 	branch := `main'$(id)'`
 	tpl := `printf 'id=%s wd=%s br=%s' {{.ItemID}} {{.Worktree}} {{.Branch}}`
-	got, err := ExpandCommandTemplate(tpl, "prompt", itemID, worktree, branch)
+	got, err := ExpandCommandTemplate(tpl, "prompt", itemID, worktree, branch, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,5 +585,30 @@ func TestFindItemByBranch_noBranchNote(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("FindItemByBranch(no-branch-note) = %v, want nil", got)
+	}
+}
+
+func TestExpandCommandTemplate_withSessionID(t *testing.T) {
+	tpl := `claude {{.ResumeFlag}} --print "{{.Prompt}}"`
+	got, err := ExpandCommandTemplate(tpl, "do the thing", "abc", "/wt", "br", "ses-xyz789")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "--resume") {
+		t.Errorf("expected --resume in expanded cmd, got %q", got)
+	}
+	if !strings.Contains(got, "ses-xyz789") {
+		t.Errorf("expected session ID in expanded cmd, got %q", got)
+	}
+}
+
+func TestExpandCommandTemplate_noSessionID(t *testing.T) {
+	tpl := `claude {{.ResumeFlag}} --print "{{.Prompt}}"`
+	got, err := ExpandCommandTemplate(tpl, "do the thing", "abc", "/wt", "br", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "--resume") {
+		t.Errorf("expected no --resume when sessionID is empty, got %q", got)
 	}
 }

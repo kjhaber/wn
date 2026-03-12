@@ -356,3 +356,94 @@ func TestNextUndoneItem_withTag(t *testing.T) {
 		t.Errorf("NextUndoneItem(tag=nonexistent) = %v, want nil", next)
 	}
 }
+
+func TestItemListStatus_promptReady(t *testing.T) {
+	now := time.Now().UTC()
+	future := now.Add(time.Hour)
+	tests := []struct {
+		name    string
+		item    *Item
+		blocked bool
+		want    string
+	}{
+		{"prompt not blocked", &Item{Done: false, PromptReady: true}, false, "prompt"},
+		{"prompt with blocked=true (prompt takes priority)", &Item{Done: false, PromptReady: true}, true, "prompt"},
+		{"prompt and claimed", &Item{Done: false, PromptReady: true, InProgressUntil: future}, false, "prompt"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ItemListStatus(tt.item, now, tt.blocked); got != tt.want {
+				t.Errorf("ItemListStatus() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsAvailableUndone_promptReadyExcluded(t *testing.T) {
+	now := time.Now().UTC()
+	if IsAvailableUndone(&Item{Done: false, PromptReady: true}, now) {
+		t.Error("IsAvailableUndone(PromptReady=true) should return false")
+	}
+}
+
+func TestUndoneItems_ExcludesPromptReady(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "abc123", Description: "prompt-ready",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	undone, err := UndoneItems(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(undone) != 0 {
+		t.Errorf("UndoneItems with PromptReady item: got %d items, want 0", len(undone))
+	}
+}
+
+func TestListableUndoneItems_IncludesPromptReady(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "abc123", Description: "prompt-ready",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	listable, err := ListableUndoneItems(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listable) != 1 || listable[0].ID != "abc123" {
+		t.Errorf("ListableUndoneItems with PromptReady: got %v, want [abc123]", itemIDs(listable))
+	}
+}
+
+func TestBlockedSet_promptReadyItemNotBlocked(t *testing.T) {
+	now := time.Now().UTC()
+	items := []*Item{
+		{ID: "aaa", Done: false, PromptReady: true, DependsOn: []string{"bbb"},
+			Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb", Done: false,
+			Created: now, Updated: now, Log: []LogEntry{{At: now, Kind: "created"}}},
+	}
+	got := BlockedSet(items)
+	if got["aaa"] {
+		t.Error("BlockedSet: prompt-ready item 'aaa' should not be in blocked set")
+	}
+}

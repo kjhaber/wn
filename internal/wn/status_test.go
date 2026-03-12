@@ -175,6 +175,88 @@ func TestSetStatus_closed_duplicate_of_rejects_missing_original(t *testing.T) {
 	}
 }
 
+func TestSetStatus_prompt(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "abc123", Description: "item", Created: now, Updated: now,
+		Done: true, ReviewReady: true,
+		InProgressUntil: now.Add(time.Hour), InProgressBy: "worker",
+		Log: []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetStatus(store, "abc123", StatusPrompt, StatusOpts{}); err != nil {
+		t.Fatalf("SetStatus(prompt): %v", err)
+	}
+	got, _ := store.Get("abc123")
+	if got.Done {
+		t.Error("after SetStatus prompt: Done should be false")
+	}
+	if !got.PromptReady {
+		t.Error("after SetStatus prompt: PromptReady should be true")
+	}
+	if got.ReviewReady {
+		t.Error("after SetStatus prompt: ReviewReady should be false")
+	}
+	if !got.InProgressUntil.IsZero() {
+		t.Errorf("after SetStatus prompt: InProgressUntil should be zero, got %v", got.InProgressUntil)
+	}
+	if got.InProgressBy != "" {
+		t.Errorf("after SetStatus prompt: InProgressBy should be empty, got %q", got.InProgressBy)
+	}
+	var hasLog bool
+	for _, e := range got.Log {
+		if e.Kind == "prompt_ready" {
+			hasLog = true
+			break
+		}
+	}
+	if !hasLog {
+		t.Error("after SetStatus prompt: expected 'prompt_ready' log entry")
+	}
+}
+
+func TestSetStatus_othersClearPromptReady(t *testing.T) {
+	now := time.Now().UTC()
+	statuses := []struct {
+		status string
+		opts   StatusOpts
+	}{
+		{StatusUndone, StatusOpts{}},
+		{StatusClaimed, StatusOpts{ClaimFor: time.Hour}},
+		{StatusReview, StatusOpts{}},
+		{StatusDone, StatusOpts{}},
+		{StatusSuspend, StatusOpts{}},
+	}
+	for _, tc := range statuses {
+		t.Run(tc.status, func(t *testing.T) {
+			root := t.TempDir()
+			store, _ := NewFileStore(root)
+			item := &Item{
+				ID: "abc123", Description: "item", Created: now, Updated: now,
+				PromptReady: true,
+				Log:         []LogEntry{{At: now, Kind: "created"}},
+			}
+			if err := store.Put(item); err != nil {
+				t.Fatal(err)
+			}
+			if err := SetStatus(store, "abc123", tc.status, tc.opts); err != nil {
+				t.Fatalf("SetStatus(%q): %v", tc.status, err)
+			}
+			got, _ := store.Get("abc123")
+			if got.PromptReady {
+				t.Errorf("SetStatus(%q) did not clear PromptReady", tc.status)
+			}
+		})
+	}
+}
+
 func TestSetStatus_invalid(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)

@@ -19,6 +19,9 @@ func ItemListStatus(it *Item, now time.Time, blocked bool) string {
 	if it.ReviewReady {
 		return "review"
 	}
+	if it.PromptReady {
+		return "prompt"
+	}
 	if blocked {
 		return "blocked"
 	}
@@ -38,7 +41,7 @@ func BlockedSet(allItems []*Item) map[string]bool {
 	}
 	blocked := make(map[string]bool)
 	for _, it := range allItems {
-		if it.Done || it.ReviewReady {
+		if it.Done || it.ReviewReady || it.PromptReady {
 			continue
 		}
 		for _, depID := range it.DependsOn {
@@ -66,6 +69,9 @@ func IsAvailableUndone(it *Item, now time.Time) bool {
 		return false
 	}
 	if it.ReviewReady {
+		return false
+	}
+	if it.PromptReady {
 		return false
 	}
 	if it.InProgressUntil.IsZero() {
@@ -102,7 +108,7 @@ func UndoneItems(store Store) ([]*Item, error) {
 			if err != nil {
 				return nil, err
 			}
-			if !curr.ReviewReady {
+			if !curr.ReviewReady && !curr.PromptReady {
 				result = append(result, curr)
 			}
 			continue

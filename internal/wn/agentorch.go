@@ -172,18 +172,30 @@ func shellEscapeForShWord(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
+// resumeFlag returns "--resume <sessionID>" if sessionID is non-empty, else "".
+func resumeFlag(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	return "--resume " + sessionID
+}
+
 // ExpandCommandTemplate executes the command template; prompt is the result of the prompt template.
 // Prompt is escaped for double-quoted context; ItemID, Worktree, and Branch are escaped as
 // single-quoted shell words so descriptions, imported IDs, and branch notes cannot inject
 // commands when the result is passed to sh -c.
-func ExpandCommandTemplate(tpl string, prompt, itemID, worktree, branch string) (string, error) {
+// sessionID is the Claude Code session ID for resume support (from the "claude-session" note);
+// ResumeFlag is "--resume <sessionID>" if sessionID is non-empty, else "".
+func ExpandCommandTemplate(tpl string, prompt, itemID, worktree, branch, sessionID string) (string, error) {
 	escapedPrompt := shellEscapeForDoubleQuoted(prompt)
 	data := struct {
-		Prompt   string
-		ItemID   string
-		Worktree string
-		Branch   string
-	}{escapedPrompt, shellEscapeForShWord(itemID), shellEscapeForShWord(worktree), shellEscapeForShWord(branch)}
+		Prompt     string
+		ItemID     string
+		Worktree   string
+		Branch     string
+		ResumeFlag string
+		SessionID  string
+	}{escapedPrompt, shellEscapeForShWord(itemID), shellEscapeForShWord(worktree), shellEscapeForShWord(branch), resumeFlag(sessionID), sessionID}
 	tm, err := template.New("cmd").Parse(tpl)
 	if err != nil {
 		return "", err
@@ -262,6 +274,18 @@ func releaseItemClaim(store Store, itemID string) error {
 	})
 }
 
+// clearItemClaim clears in-progress without setting review-ready (used when item is blocked post-run).
+func clearItemClaim(store Store, itemID string) error {
+	now := time.Now().UTC()
+	return store.UpdateItem(itemID, func(it *Item) (*Item, error) {
+		it.InProgressUntil = time.Time{}
+		it.InProgressBy = ""
+		it.Updated = now
+		it.Log = append(it.Log, LogEntry{At: now, Kind: "claim_cleared"})
+		return it, nil
+	})
+}
+
 // FindItemByBranch searches all items for one whose "branch" note matches the given branch name.
 // Returns (nil, nil) if no matching item is found.
 func FindItemByBranch(store Store, branch string) (*Item, error) {
@@ -306,6 +330,15 @@ func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, main
 	return worktreePath, branchName, nil
 }
 
+// itemSessionID returns the claude-session note body for the item, or "" if not set.
+func itemSessionID(item *Item) string {
+	idx := item.NoteIndexByName(NoteNameClaudeSession)
+	if idx < 0 {
+		return ""
+	}
+	return strings.TrimSpace(item.Notes[idx].Body)
+}
+
 // runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
 func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
 	worktreePath, branchName, err := SetupItemWorktree(store, opts.Root, item, worktreesBase, mainDirname, opts.BranchPrefix, opts.Audit)
@@ -313,12 +346,13 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 		_ = releaseItemClaim(store, item.ID)
 		return err
 	}
+	sessionID := itemSessionID(item)
 	prompt, err := ExpandPromptTemplate(promptTpl, item, worktreePath, branchName)
 	if err != nil {
 		_ = releaseItemClaim(store, item.ID)
 		return fmt.Errorf("prompt template: %w", err)
 	}
-	expandedCmd, err := ExpandCommandTemplate(agentCmd, prompt, item.ID, worktreePath, branchName)
+	expandedCmd, err := ExpandCommandTemplate(agentCmd, prompt, item.ID, worktreePath, branchName, sessionID)
 	if err != nil {
 		_ = releaseItemClaim(store, item.ID)
 		return fmt.Errorf("command template: %w", err)
@@ -345,7 +379,14 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 			fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
 		}
 	}
-	_ = releaseItemClaim(store, item.ID)
+	// Post-run: if item is now blocked (e.g. agent created prompt deps), clear claim only.
+	// Otherwise release normally (sets review-ready).
+	allItems, listErr := store.List()
+	if listErr == nil && BlockedSet(allItems)[item.ID] {
+		_ = clearItemClaim(store, item.ID)
+	} else {
+		_ = releaseItemClaim(store, item.ID)
+	}
 	if !opts.LeaveWorktree {
 		if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {
 			if opts.Audit != nil {

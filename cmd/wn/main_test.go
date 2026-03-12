@@ -3912,3 +3912,118 @@ func TestArchiveCmd_NotFound(t *testing.T) {
 		t.Error("expected error archiving nonexistent item")
 	}
 }
+
+func TestPromptCmd_createsItemAndDep(t *testing.T) {
+	dir, parentID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"prompt", parentID, "-m", "What should the behavior be?"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "created") {
+		t.Errorf("expected 'created' in output, got %q", out)
+	}
+	if !strings.Contains(out, "blocked") {
+		t.Errorf("expected 'blocked' in output, got %q", out)
+	}
+	store, _ := wn.NewFileStore(dir)
+	allItems, _ := store.List()
+	var promptItem *wn.Item
+	for _, it := range allItems {
+		if it.ID != parentID && it.PromptReady {
+			promptItem = it
+			break
+		}
+	}
+	if promptItem == nil {
+		t.Fatal("no PromptReady item found after wn prompt")
+	}
+	if promptItem.Description != "What should the behavior be?" {
+		t.Errorf("prompt item description = %q, want expected question", promptItem.Description)
+	}
+	parent, _ := store.Get(parentID)
+	found := false
+	for _, dep := range parent.DependsOn {
+		if dep == promptItem.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("parent %s does not depend on prompt item %s; DependsOn=%v", parentID, promptItem.ID, parent.DependsOn)
+	}
+}
+
+func TestPromptCmd_fallsBackToCurrentItem(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"prompt", "-m", "Is this right?"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "created") {
+		t.Errorf("expected 'created' in output, got %q", out)
+	}
+}
+
+func TestRespondCmd_marksPromptDone(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	store, _ := wn.NewFileStore(dir)
+	now := time.Now().UTC()
+	promptItem := &wn.Item{
+		ID: "pmt111", Description: "Is this right?",
+		Created: now, Updated: now, PromptReady: true,
+		Log: []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	_ = store.Put(promptItem)
+
+	rootCmd.SetArgs([]string{"respond", "pmt111", "-m", "Yes, proceed."})
+	if err := rootCmd.Execute(); err != nil {
+		t.Errorf("Execute respond: %v", err)
+	}
+	got, _ := store.Get("pmt111")
+	if !got.Done {
+		t.Error("after respond: prompt item should be done")
+	}
+	idx := got.NoteIndexByName(wn.NoteNameResponse)
+	if idx < 0 {
+		t.Error("after respond: 'response' note not found on prompt item")
+	} else if got.Notes[idx].Body != "Yes, proceed." {
+		t.Errorf("response note body = %q, want 'Yes, proceed.'", got.Notes[idx].Body)
+	}
+}
+
+func TestRespondCmd_rejectsNonPromptItem(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"respond", itemID, "-m", "This should fail."})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("expected error when responding to non-prompt item")
+	}
+}

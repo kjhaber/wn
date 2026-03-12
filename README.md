@@ -44,14 +44,14 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
-| `wn list` | List items (default: undone; dependency order). Status column: undone, claimed, review, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
+| `wn list` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window. |
 | `wn show [id]` | Show a work item (human-readable by default; `--json` for machine-readable; `--plain` for description text only, suitable for pasting into an agent). Omit id for current task. Control fields with `--fields title,body,status,deps,notes,log` or `--all`. |
 | `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item. |
 | `wn depend rm --on <id> [--wid <id>]` | Remove dependency. Omit `--wid` for current task. Use `-i` to pick which dependency to remove. |
 | `wn depend list [--wid <id>]` | List dependency ids of the work item, one per line. Omit `--wid` for current task. |
 | `wn done <id> -m "..."` | Mark complete (use `--force` if dependencies not done) |
 | `wn undone <id>` | Mark not complete |
-| `wn status <state> [id]` | Set work item status. State: undone, claimed, review, done, closed, suspend. Omit id for current task. Use `--for 30m` when setting to claimed; `-m "..."` for done/closed/suspend. Use `--duplicate-of <id>` when setting to closed. |
+| `wn status <state> [id]` | Set work item status. State: undone, claimed, review, prompt, done, closed, suspend. Omit id for current task. Use `--for 30m` when setting to claimed; `-m "..."` for done/closed/suspend. Use `--duplicate-of <id>` when setting to closed. |
 | `wn claim [id] [--for 30m]` | Mark in progress (item leaves undone list until expiry or release). Omit `--for` to use default 1h; optional `--by` for logging. |
 | `wn release [id]` | Clear in progress and mark item **review-ready** (excluded from `wn next` and agent claim until you mark done). |
 | `wn review-ready [id]` / `wn rr [id]` | Set item to review-ready state directly. |
@@ -64,6 +64,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Use `--dry-run` to preview. |
 | `wn merge [--wid <id>]` | Merge a review-ready item's branch into main: rebase, merge, validate (e.g. `make`), mark done, delete branch. Omit `--wid` for current task. Use `--main-branch` and `--validate` to override defaults. |
 | `wn log <id>` | Show history for an item. |
+| `wn prompt [parent-id] -m "question"` | Create a prompt item (a question for the user) and add it as a dependency of the parent. The parent becomes **blocked** until the user responds with `wn respond`. Omit parent-id for current task; omit `-m` to use `$EDITOR`. See [Agent/human prompt workflow](#agenthuman-prompt-workflow). |
+| `wn respond [prompt-id] -m "answer"` | Respond to a prompt item: marks it done and stores the answer as a `response` note. Unblocks the parent item. Omit prompt-id for current task; omit `-m` to use `$EDITOR`. |
 | `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars. |
 | `wn note list [id]` | List notes on an item (name, created, body), ordered by create time. |
 | `wn note show [id] <name>` | Print the raw body of a named note; omit id for current task. Useful for scripting, e.g. `git checkout $(wn note show branch)`. |
@@ -77,13 +79,15 @@ wn done abc123 -m "Completed in git commit ca1f722"
 
 Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
 
-**Work item status:** Each item has one of six statuses. Use `wn status <state> [id]` to set any state (omit id for current task). `wn done` and `wn undone` are shortcuts for the common cases.
+**Work item status:** Each item has one of the following statuses. Use `wn status <state> [id]` to set any state (omit id for current task). `wn done` and `wn undone` are shortcuts for the common cases.
 
 | Status | Description |
 |--------|-------------|
 | **undone** | Not complete; available for `wn next` and agent claim. Default for new items. |
+| **blocked** | Computed—displayed when an undone or claimed item has at least one dependency that is not yet done. Not a stored state; clears automatically when dependencies complete. |
 | **claimed** | In progress—someone has claimed it until a duration expires or they run `wn release`. Excluded from `wn next` and claim until expiry. |
 | **review** | Work is done but not yet accepted (e.g. PR open). Excluded from `wn next` and claim; use `wn list --rr` to see review items. Set by `wn release` or `wn review-ready` / `wn rr`. Mark **done** when merged or accepted. |
+| **prompt** | Awaiting a human response. Set by `wn prompt` (or `wn status prompt`) to create a blocking question for the user. Excluded from `wn next` and agent claim. Resolved by `wn respond`, which marks the item done and stores the answer. |
 | **done** | Completed and accepted. Use `wn done` or `wn status done`. |
 | **closed** | Completed and closed (e.g. archived). Terminal state. |
 | **suspend** | Deferred—not ready to implement or not sure you want to. Like done (excluded from next/claim) but not retired to closed; use for ideas you might revisit. |
@@ -150,7 +154,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
       "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\""
     },
     "claude": {
-      "cmd": "claude --print --dangerously-skip-permissions \"{{.Prompt}}\""
+      "cmd": "claude {{.ResumeFlag}} --print --dangerously-skip-permissions \"{{.Prompt}}\""
     },
     "tmux-claude": {
       "cmd": "tmux new-window -c {{.Worktree}} 'claude -p \"{{.Prompt}}\"'",
@@ -184,7 +188,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | `worktree.branch_prefix` | Prefix for generated branch names (e.g. `"keith/"` → `keith/wn-abc123-add-feature`). |
 | `worktree.default_branch` | Override default branch detection (e.g. `"main"`). |
 | `worktree.claim` | How long to claim an item when setting up a worktree (e.g. `"2h"`). |
-| `runners.<name>.cmd` | Command template for a named runner. `{{.Prompt}}`, `{{.Worktree}}`, and `{{.Branch}}` are available. |
+| `runners.<name>.cmd` | Command template for a named runner. `{{.Prompt}}`, `{{.Worktree}}`, `{{.Branch}}`, `{{.ItemID}}`, `{{.ResumeFlag}}`, and `{{.SessionID}}` are available. `{{.ResumeFlag}}` expands to `--resume <session-id>` if a `claude-session` note exists on the item, or `""` if not—enabling automatic session resume. |
 | `runners.<name>.prompt` | Per-runner prompt template (default `{{.Description}}`). Fields: `{{.ItemID}}`, `{{.Description}}`, `{{.FirstLine}}`, `{{.Worktree}}`, `{{.Branch}}`. |
 | `runners.<name>.leave_worktree` | If true, keep the worktree after the runner finishes. Defaults to false; recommended true for async runners. |
 | `agent.default` | Default runner name for `wn do` (sync). |
@@ -240,7 +244,7 @@ For unattended, automated agent runs. Requires `agent.default` to be set in sett
 3. Record the branch name as a `branch` note on the item.
 4. Run the runner's `cmd` in the worktree with `WN_ROOT` set to the main repo, so the subagent's `wn mcp` uses the same queue.
 5. Stage and commit any uncommitted changes with message `wn <id>: <first line of description>`.
-6. Release the claim and mark the item review-ready.
+6. Release the claim: if the item is now blocked (e.g. the agent created prompt dependencies via `wn prompt`), only the claim is cleared—the item stays undone until deps resolve. Otherwise the item is marked review-ready.
 7. Optionally remove the worktree (per runner's `leave_worktree`) or leave it for a PR.
 8. Wait `agent.delay`, then loop.
 
@@ -251,7 +255,7 @@ For unattended, automated agent runs. Requires `agent.default` to be set in sett
   "worktree": { "claim": "2h", "branch_prefix": "keith/" },
   "runners": {
     "cursor": { "cmd": "cursor agent --print --trust --approve-mcps \"{{.Prompt}}\"" },
-    "claude": { "cmd": "claude --print --dangerously-skip-permissions \"{{.Prompt}}\"" }
+    "claude": { "cmd": "claude {{.ResumeFlag}} --print --dangerously-skip-permissions \"{{.Prompt}}\"" }
   },
   "agent": { "default": "cursor", "delay": "60s", "poll": "60s" }
 }
@@ -281,6 +285,30 @@ wn launch --next        # dispatches next queue item
 In `wn tui`, press `>` to launch the selected item using `agent.default_launch`.
 
 All git commands and agent invocations are logged with timestamps to stderr.
+
+### Agent/human prompt workflow
+
+Agents sometimes need input before they can continue—a clarifying question, a design decision, or a credential they cannot self-provide. The prompt workflow lets a background agent pause and surface that question to you without blocking other queue items.
+
+**How it works:**
+
+1. **Agent asks a question** — inside `wn do` / `wn launch`, the agent calls `wn prompt` (or via MCP if you wire it up) to create a new *prompt* item and add it as a dependency of its own work item:
+   ```
+   wn prompt abc123 -m "Should the retry logic use exponential backoff or fixed delay?"
+   ```
+   This creates a prompt item (e.g. `def456`), sets it to *prompt* status, and adds it as a dep of `abc123`. When the agent finishes its current turn, `wn do` detects that `abc123` is now blocked and clears the claim without marking review-ready—so it stays in the undone queue, blocked.
+
+2. **You see it in `wn list`** — `abc123` shows as *blocked*; `def456` shows as *prompt*. Use `wn show def456` to read the question.
+
+3. **You respond** — run `wn respond def456 -m "Use exponential backoff, cap at 60s"`. This marks `def456` done (unblocking `abc123`) and stores the answer as a `response` note.
+
+4. **Agent resumes** — `abc123` is no longer blocked. On the next `wn do` run it is picked up normally. Configure your runner with `{{.ResumeFlag}}` to automatically resume the prior Claude Code session:
+   ```json
+   "cmd": "claude {{.ResumeFlag}} --print --dangerously-skip-permissions \"{{.Prompt}}\""
+   ```
+   If the agent stored its session ID in a `claude-session` note, `{{.ResumeFlag}}` expands to `--resume <id>`; otherwise it is empty and the agent starts fresh.
+
+**Prompt state** is excluded from `wn next` and agent claim (agents don't accidentally pick up their own questions). A prompt item can be transitioned to any other status freely—use `wn status undone def456` if you want to re-open it as a regular task instead.
 
 ### Tags and suspend
 

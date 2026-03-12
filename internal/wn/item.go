@@ -24,6 +24,7 @@ type Item struct {
 	InProgressUntil time.Time  `json:"in_progress_until,omitempty"` // zero = not in progress
 	InProgressBy    string     `json:"in_progress_by,omitempty"`    // optional worker id for logging
 	ReviewReady     bool       `json:"review_ready,omitempty"`      // undone but excluded from agent next/claim; set on release, cleared when user marks done
+	PromptReady     bool       `json:"prompt_ready,omitempty"`      // undone but awaiting human response; excluded from agent next/claim
 	Tags            []string   `json:"tags"`
 	DependsOn       []string   `json:"depends_on"`
 	Order           *int       `json:"order,omitempty"` // optional backlog order when deps don't define it; lower = earlier
@@ -41,6 +42,12 @@ type LogEntry struct {
 // NoteNameDuplicateOf is the standard note name for marking an item as a duplicate of another.
 // The note body is the ID of the canonical/original work item.
 const NoteNameDuplicateOf = "duplicate-of"
+
+// NoteNameClaudeSession is the note name for storing the Claude Code session ID for resume support.
+const NoteNameClaudeSession = "claude-session"
+
+// NoteNameResponse is the note name used by wn respond to store the user's answer on a prompt item.
+const NoteNameResponse = "response"
 
 // Note is an attachment on an item with a logical name (e.g. "pr-url", "issue-number").
 // Item.Notes are listed ordered by Created (oldest first).
