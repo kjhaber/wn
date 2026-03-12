@@ -95,6 +95,14 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_duplicate",
 		Description: "Mark a work item as a duplicate of another. Sets status to closed and appends the standard note 'duplicate-of' with the original item's id so it leaves the queue. Id is the item to mark (omit for current task); on is the id of the canonical/original work item.",
 	}, handleWnDuplicate)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_prompt",
+		Description: "Create a prompt item (a question for the user) and add it as a dependency of a parent work item. The parent becomes blocked until the user responds with wn_respond. Use this when an agent needs a human decision before it can proceed. parent_id defaults to current task if omitted. Returns the new prompt item id.",
+	}, handleWnPrompt)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_respond",
+		Description: "Respond to a prompt item: marks it done and stores the answer as a 'response' note, unblocking the parent item. id defaults to current task if omitted.",
+	}, handleWnRespond)
 
 	return server
 }
@@ -393,6 +401,8 @@ type showOutput struct {
 	Updated         time.Time  `json:"updated"`
 	Done            bool       `json:"done"`
 	DoneMessage     string     `json:"done_message,omitempty"`
+	ReviewReady     bool       `json:"review_ready,omitempty"`
+	PromptReady     bool       `json:"prompt_ready,omitempty"`
 	InProgressUntil time.Time  `json:"in_progress_until,omitempty"`
 	InProgressBy    string     `json:"in_progress_by,omitempty"`
 	Tags            []string   `json:"tags"`
@@ -432,6 +442,8 @@ func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*
 		Updated:         item.Updated,
 		Done:            item.Done,
 		DoneMessage:     item.DoneMessage,
+		ReviewReady:     item.ReviewReady,
+		PromptReady:     item.PromptReady,
 		InProgressUntil: item.InProgressUntil,
 		InProgressBy:    item.InProgressBy,
 		Tags:            item.Tags,
@@ -484,6 +496,8 @@ func handleWnItem(ctx context.Context, req *mcp.CallToolRequest, in wnItemIn) (*
 		Updated:         item.Updated,
 		Done:            item.Done,
 		DoneMessage:     item.DoneMessage,
+		ReviewReady:     item.ReviewReady,
+		PromptReady:     item.PromptReady,
 		InProgressUntil: item.InProgressUntil,
 		InProgressBy:    item.InProgressBy,
 		Tags:            item.Tags,
@@ -892,5 +906,120 @@ func handleWnDuplicate(ctx context.Context, req *mcp.CallToolRequest, in wnDupli
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	text := fmt.Sprintf("marked %s as duplicate of %s", id, in.On)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnPromptIn struct {
+	ParentID string `json:"parent_id,omitempty" jsonschema:"ID of the parent work item that will be blocked; defaults to current task"`
+	Question string `json:"question,omitempty" jsonschema:"The question or decision needed from the user"`
+	Root     string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnPrompt(ctx context.Context, req *mcp.CallToolRequest, in wnPromptIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	if strings.TrimSpace(in.Question) == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "question is required"}}, IsError: true}, nil, nil
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	parentID, err := ResolveItemID(meta.CurrentID, in.ParentID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no parent_id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	if _, err := store.Get(parentID); err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("parent item %s not found", parentID)}}, IsError: true}, nil, nil
+	}
+	promptID, err := GenerateID(store)
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now().UTC()
+	promptItem := &Item{
+		ID:          promptID,
+		Description: strings.TrimSpace(in.Question),
+		Created:     now,
+		Updated:     now,
+		PromptReady: true,
+		Log:         []LogEntry{{At: now, Kind: "created"}, {At: now, Kind: "prompt_ready"}},
+	}
+	if err := store.Put(promptItem); err != nil {
+		return nil, nil, err
+	}
+	// Add prompt item as dependency of parent
+	allItems, err := store.List()
+	if err != nil {
+		_ = store.Delete(promptID)
+		return nil, nil, err
+	}
+	if WouldCreateCycle(allItems, parentID, promptID) {
+		_ = store.Delete(promptID)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "circular dependency would result"}}, IsError: true}, nil, nil
+	}
+	if err := store.UpdateItem(parentID, func(it *Item) (*Item, error) {
+		it.DependsOn = append(it.DependsOn, promptID)
+		it.Updated = now
+		it.Log = append(it.Log, LogEntry{At: now, Kind: "depend_added", Msg: promptID})
+		return it, nil
+	}); err != nil {
+		return nil, nil, err
+	}
+	out := map[string]string{"id": promptID}
+	raw, _ := json.Marshal(out)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, out, nil
+}
+
+type wnRespondIn struct {
+	ID     string `json:"id,omitempty" jsonschema:"ID of the prompt item to respond to; defaults to current task"`
+	Answer string `json:"answer" jsonschema:"The response to the question"`
+	Root   string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnRespond(ctx context.Context, req *mcp.CallToolRequest, in wnRespondIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(root)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, in.ID)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	if !item.PromptReady {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("item %s is not in prompt state", id)}}, IsError: true}, nil, nil
+	}
+	now := time.Now().UTC()
+	answer := strings.TrimSpace(in.Answer)
+	if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+		it.Done = true
+		it.DoneStatus = DoneStatusDone
+		it.PromptReady = false
+		it.Updated = now
+		it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: answer})
+		if it.Notes == nil {
+			it.Notes = []Note{}
+		}
+		idx := it.NoteIndexByName(NoteNameResponse)
+		if idx >= 0 {
+			it.Notes[idx].Body = answer
+		} else {
+			it.Notes = append(it.Notes, Note{Name: NoteNameResponse, Created: now, Body: answer})
+		}
+		return it, nil
+	}); err != nil {
+		return nil, nil, err
+	}
+	text := fmt.Sprintf("responded to %s; prompt marked done", id)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
