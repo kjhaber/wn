@@ -13,14 +13,18 @@ In its current state I already find `wn` useful.  I have ideas to improve it for
 ## Install
 
 ```bash
+brew install kjhaber/tap/wn
+```
+
+Or build from source (requires **Go 1.26** or later):
+
+```bash
+go install github.com/kjhaber/wn/cmd/wn@latest
+# or clone and build
 go build -o wn ./cmd/wn
-# or
-go install ./cmd/wn
 ```
 
 Or use the Makefile: `make build` builds the binary to `build/wn`, `make test` runs tests, and `make` (or `make all`) runs format check, lint, coverage, and build.
-
-Requires **Go 1.26** or later.
 
 ## Quick start
 
