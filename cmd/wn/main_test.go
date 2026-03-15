@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/keith/wn/internal/wn"
+	"github.com/kjhaber/wn/internal/wn"
 )
 
 // resetPickFlags clears pick filter flags to avoid Cobra's flag persistence across

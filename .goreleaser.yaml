@@ -1,0 +1,49 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/wn
+    binary: wn
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "wn_{{.Version}}_{{.Os}}_{{.Arch}}"
+
+brews:
+  - name: wn
+    repository:
+      owner: kjhaber
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/kjhaber/wn
+    description: "What's Next — local task/work item tracker"
+    license: MIT
+    install: |
+      bin.install "wn"
+    test: |
+      system "#{bin}/wn", "--version"
+
+checksum:
+  name_template: "wn_{{.Version}}_checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

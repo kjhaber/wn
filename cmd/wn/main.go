@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/keith/wn/internal/wn"
+	"github.com/kjhaber/wn/internal/wn"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.0"
+var version = "dev"
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {

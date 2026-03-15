@@ -25,10 +25,11 @@ cover:
 	@WN_PICKER=numbered go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
-# Build the binary
+# Build the binary (inject version from nearest git tag, fallback to "dev")
+VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
 build:
 	@mkdir -p $(BUILD_DIR)
-	@go build -o $(BUILD_DIR)/wn ./cmd/wn
+	@go build -ldflags "-X main.version=$(VERSION)" -o $(BUILD_DIR)/wn ./cmd/wn
 
 # Remove all build outputs
 clean:

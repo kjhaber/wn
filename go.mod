@@ -1,4 +1,4 @@
-module github.com/keith/wn
+module github.com/kjhaber/wn
 
 go 1.26
 

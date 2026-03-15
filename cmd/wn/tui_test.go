@@ -7,7 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/keith/wn/internal/wn"
+	"github.com/kjhaber/wn/internal/wn"
 )
 
 // --- tuiSplitArgs ---
