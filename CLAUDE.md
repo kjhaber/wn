@@ -6,7 +6,7 @@ Always use `make test` or `make all` to run tests rather than `go test` directly
 
 # Build artifacts
 
-Always use `make build` rather than `go build` directly — it outputs the binary to `./build/wn`. Never output binaries or other build artifacts to the project root or elsewhere. `make clean` should remove everything not committed to git.
+Always use `make build` rather than `go build` directly — it outputs the binary to `./build/wn`. Never output binaries or other build artifacts to the project root or elsewhere. `make clean` removes `./build/`; note that `.wn/` is intentionally kept (it tracks work items for this project's own development).
 
 # Code change completion
 

@@ -1,3 +1,4 @@
 build/
+.wn/
 .claude/settings.local.json
 
