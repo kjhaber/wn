@@ -394,3 +394,112 @@ func TestMergeSettings_agentDefaultMerged(t *testing.T) {
 		t.Errorf("Agent.Delay = %q, want 5m (from user)", merged.Agent.Delay)
 	}
 }
+
+func TestReadSettings_withViews(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	body := `{
+		"views": {
+			"agent": "--tag agent --sort priority",
+			"myview": "--all --group status"
+		}
+	}`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(got.Views) != 2 {
+		t.Fatalf("len(Views) = %d, want 2", len(got.Views))
+	}
+	if got.Views["agent"] != "--tag agent --sort priority" {
+		t.Errorf("Views[agent] = %q, want --tag agent --sort priority", got.Views["agent"])
+	}
+	if got.Views["myview"] != "--all --group status" {
+		t.Errorf("Views[myview] = %q, want --all --group status", got.Views["myview"])
+	}
+}
+
+func TestMergeSettings_viewsMergeByKey(t *testing.T) {
+	user := Settings{
+		Views: map[string]string{
+			"agent":   "--tag agent",
+			"backlog": "--all --sort priority",
+		},
+	}
+	project := Settings{
+		Views: map[string]string{
+			"agent":   "--tag agent --sort updated:desc", // overrides user
+			"project": "--tag myproject",                 // new view
+		},
+	}
+	merged := MergeSettings(user, project)
+	if merged.Views["agent"] != "--tag agent --sort updated:desc" {
+		t.Errorf("Views[agent] = %q, want project override", merged.Views["agent"])
+	}
+	if merged.Views["backlog"] != "--all --sort priority" {
+		t.Errorf("Views[backlog] = %q, want user value preserved", merged.Views["backlog"])
+	}
+	if merged.Views["project"] != "--tag myproject" {
+		t.Errorf("Views[project] = %q, want project addition", merged.Views["project"])
+	}
+}
+
+func TestMergeSettings_viewsEmptyProjectPreservesUser(t *testing.T) {
+	user := Settings{
+		Views: map[string]string{
+			"agent": "--tag agent",
+		},
+	}
+	merged := MergeSettings(user, Settings{})
+	if merged.Views["agent"] != "--tag agent" {
+		t.Errorf("Views[agent] = %q, want user value preserved", merged.Views["agent"])
+	}
+}
+
+func TestResolveView_found(t *testing.T) {
+	s := Settings{
+		Views: map[string]string{
+			"agent": "--tag agent --sort priority",
+		},
+	}
+	args, err := ResolveView(s, "agent")
+	if err != nil {
+		t.Fatalf("ResolveView: %v", err)
+	}
+	if len(args) == 0 {
+		t.Error("ResolveView returned empty args")
+	}
+	// Should parse to ["--tag", "agent", "--sort", "priority"]
+	found := false
+	for _, a := range args {
+		if a == "agent" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("ResolveView args = %v, expected to contain 'agent'", args)
+	}
+}
+
+func TestResolveView_notFound(t *testing.T) {
+	s := Settings{
+		Views: map[string]string{
+			"agent": "--tag agent",
+		},
+	}
+	_, err := ResolveView(s, "nonexistent")
+	if err == nil {
+		t.Error("ResolveView(nonexistent) should error")
+	}
+}
+
+func TestResolveView_emptyViews(t *testing.T) {
+	s := Settings{}
+	_, err := ResolveView(s, "agent")
+	if err == nil {
+		t.Error("ResolveView with no views should error")
+	}
+}

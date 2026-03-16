@@ -2510,9 +2510,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 }
 
 var listCmd = &cobra.Command{
-	Use:     "list",
+	Use:     "list [@view]",
 	Aliases: []string{"ls"},
 	Short:   "List work items (default: undone, in dependency order)",
+	Args:    cobra.MaximumNArgs(1),
 	RunE:    runList,
 }
 var listUndone bool
@@ -2546,6 +2547,19 @@ func runList(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
+	}
+	// If the first positional arg starts with '@', expand the named view from settings.
+	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
+		viewName := args[0][1:]
+		settings, _ := wn.ReadSettingsInRoot(root)
+		viewArgs, err := wn.ResolveView(settings, viewName)
+		if err != nil {
+			return err
+		}
+		// Re-parse the view flags into this command's flag set so the global vars are set.
+		if err := cmd.Flags().Parse(viewArgs); err != nil {
+			return fmt.Errorf("view %q: invalid flags: %w", viewName, err)
+		}
 	}
 	store, err := wn.NewFileStore(root)
 	if err != nil {

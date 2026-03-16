@@ -48,7 +48,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
-| `wn list` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window; `--group tags` or `--group status` to display items in labeled sections. |
+| `wn list [@view]` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window; `--group tags` or `--group status` to display items in labeled sections. Pass `@name` to apply a named view from `settings.json` (e.g. `wn list @agent`). |
 | `wn show [id]` | Show a work item (human-readable by default; `--json` for machine-readable; `--plain` for description text only, suitable for pasting into an agent). Omit id for current task. Control fields with `--fields title,body,status,deps,notes,log` or `--all`. |
 | `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item. |
 | `wn depend rm --on <id> [--wid <id>]` | Remove dependency. Omit `--wid` for current task. Use `-i` to pick which dependency to remove. |
@@ -179,6 +179,12 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 
   "cleanup": {
     "close_done_items_age": "30d"
+  },
+
+  "views": {
+    "agent": "--tag agent --sort priority",
+    "review": "--review-ready --group status",
+    "all": "--all --group status"
   }
 }
 ```
@@ -201,8 +207,9 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 | `agent.poll` | Poll interval when the queue is empty (e.g. `"60s"`). |
 | `show.default_fields` | Default fields for `wn show` / bare `wn`. Comma-separated from: `title`, `body`, `status`, `deps`, `notes`, `log`. |
 | `cleanup.close_done_items_age` | Default age threshold for `wn cleanup close-done-items` (e.g. `"30d"`). Accepts `d`, `h`, `m`, `s`. |
+| `views.<name>` | Named filter+sort+group combo for `wn list @name`. Value is a flags string (e.g. `"--tag agent --sort priority --group status"`). Supports `--tag`, `--sort`, `--group`, `--done`, `--undone`, `--all`, `--json`, `--limit`, `--offset`. |
 
-All `worktree.*` settings are shared by `wn worktree`, `wn do`, and `wn launch`. Runners are merged by key between user and project settings (project overrides same-named runners, unique keys from each are preserved). CLI flags override settings.
+All `worktree.*` settings are shared by `wn worktree`, `wn do`, and `wn launch`. Runners and views are merged by key between user and project settings (project overrides same-named entries, unique keys from each are preserved). CLI flags override settings.
 
 ## Worktree workflow
 

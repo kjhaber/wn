@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // RunnerConfig defines an agent command profile (cmd template, optional prompt override, worktree behavior).
@@ -24,6 +25,7 @@ type Settings struct {
 	Agent    AgentSettings           `json:"agent,omitempty"`    // defaults for agent runs (wn do, wn launch)
 	Cleanup  CleanupSettings         `json:"cleanup,omitempty"`  // options for cleanup subcommands
 	Show     ShowSettings            `json:"show,omitempty"`     // defaults for wn show / bare wn
+	Views    map[string]string       `json:"views,omitempty"`    // named filter+sort+group combos, e.g. "agent" = "--tag agent --sort priority"
 }
 
 // NextSettings controls how the next work item is selected.
@@ -126,6 +128,7 @@ func MergeSettings(user, project Settings) Settings {
 	out.Agent = mergeAgent(user.Agent, project.Agent)
 	out.Cleanup = mergeCleanup(user.Cleanup, project.Cleanup)
 	out.Show = mergeShow(user.Show, project.Show)
+	out.Views = mergeViews(user.Views, project.Views)
 	return out
 }
 
@@ -193,6 +196,20 @@ func mergeShow(user, project ShowSettings) ShowSettings {
 	return out
 }
 
+func mergeViews(user, project map[string]string) map[string]string {
+	if len(user) == 0 && len(project) == 0 {
+		return nil
+	}
+	out := make(map[string]string)
+	for k, v := range user {
+		out[k] = v
+	}
+	for k, v := range project {
+		out[k] = v
+	}
+	return out
+}
+
 func mergeCleanup(user, project CleanupSettings) CleanupSettings {
 	out := user
 	if project.CloseDoneItemsAge != "" {
@@ -241,6 +258,56 @@ func readSettingsFromPath(path string) (Settings, error) {
 		return Settings{}, err
 	}
 	return s, nil
+}
+
+// ResolveView looks up a named view in settings and returns its flags as a slice of argument strings.
+// Returns an error if the view name is not found.
+func ResolveView(settings Settings, name string) ([]string, error) {
+	flagsStr, ok := settings.Views[name]
+	if !ok {
+		return nil, fmt.Errorf("view %q not found in settings.views", name)
+	}
+	return splitShellArgs(flagsStr), nil
+}
+
+// splitShellArgs splits a flags string into individual arguments, respecting quoted strings.
+// Supports single and double quotes. Does not handle escape sequences beyond simple quoting.
+func splitShellArgs(s string) []string {
+	var args []string
+	var cur strings.Builder
+	inSingle := false
+	inDouble := false
+	for _, r := range s {
+		switch {
+		case inSingle:
+			if r == '\'' {
+				inSingle = false
+			} else {
+				cur.WriteRune(r)
+			}
+		case inDouble:
+			if r == '"' {
+				inDouble = false
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '\'':
+			inSingle = true
+		case r == '"':
+			inDouble = true
+		case r == ' ' || r == '\t':
+			if cur.Len() > 0 {
+				args = append(args, cur.String())
+				cur.Reset()
+			}
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	if cur.Len() > 0 {
+		args = append(args, cur.String())
+	}
+	return args
 }
 
 // SortSpecFromSettings returns parsed sort options from settings, or nil if empty/invalid.

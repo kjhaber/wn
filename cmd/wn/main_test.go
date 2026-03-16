@@ -2039,6 +2039,144 @@ func TestListGroupWithJSON(t *testing.T) {
 	}
 }
 
+// writeViewSettings writes a project-level settings file with named views.
+func writeViewSettings(t *testing.T, root string, views map[string]string) {
+	t.Helper()
+	wnDir := filepath.Join(root, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body, err := json.Marshal(map[string]interface{}{"views": views})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), body, 0644); err != nil {
+		t.Fatalf("WriteFile settings: %v", err)
+	}
+}
+
+func TestListViewAtSyntax_filtersByTag(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "agent item", Tags: []string{"agent"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "other item", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeViewSettings(t, dir, map[string]string{"agent": "--tag agent --json"})
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		resetListFlags()
+		rootCmd.SetArgs([]string{"list", "@agent"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	list := parseListJSON(t, out)
+	if len(list.Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1 (only tagged 'agent')", len(list.Items))
+	}
+	if list.Items[0].ID != "aaa111" {
+		t.Errorf("Items[0].ID = %q, want aaa111", list.Items[0].ID)
+	}
+}
+
+func TestListViewAtSyntax_unknownView(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	writeViewSettings(t, dir, map[string]string{"agent": "--tag agent"})
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetListFlags()
+	rootCmd.SetArgs([]string{"list", "@nosuchview"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("list @nosuchview should return an error")
+	}
+}
+
+func TestListViewAtSyntax_withSortAndGroup(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "ccc333", Description: "cc item", Tags: []string{"backend"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ddd444", Description: "dd item", Tags: []string{"frontend"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "eee555", Description: "ee item", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeViewSettings(t, dir, map[string]string{"bygroup": "--all --group tags"})
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		resetListFlags()
+		rootCmd.SetArgs([]string{"list", "@bygroup"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// With --group tags, output should contain section headers
+	if !strings.Contains(out, "---") {
+		t.Errorf("output should contain group headers, got: %s", out)
+	}
+}
+
+func TestListViewAtSyntax_noViews(t *testing.T) {
+	resetListFlags()
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	// No settings file — no views configured
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetListFlags()
+	rootCmd.SetArgs([]string{"list", "@agent"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("list @agent with no views configured should return an error")
+	}
+}
+
 func TestTagInteractive_Toggle(t *testing.T) {
 	resetTagFlags()
 	origPath := os.Getenv("PATH")
