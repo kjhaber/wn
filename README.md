@@ -76,6 +76,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body. |
 | `wn note rm [id] <name>` | Remove a note by name. |
 | `wn settings [--project]` | Open settings in `$EDITOR`. Default: user-level `~/.config/wn/settings.json`. Use `--project` for project-level `.wn/settings.json`. |
+| `wn verify` | Run the shell command configured in `settings.verify` (e.g. `make all`, `npm test`). Useful for agents and humans to confirm the build passes. |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`). |
 | `wn import <file>` | Import items from JSON export. When store has items, use `--append` (add/merge) or `--replace` (replace all). |
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients). |
@@ -141,6 +142,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 {
   "sort": "tags,priority,updated,alpha",
   "picker": "fzf",
+  "verify": "make all",
 
   "next": {
     "tag": "agent"
@@ -193,6 +195,7 @@ Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/s
 |-----|-------------|
 | `sort` | Default sort order for `wn list`, `wn pick`, and interactive lists. See [Sort order](#sort-order). |
 | `picker` | Interactive picker: `"fzf"` (always use fzf), `"numbered"` (always use numbered list), or omit for auto-detect (fzf if in PATH). Overridden by `--picker` flag or `WN_PICKER` env var. |
+| `verify` | Shell command to run for `wn verify` (e.g. `"make all"`, `"npm test"`). Set at project level for project-specific build/test commands. |
 | `next.tag` | Only consider items with this tag when selecting the next item (`wn next`, `wn worktree --next`, `wn do --next/--loop`). Overridden by `--tag` flag. |
 | `worktree.base` | Base directory for git worktrees. Default: parent of the main worktree. |
 | `worktree.branch_prefix` | Prefix for generated branch names (e.g. `"keith/"` → `keith/wn-abc123-add-feature`). |

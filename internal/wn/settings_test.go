@@ -503,3 +503,35 @@ func TestResolveView_emptyViews(t *testing.T) {
 		t.Error("ResolveView with no views should error")
 	}
 }
+
+func TestReadSettings_withVerify(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"verify":"make all"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if got.Verify != "make all" {
+		t.Errorf("Verify = %q, want make all", got.Verify)
+	}
+}
+
+func TestMergeSettings_verifyProjectOverridesUser(t *testing.T) {
+	user := Settings{Verify: "make test"}
+	project := Settings{Verify: "make all"}
+	merged := MergeSettings(user, project)
+	if merged.Verify != "make all" {
+		t.Errorf("Verify = %q, want make all (project overrides user)", merged.Verify)
+	}
+}
+
+func TestMergeSettings_verifyEmptyProjectPreservesUser(t *testing.T) {
+	user := Settings{Verify: "make test"}
+	merged := MergeSettings(user, Settings{})
+	if merged.Verify != "make test" {
+		t.Errorf("Verify = %q, want make test (user preserved)", merged.Verify)
+	}
+}

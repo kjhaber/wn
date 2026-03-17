@@ -19,6 +19,7 @@ type RunnerConfig struct {
 type Settings struct {
 	Sort     string                  `json:"sort,omitempty"`     // e.g. "updated:desc,priority,tags"
 	Picker   string                  `json:"picker,omitempty"`   // interactive picker: "fzf", "numbered", or "" (auto-detect)
+	Verify   string                  `json:"verify,omitempty"`   // command to run for 'wn verify', e.g. "make all"
 	Runners  map[string]RunnerConfig `json:"runners,omitempty"`  // named agent profiles, e.g. "claude", "cursor"
 	Next     NextSettings            `json:"next,omitempty"`     // defaults for next-item selection
 	Worktree WorktreeSettings        `json:"worktree,omitempty"` // defaults for worktree setup
@@ -121,6 +122,9 @@ func MergeSettings(user, project Settings) Settings {
 	}
 	if project.Picker != "" {
 		out.Picker = project.Picker
+	}
+	if project.Verify != "" {
+		out.Verify = project.Verify
 	}
 	out.Runners = mergeRunners(user.Runners, project.Runners)
 	out.Next = mergeNext(user.Next, project.Next)

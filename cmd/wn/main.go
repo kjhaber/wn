@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -51,7 +52,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, mergeCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -2423,6 +2424,30 @@ func runSettings(cmd *cobra.Command, args []string) error {
 		}
 	}
 	return wn.RunEditorOnFile(settingsPath)
+}
+
+var verifyCmd = &cobra.Command{
+	Use:   "verify",
+	Short: "Run the configured verify command (e.g. make all, npm test)",
+	Long:  "Runs the shell command configured in settings.verify. Set it in project settings (.wn/settings.json) or user settings (~/.config/wn/settings.json). Useful for agents and humans alike to confirm the build passes.",
+	RunE:  runVerify,
+}
+
+func runVerify(cobraCmd *cobra.Command, _ []string) error {
+	root, _ := wn.FindRootForCLI()
+	settings, err := wn.ReadSettingsInRoot(root)
+	if err != nil {
+		return err
+	}
+	if settings.Verify == "" {
+		return fmt.Errorf("no verify command configured; set 'verify' in .wn/settings.json or ~/.config/wn/settings.json")
+	}
+	fmt.Fprintf(cobraCmd.ErrOrStderr(), "running: %s\n", settings.Verify)
+	cmd := exec.Command("sh", "-c", settings.Verify)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = cobraCmd.ErrOrStderr()
+	return cmd.Run()
 }
 
 var exportCmd = &cobra.Command{

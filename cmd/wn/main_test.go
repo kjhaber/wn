@@ -4541,3 +4541,110 @@ func TestArchiveCmd_includesPromptDepsInArchive(t *testing.T) {
 		t.Error("prompt dep not found in archive")
 	}
 }
+
+func writeVerifySettings(t *testing.T, root, verifyCmd string) {
+	t.Helper()
+	wnDir := filepath.Join(root, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := fmt.Sprintf(`{"verify":%q}`, verifyCmd)
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), []byte(body), 0644); err != nil {
+		t.Fatalf("WriteFile settings: %v", err)
+	}
+}
+
+func TestVerifyCommand_runsConfiguredCommand(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Use a simple command that always succeeds and produces output
+	writeVerifySettings(t, dir, "echo verify-ok")
+
+	// Use a temp user config dir so only project settings apply
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"verify"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	if !strings.Contains(out, "verify-ok") {
+		t.Errorf("verify output = %q, want to contain 'verify-ok'", out)
+	}
+}
+
+func TestVerifyCommand_noVerifyConfigured_errors(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Use a temp user config dir with no settings
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	rootCmd.SetArgs([]string{"verify"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("verify with no configured command should return error")
+	}
+}
+
+func TestVerifyCommand_failingCommand_errors(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	writeVerifySettings(t, dir, "false") // shell 'false' always exits 1
+
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	rootCmd.SetArgs([]string{"verify"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("verify with failing command should return error")
+	}
+}
+
+func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	verifyCmd := "echo verify-output"
+	writeVerifySettings(t, dir, verifyCmd)
+
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	var stderrBuf bytes.Buffer
+	rootCmd.SetErr(&stderrBuf)
+	defer rootCmd.SetErr(os.Stderr)
+
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"verify"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	stderrOut := stderrBuf.String()
+	if !strings.Contains(stderrOut, verifyCmd) {
+		t.Errorf("stderr = %q, want to contain the configured command %q", stderrOut, verifyCmd)
+	}
+}
