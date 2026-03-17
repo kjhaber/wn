@@ -2209,6 +2209,7 @@ var (
 	worktreeSetupWorktreeBase string
 	worktreeSetupTag          string
 	worktreeSetupNext         bool
+	worktreeSetupBranch       string
 )
 
 func init() {
@@ -2217,6 +2218,7 @@ func init() {
 	worktreeSetupCmd.Flags().StringVar(&worktreeSetupWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
 	worktreeSetupCmd.Flags().StringVar(&worktreeSetupTag, "tag", "", "Only consider items with this tag (with --next).")
 	worktreeSetupCmd.Flags().BoolVar(&worktreeSetupNext, "next", false, "Claim the next undone item from the queue.")
+	worktreeSetupCmd.Flags().StringVar(&worktreeSetupBranch, "branch", "", "Branch slug override (e.g. saved-views). Full name becomes [prefix]wn-<id>-<slug>. Overrides auto-generated slug.")
 }
 
 func runWorktreeSetup(cmd *cobra.Command, args []string) error {
@@ -2227,6 +2229,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
 	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
 	flagTag, _ := cmd.Flags().GetString("tag")
+	flagBranch, _ := cmd.Flags().GetString("branch")
 
 	// Reset flags so they don't persist across test invocations.
 	_ = cmd.Flags().Set("next", "false")
@@ -2234,6 +2237,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	_ = cmd.Flags().Set("branch-prefix", "")
 	_ = cmd.Flags().Set("worktree-base", "")
 	_ = cmd.Flags().Set("tag", "")
+	_ = cmd.Flags().Set("branch", "")
 
 	if isNext && len(args) > 0 {
 		return fmt.Errorf("use either an id argument or --next, not both")
@@ -2332,6 +2336,29 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 		}
 		if err := wn.ClaimItem(store, root, item.ID, claimFor, ""); err != nil {
 			return err
+		}
+		item, err = store.Get(item.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If --branch is provided, pre-set the branch note so SetupItemWorktree uses it.
+	// Full name: [prefix]wn-<id>-<slug>
+	if flagBranch != "" {
+		fullBranch := branchPrefix + "wn-" + item.ID + "-" + wn.BranchSlug(flagBranch)
+		now := time.Now().UTC()
+		if err = store.UpdateItem(item.ID, func(it *wn.Item) (*wn.Item, error) {
+			idx := it.NoteIndexByName("branch")
+			if idx >= 0 {
+				it.Notes[idx].Body = fullBranch
+			} else {
+				it.Notes = append(it.Notes, wn.Note{Name: "branch", Created: now, Body: fullBranch})
+			}
+			it.Updated = now
+			return it, nil
+		}); err != nil {
+			return fmt.Errorf("set branch note: %w", err)
 		}
 		item, err = store.Get(item.ID)
 		if err != nil {

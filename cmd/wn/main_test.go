@@ -2163,7 +2163,8 @@ func TestListViewAtSyntax_noViews(t *testing.T) {
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
 	}
-	// No settings file — no views configured
+	// Isolate from user settings so no views are configured.
+	t.Setenv("WN_CONFIG_DIR", t.TempDir())
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
@@ -3788,6 +3789,77 @@ func TestWorktreeSetup_claimsNext(t *testing.T) {
 	item, _ := store.Get(itemID)
 	if item.InProgressUntil.IsZero() {
 		t.Error("next item should be claimed after wn worktree")
+	}
+}
+
+func TestWorktreeSetup_branchFlag(t *testing.T) {
+	dir, itemID := setupGitWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	worktreesBase := filepath.Join(dir, "worktrees")
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn worktree --branch: %v", err)
+		}
+	})
+	worktreePath := strings.TrimSpace(out)
+	if worktreePath == "" {
+		t.Fatal("wn worktree printed empty path")
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("worktree path %q should exist: %v", worktreePath, err)
+	}
+	store, _ := wn.NewFileStore(dir)
+	item, _ := store.Get(itemID)
+	idx := item.NoteIndexByName("branch")
+	if idx < 0 {
+		t.Fatal("item should have branch note after wn worktree --branch")
+	}
+	got := item.Notes[idx].Body
+	wantSuffix := "wn-" + itemID + "-my-feature"
+	if !strings.HasSuffix(got, wantSuffix) {
+		t.Errorf("branch note = %q, want suffix %q", got, wantSuffix)
+	}
+	// Worktree path should reflect the branch name
+	if !strings.Contains(worktreePath, "my-feature") {
+		t.Errorf("worktree path %q should contain branch slug %q", worktreePath, "my-feature")
+	}
+}
+
+func TestWorktreeSetup_branchFlagWithPrefix(t *testing.T) {
+	dir, itemID := setupGitWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	worktreesBase := filepath.Join(dir, "worktrees")
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature", "--branch-prefix", "keith/"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("wn worktree --branch --branch-prefix: %v", err)
+		}
+	})
+	worktreePath := strings.TrimSpace(out)
+	if worktreePath == "" {
+		t.Fatal("wn worktree printed empty path")
+	}
+	store, _ := wn.NewFileStore(dir)
+	item, _ := store.Get(itemID)
+	idx := item.NoteIndexByName("branch")
+	if idx < 0 {
+		t.Fatal("item should have branch note")
+	}
+	got := item.Notes[idx].Body
+	want := "keith/wn-" + itemID + "-my-feature"
+	if got != want {
+		t.Errorf("branch note = %q, want %q", got, want)
 	}
 }
 
