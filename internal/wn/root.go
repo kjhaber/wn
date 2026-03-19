@@ -12,21 +12,12 @@ var ErrNoRoot = errors.New("wn root not found: no .wn directory in current or pa
 
 // FindRootForCLI resolves the wn project root for CLI use. Tries in order:
 //  1. WN_ROOT env var (set e.g. by agent-orch for subagents)
-//  2. Walk up from cwd looking for .wn
-//  3. Git worktree detection: if cwd is a linked worktree, find the main
-//     repo via git rev-parse --git-common-dir and look for .wn there
+//  2. Walk up from cwd looking for .wn (via FindRoot, which also checks git worktrees)
 func FindRootForCLI() (string, error) {
 	if r := os.Getenv("WN_ROOT"); r != "" {
 		return FindRootFromDir(r)
 	}
-	root, err := FindRoot()
-	if err == nil {
-		return root, nil
-	}
-	if err != ErrNoRoot {
-		return "", err
-	}
-	return findRootViaGitWorktree()
+	return FindRoot()
 }
 
 // findRootViaGitWorktree detects if cwd is a git linked worktree and, if so,
@@ -60,14 +51,22 @@ func findRootViaGitWorktree() (string, error) {
 }
 
 // FindRoot walks up from the current directory until it finds a directory
-// containing .wn, or hits the user's home. Returns the directory that
-// contains .wn (the project root), or ErrNoRoot if not found.
+// containing .wn, or hits the user's home. If not found, also checks the git
+// common dir (for linked worktrees) so that tools work from any worktree.
+// Returns the directory that contains .wn (the project root), or ErrNoRoot.
 func FindRoot() (string, error) {
 	dir, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
-	return findRootFrom(dir)
+	root, err := findRootFrom(dir)
+	if err == nil {
+		return root, nil
+	}
+	if err != ErrNoRoot {
+		return "", err
+	}
+	return findRootViaGitWorktree()
 }
 
 // FindRootFromDir walks up from the given directory until it finds a directory

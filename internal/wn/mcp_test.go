@@ -1557,3 +1557,88 @@ func TestMCP_wn_respond_rejectsNonPromptItem(t *testing.T) {
 		t.Error("expected error when responding to non-prompt item")
 	}
 }
+
+// TestMCP_wn_list_GitWorktree verifies that MCP tools auto-detect the correct root
+// when the server process cwd is a linked git worktree (no .wn there; .wn is in main repo).
+func TestMCP_wn_list_GitWorktree(t *testing.T) {
+	// Set up a main repo with .wn and a linked worktree.
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+	if err := InitRoot(mainRepo); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := NewFileStore(mainRepo)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "wt1234",
+		Description: "worktree item",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-mcp-worktree-test")
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+
+	// Change to the worktree directory (no .wn here) before starting the MCP server.
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Reset mcpFixedRoot so the server uses cwd-based detection.
+	oldFixed := mcpFixedRoot
+	mcpFixedRoot = ""
+	t.Cleanup(func() { mcpFixedRoot = oldFixed })
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatalf("server.Connect: %v", err)
+	}
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	clientSession, err := client.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatalf("client.Connect: %v", err)
+	}
+	defer func() {
+		clientSession.Close()
+		_ = serverSession.Wait()
+	}()
+
+	// wn_list without root param should auto-detect via git worktree.
+	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
+	if err != nil {
+		t.Fatalf("CallTool wn_list from worktree: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_list from worktree returned error: %s", textContent(res))
+	}
+	text := textContent(res)
+	var items []listItem
+	if err := json.Unmarshal([]byte(text), &items); err != nil {
+		t.Fatalf("wn_list result must be valid JSON: %v\ncontent: %s", err, text)
+	}
+	if len(items) != 1 || items[0].ID != "wt1234" {
+		t.Errorf("wn_list from worktree: want [{id: wt1234}], got %s", text)
+	}
+}

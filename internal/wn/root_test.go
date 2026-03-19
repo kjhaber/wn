@@ -207,3 +207,70 @@ func TestFindRootFromDir_Empty(t *testing.T) {
 		t.Errorf("FindRootFromDir(\"\") err = %v, want ErrNoRoot", err)
 	}
 }
+
+func TestFindRoot_GitWorktree(t *testing.T) {
+	// FindRoot() should find .wn in the main repo when called from a linked worktree.
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	if err := os.MkdirAll(filepath.Join(mainRepo, ".wn", "items"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-findroot-worktree-test")
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := FindRoot()
+	if err != nil {
+		t.Fatalf("FindRoot() from worktree: %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("FindRoot() from worktree = %q (norm %q), want main repo %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
+func TestFindRoot_GitWorktree_NoWn(t *testing.T) {
+	// FindRoot() from a worktree of a repo without .wn should return ErrNoRoot.
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-findroot-nowwn-test")
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			os.Unsetenv("WN_ROOT")
+		} else {
+			os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := FindRoot()
+	if err == nil {
+		t.Error("FindRoot() from worktree without .wn: expected error, got nil")
+	}
+}
