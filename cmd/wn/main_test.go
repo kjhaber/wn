@@ -131,6 +131,18 @@ func writeRunnerSettings(t *testing.T, root, runnerName, cmd string) {
 	}
 }
 
+func writeLaunchRunnerSettings(t *testing.T, root, runnerName, cmd string) {
+	t.Helper()
+	wnDir := filepath.Join(root, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	body := fmt.Sprintf(`{"runners":{%q:{"cmd":%q}},"agent":{"default_launch":%q}}`, runnerName, cmd, runnerName)
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), []byte(body), 0644); err != nil {
+		t.Fatalf("WriteFile settings: %v", err)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stdout
@@ -4025,6 +4037,88 @@ func TestLaunchNextAndIdArgError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "not both") {
 		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+// resetLaunchFlags resets wn launch flags between test invocations.
+func resetLaunchFlags() {
+	launchNext = false
+	launchLoop = false
+	launchMaxTasks = 0
+}
+
+// TestLaunchLoopAndIdArgError verifies that "wn launch --loop <id>" is rejected.
+func TestLaunchLoopAndIdArgError(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"launch", "--loop", itemID})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch --loop <id> should fail")
+	}
+	if !strings.Contains(err.Error(), "not both") {
+		t.Errorf("want mutual exclusion error; got: %v", err)
+	}
+}
+
+// TestLaunchNWithoutLoopError verifies that "wn launch -n N" without --loop is rejected.
+func TestLaunchNWithoutLoopError(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+
+	rootCmd.SetArgs([]string{"launch", "-n", "3"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch -n N without --loop should fail")
+	}
+	if !strings.Contains(err.Error(), "--loop") {
+		t.Errorf("want error mentioning --loop; got: %v", err)
+	}
+}
+
+// TestLaunchNextEmptyQueue verifies that "wn launch --next" errors immediately when queue is empty.
+func TestLaunchNextEmptyQueue(t *testing.T) {
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	// No items added — queue is empty.
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+
+	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"launch", "--next"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("wn launch --next on empty queue should fail")
+	}
+	if !strings.Contains(err.Error(), "no items") {
+		t.Errorf("want 'no items' error; got: %v", err)
 	}
 }
 

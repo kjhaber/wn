@@ -63,7 +63,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn pick [id\|.\|-]` | Interactively choose current task (fzf if available). Pass an id to set current directly. Pass `.` to select the item for the current directory's git branch (useful when switching between worktrees). Pass `-` to switch to the previously selected item (like `git checkout -`). Filter: `--undone` (default), `--done`, `--all`, `--rr`/`--review-ready`. Use `--picker fzf\|numbered` to override picker. |
 | `wn worktree [id]` | Claim a work item, create its branch and git worktree, and print the worktree path to stdout. Omit id to use current task; use `--next` to claim next from the queue. See [Worktree workflow](#worktree-workflow). |
 | `wn do [runner] [id]` | Claim a work item, set up its worktree, run the configured runner command, commit any changes, and release. Omit id to use current task; specify a runner name (e.g. `wn do claude`) or omit to use `agent.default`. Use `--next` to claim next from the queue; `--loop` to process items continuously. See [Agent runners](#agent-runners-wn-do-wn-launch). |
-| `wn launch [runner] [id]` | Dispatch a work item to an async runner (e.g. tmux window, IDE) and return immediately. Worktree is created and item stays claimed; the agent or user releases it later via `wn release`. Uses `agent.default_launch`. See [Agent runners](#agent-runners-wn-do-wn-launch). |
+| `wn launch [runner] [id]` | Dispatch a work item to an async runner (e.g. tmux window, IDE) and return immediately. Worktree is created and item stays claimed; the agent or user releases it later via `wn release`. Uses `agent.default_launch`. Use `--next` to dispatch next queue item; `--loop` to dispatch items continuously; `--loop -n N` to stop after N dispatches. See [Agent runners](#agent-runners-wn-do-wn-launch). |
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
 | `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Use `--dry-run` to preview. |
 | `wn merge [--wid <id>]` | Merge a review-ready item's branch into main: rebase, merge, validate (e.g. `make`), mark done, delete branch. Omit `--wid` for current task. Use `--main-branch` and `--validate` to override defaults. |
@@ -285,7 +285,11 @@ For interactive workflows: open a tmux window, launch an IDE, or any command tha
 
 **`wn launch [runner] [id]`** sets up the worktree and fires the runner's `cmd` without waiting. The item stays claimed; the agent (or you) releases it later via `wn release` or `wn_release`. Omit runner to use `agent.default_launch`.
 
-**`wn launch --next`** dispatches the next undone item from the queue.
+**`wn launch --next`** dispatches the next undone item from the queue. Fails immediately if the queue is empty.
+
+**`wn launch --loop`** continuously dispatches items from the queue, polling when empty.
+
+**`wn launch --loop -n N`** dispatches N items then exits.
 
 The worktree is always preserved for async runners (regardless of `leave_worktree`).
 
@@ -294,6 +298,8 @@ The worktree is always preserved for async runners (regardless of `leave_worktre
 wn launch               # dispatches current item to a new tmux window
 wn launch cursor        # uses cursor runner instead
 wn launch --next        # dispatches next queue item
+wn launch --loop        # dispatches items continuously (one tmux window per item)
+wn launch --loop -n 3   # dispatches next 3 items then exits
 ```
 
 In `wn tui`, press `>` to launch the selected item using `agent.default_launch`.

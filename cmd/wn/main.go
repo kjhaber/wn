@@ -2027,6 +2027,8 @@ Intended for async workflows such as opening a new tmux window or launching an I
 
   wn launch [runner] [id]  Dispatch for a specific item (or current if id omitted).
   wn launch --next         Dispatch for the next item in the queue.
+  wn launch --loop         Continuously dispatch items from the queue (polls when empty).
+  wn launch --loop -n N    Stop after dispatching N items.
 
 Runner is resolved from settings.runners; defaults to agent.default_launch.`,
 	Args: cobra.RangeArgs(0, 2),
@@ -2035,6 +2037,8 @@ Runner is resolved from settings.runners; defaults to agent.default_launch.`,
 
 var (
 	launchNext         bool
+	launchLoop         bool
+	launchMaxTasks     int
 	launchClaim        string
 	launchWorktreeBase string
 	launchBranch       string
@@ -2044,15 +2048,19 @@ var (
 
 func init() {
 	launchCmd.Flags().BoolVar(&launchNext, "next", false, "Dispatch for the next undone item from the queue.")
+	launchCmd.Flags().BoolVar(&launchLoop, "loop", false, "Loop: continuously dispatch items (polls when queue empty).")
+	launchCmd.Flags().IntVarP(&launchMaxTasks, "max-tasks", "n", 0, "Stop after dispatching N items (only with --loop; 0 = run indefinitely).")
 	launchCmd.Flags().StringVar(&launchClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
 	launchCmd.Flags().StringVar(&launchWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
 	launchCmd.Flags().StringVar(&launchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
 	launchCmd.Flags().StringVar(&launchBranchPrefix, "branch-prefix", "", "Prefix for generated branch names. Overrides settings.")
-	launchCmd.Flags().StringVar(&launchTag, "tag", "", "Only consider items with this tag (with --next). Overrides settings.")
+	launchCmd.Flags().StringVar(&launchTag, "tag", "", "Only consider items with this tag (with --next or --loop). Overrides settings.")
 }
 
 func runLaunch(cmd *cobra.Command, args []string) error {
 	isNext, _ := cmd.Flags().GetBool("next")
+	isLoop, _ := cmd.Flags().GetBool("loop")
+	maxTasks, _ := cmd.Flags().GetInt("max-tasks")
 	flagClaim, _ := cmd.Flags().GetString("claim")
 	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
 	flagBranch, _ := cmd.Flags().GetString("branch")
@@ -2060,11 +2068,17 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	flagTag, _ := cmd.Flags().GetString("tag")
 
 	_ = cmd.Flags().Set("next", "false")
+	_ = cmd.Flags().Set("loop", "false")
+	_ = cmd.Flags().Set("max-tasks", "0")
 	_ = cmd.Flags().Set("claim", "")
 	_ = cmd.Flags().Set("worktree-base", "")
 	_ = cmd.Flags().Set("branch", "")
 	_ = cmd.Flags().Set("branch-prefix", "")
 	_ = cmd.Flags().Set("tag", "")
+
+	if maxTasks != 0 && !isLoop {
+		return fmt.Errorf("-n / --max-tasks requires --loop")
+	}
 
 	root, err := wn.FindRootForCLI()
 	if err != nil {
@@ -2095,14 +2109,15 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	if isNext && workID != "" {
 		return fmt.Errorf("use either an id argument or --next, not both")
 	}
+	if isLoop && workID != "" {
+		return fmt.Errorf("use either an id argument or --loop, not both")
+	}
 
 	// Determine the work item (or validate current task) before resolving runner.
 	tag := ns.Tag
 	if flagTag != "" {
 		tag = flagTag
 	}
-	_ = as // suppress unused warning; orchestrator fields (delay/poll) not used for launch
-
 	var orchWorkID string
 	var orchFailIfEmpty bool
 	var orchMaxTasks int
@@ -2110,6 +2125,8 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	case isNext:
 		orchFailIfEmpty = true
 		orchMaxTasks = 1
+	case isLoop:
+		orchMaxTasks = maxTasks // 0 = indefinite
 	case workID != "":
 		orchWorkID = workID
 	default:
@@ -2155,6 +2172,15 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	}
 	if opts.ClaimFor == 0 {
 		opts.ClaimFor = 2 * time.Hour
+	}
+
+	if as.Poll != "" {
+		if d, err := time.ParseDuration(as.Poll); err == nil {
+			opts.Poll = d
+		}
+	}
+	if opts.Poll == 0 {
+		opts.Poll = 60 * time.Second
 	}
 
 	if ws.Base != "" {
