@@ -8,6 +8,36 @@ import (
 	"strings"
 )
 
+// UserSettingsPaths returns the ordered list of user-level settings file paths.
+// If WN_SETTINGS is set, it is treated as a comma-separated list of paths (~ expanded).
+// Otherwise falls back to WN_CONFIG_DIR (for tests) or the OS user config dir.
+func UserSettingsPaths() ([]string, error) {
+	if env := os.Getenv("WN_SETTINGS"); env != "" {
+		parts := strings.Split(env, ",")
+		paths := make([]string, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if strings.HasPrefix(p, "~/") {
+				home, err := os.UserHomeDir()
+				if err != nil {
+					return nil, err
+				}
+				p = filepath.Join(home, p[2:])
+			}
+			paths = append(paths, p)
+		}
+		return paths, nil
+	}
+	p, err := SettingsPath()
+	if err != nil {
+		return nil, err
+	}
+	return []string{p}, nil
+}
+
 // RunnerConfig defines an agent command profile (cmd template, optional prompt override, worktree behavior).
 type RunnerConfig struct {
 	Cmd           string `json:"cmd"`
@@ -222,13 +252,22 @@ func mergeCleanup(user, project CleanupSettings) CleanupSettings {
 	return out
 }
 
-// ReadSettings reads the user's settings. Missing file returns empty Settings, no error.
+// ReadSettings reads the user's settings. Supports multiple files via WN_SETTINGS (comma-separated paths, last wins).
+// Missing files are silently skipped. Returns empty Settings with no error if all files are missing.
 func ReadSettings() (Settings, error) {
-	path, err := SettingsPath()
+	paths, err := UserSettingsPaths()
 	if err != nil {
 		return Settings{}, err
 	}
-	return readSettingsFromPath(path)
+	var merged Settings
+	for _, p := range paths {
+		s, err := readSettingsFromPath(p)
+		if err != nil {
+			return Settings{}, err
+		}
+		merged = MergeSettings(merged, s)
+	}
+	return merged, nil
 }
 
 // ReadSettingsInRoot returns effective settings for the given project root: user settings with optional project overrides from root/.wn/settings.json. When root is empty, returns user settings only. Missing project file is ignored (user settings only).

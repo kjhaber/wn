@@ -504,6 +504,147 @@ func TestResolveView_emptyViews(t *testing.T) {
 	}
 }
 
+// --- WN_SETTINGS multi-file tests ---
+
+func TestUserSettingsPaths_WN_SETTINGS_single(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	t.Setenv("WN_SETTINGS", path)
+	t.Setenv("WN_CONFIG_DIR", "") // ensure WN_CONFIG_DIR doesn't interfere
+	paths, err := UserSettingsPaths()
+	if err != nil {
+		t.Fatalf("UserSettingsPaths: %v", err)
+	}
+	if len(paths) != 1 || paths[0] != path {
+		t.Errorf("UserSettingsPaths = %v, want [%s]", paths, path)
+	}
+}
+
+func TestUserSettingsPaths_WN_SETTINGS_multiple(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "a.json")
+	p2 := filepath.Join(dir, "b.json")
+	t.Setenv("WN_SETTINGS", p1+","+p2)
+	t.Setenv("WN_CONFIG_DIR", "")
+	paths, err := UserSettingsPaths()
+	if err != nil {
+		t.Fatalf("UserSettingsPaths: %v", err)
+	}
+	if len(paths) != 2 || paths[0] != p1 || paths[1] != p2 {
+		t.Errorf("UserSettingsPaths = %v, want [%s %s]", paths, p1, p2)
+	}
+}
+
+func TestReadSettings_WN_SETTINGS_singlePath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte(`{"sort":"wn-settings-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", path)
+	t.Setenv("WN_CONFIG_DIR", "")
+	got, err := ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings: %v", err)
+	}
+	if got.Sort != "wn-settings-sort" {
+		t.Errorf("Sort = %q, want wn-settings-sort", got.Sort)
+	}
+}
+
+func TestReadSettings_WN_SETTINGS_multiplePaths_lastWins(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "base.json")
+	p2 := filepath.Join(dir, "override.json")
+	if err := os.WriteFile(p1, []byte(`{"sort":"base-sort","picker":"fzf"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, []byte(`{"sort":"override-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", p1+","+p2)
+	t.Setenv("WN_CONFIG_DIR", "")
+	got, err := ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings: %v", err)
+	}
+	// p2 overrides sort from p1
+	if got.Sort != "override-sort" {
+		t.Errorf("Sort = %q, want override-sort (last file wins)", got.Sort)
+	}
+	// p1's picker is preserved since p2 doesn't set it
+	if got.Picker != "fzf" {
+		t.Errorf("Picker = %q, want fzf (from first file, not overridden)", got.Picker)
+	}
+}
+
+func TestReadSettings_WN_SETTINGS_missingFirstFile(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "nonexistent.json")
+	p2 := filepath.Join(dir, "real.json")
+	if err := os.WriteFile(p2, []byte(`{"sort":"real-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", p1+","+p2)
+	t.Setenv("WN_CONFIG_DIR", "")
+	got, err := ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings with missing first file: %v", err)
+	}
+	if got.Sort != "real-sort" {
+		t.Errorf("Sort = %q, want real-sort", got.Sort)
+	}
+}
+
+func TestReadSettings_WN_SETTINGS_missingSecondFile(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "real.json")
+	p2 := filepath.Join(dir, "nonexistent.json")
+	if err := os.WriteFile(p1, []byte(`{"sort":"real-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", p1+","+p2)
+	t.Setenv("WN_CONFIG_DIR", "")
+	got, err := ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings with missing second file: %v", err)
+	}
+	if got.Sort != "real-sort" {
+		t.Errorf("Sort = %q, want real-sort", got.Sort)
+	}
+}
+
+func TestReadSettings_WN_SETTINGS_threeFiles(t *testing.T) {
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "a.json")
+	p2 := filepath.Join(dir, "b.json")
+	p3 := filepath.Join(dir, "c.json")
+	if err := os.WriteFile(p1, []byte(`{"sort":"a","picker":"fzf","verify":"make a"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, []byte(`{"sort":"b"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p3, []byte(`{"verify":"make c"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", p1+","+p2+","+p3)
+	t.Setenv("WN_CONFIG_DIR", "")
+	got, err := ReadSettings()
+	if err != nil {
+		t.Fatalf("ReadSettings: %v", err)
+	}
+	if got.Sort != "b" {
+		t.Errorf("Sort = %q, want b (p2 overrides p1)", got.Sort)
+	}
+	if got.Picker != "fzf" {
+		t.Errorf("Picker = %q, want fzf (from p1, not overridden)", got.Picker)
+	}
+	if got.Verify != "make c" {
+		t.Errorf("Verify = %q, want make c (p3 overrides p1)", got.Verify)
+	}
+}
+
 func TestReadSettings_withVerify(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")

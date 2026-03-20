@@ -138,6 +138,14 @@ Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_it
 
 Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/settings.json` in your project (project settings override user settings field by field). Open with `wn settings` or `wn settings --project`.
 
+To use multiple user-level settings files (e.g. shared dotfiles + machine-local overrides), set `WN_SETTINGS` to a comma-separated list of paths — later files override earlier ones:
+
+```sh
+export WN_SETTINGS=~/.config/wn/settings.json,~/.config-local/wn/settings.json
+```
+
+Missing files are silently skipped. When `WN_SETTINGS` is set, it takes precedence over the default `~/.config/wn/settings.json` location.
+
 ```json
 {
   "sort": "tags,priority,updated,alpha",
