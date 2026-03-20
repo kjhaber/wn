@@ -143,6 +143,12 @@ func ProjectSettingsPath(root string) string {
 	return filepath.Join(root, ".wn", "settings.json")
 }
 
+// ProjectLocalSettingsPath returns the path to the user-local project settings file under root (.wn/settings.local.json).
+// This file is intended to be gitignored and overrides .wn/settings.json on a field-by-field basis.
+func ProjectLocalSettingsPath(root string) string {
+	return filepath.Join(root, ".wn", "settings.local.json")
+}
+
 // MergeSettings overlays project onto user. Non-empty project fields override user; empty project fields leave user values.
 // Runners are merged by key: project runners override same-named user runners; unique keys from each are kept.
 func MergeSettings(user, project Settings) Settings {
@@ -270,7 +276,7 @@ func ReadSettings() (Settings, error) {
 	return merged, nil
 }
 
-// ReadSettingsInRoot returns effective settings for the given project root: user settings with optional project overrides from root/.wn/settings.json. When root is empty, returns user settings only. Missing project file is ignored (user settings only).
+// ReadSettingsInRoot returns effective settings for the given project root: user settings with optional project overrides from root/.wn/settings.json, further overridden by root/.wn/settings.local.json. When root is empty, returns user settings only. Missing project files are ignored.
 func ReadSettingsInRoot(root string) (Settings, error) {
 	user, err := ReadSettings()
 	if err != nil {
@@ -279,12 +285,16 @@ func ReadSettingsInRoot(root string) (Settings, error) {
 	if root == "" {
 		return user, nil
 	}
-	projectPath := ProjectSettingsPath(root)
-	project, err := readSettingsFromPath(projectPath)
+	project, err := readSettingsFromPath(ProjectSettingsPath(root))
 	if err != nil {
 		return user, nil
 	}
-	return MergeSettings(user, project), nil
+	merged := MergeSettings(user, project)
+	local, err := readSettingsFromPath(ProjectLocalSettingsPath(root))
+	if err != nil {
+		return merged, nil
+	}
+	return MergeSettings(merged, local), nil
 }
 
 // readSettingsFromPath reads settings from a specific path (for tests).

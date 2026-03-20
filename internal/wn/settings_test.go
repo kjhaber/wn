@@ -645,6 +645,115 @@ func TestReadSettings_WN_SETTINGS_threeFiles(t *testing.T) {
 	}
 }
 
+// --- project settings.local.json tests ---
+
+func TestProjectLocalSettingsPath(t *testing.T) {
+	got := ProjectLocalSettingsPath("/foo/bar")
+	want := filepath.Join("/foo/bar", ".wn", "settings.local.json")
+	if got != want {
+		t.Errorf("ProjectLocalSettingsPath = %q, want %q", got, want)
+	}
+}
+
+func TestReadSettingsInRoot_localOverridesProject(t *testing.T) {
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"sort":"user-sort","picker":"fzf"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", userPath)
+	t.Setenv("WN_CONFIG_DIR", "")
+
+	projectRoot := t.TempDir()
+	wnDir := filepath.Join(projectRoot, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(wnDir, "settings.json")
+	if err := os.WriteFile(projectPath, []byte(`{"sort":"project-sort","verify":"make all"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	localPath := filepath.Join(wnDir, "settings.local.json")
+	if err := os.WriteFile(localPath, []byte(`{"sort":"local-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadSettingsInRoot(projectRoot)
+	if err != nil {
+		t.Fatalf("ReadSettingsInRoot: %v", err)
+	}
+	// local overrides project
+	if got.Sort != "local-sort" {
+		t.Errorf("Sort = %q, want local-sort (settings.local.json overrides settings.json)", got.Sort)
+	}
+	// project value preserved when local doesn't set it
+	if got.Verify != "make all" {
+		t.Errorf("Verify = %q, want make all (from project settings.json)", got.Verify)
+	}
+	// user value preserved when neither project nor local sets it
+	if got.Picker != "fzf" {
+		t.Errorf("Picker = %q, want fzf (from user settings)", got.Picker)
+	}
+}
+
+func TestReadSettingsInRoot_missingLocalFileIgnored(t *testing.T) {
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"sort":"user-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", userPath)
+	t.Setenv("WN_CONFIG_DIR", "")
+
+	projectRoot := t.TempDir()
+	wnDir := filepath.Join(projectRoot, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	projectPath := filepath.Join(wnDir, "settings.json")
+	if err := os.WriteFile(projectPath, []byte(`{"sort":"project-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// No settings.local.json created
+
+	got, err := ReadSettingsInRoot(projectRoot)
+	if err != nil {
+		t.Fatalf("ReadSettingsInRoot: %v", err)
+	}
+	if got.Sort != "project-sort" {
+		t.Errorf("Sort = %q, want project-sort (local missing is fine)", got.Sort)
+	}
+}
+
+func TestReadSettingsInRoot_localWithoutProjectFile(t *testing.T) {
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"sort":"user-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS", userPath)
+	t.Setenv("WN_CONFIG_DIR", "")
+
+	projectRoot := t.TempDir()
+	wnDir := filepath.Join(projectRoot, ".wn")
+	if err := os.MkdirAll(wnDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Only local file, no settings.json
+	localPath := filepath.Join(wnDir, "settings.local.json")
+	if err := os.WriteFile(localPath, []byte(`{"sort":"local-sort"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ReadSettingsInRoot(projectRoot)
+	if err != nil {
+		t.Fatalf("ReadSettingsInRoot: %v", err)
+	}
+	if got.Sort != "local-sort" {
+		t.Errorf("Sort = %q, want local-sort (local file without settings.json)", got.Sort)
+	}
+}
+
 func TestReadSettings_withVerify(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
