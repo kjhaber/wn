@@ -2,7 +2,7 @@
 
 `wn` ("What's Next") is a CLI work item tracker for local use by humans and coding agents. Written in Go (cobra CLI, bubbletea TUI, MCP server). Work items are stored as JSON files under `.wn/` in the project directory.
 
-Always use `make test` or `make all` to run tests rather than `go test` directly — the Makefile sets required environment variables (e.g. `WN_PICKER=numbered` to avoid blocking on fzf) and enforces lint.
+Use `wn verify` to run tests rather than `make test` or `go test` to run tests.  `wn verify` is a general-purpose validation command.  In this project it executes `make all`; the Makefile sets required environment variables (e.g. `WN_PICKER=numbered` to avoid blocking on fzf) and enforces lint.
 
 # Build artifacts
 
