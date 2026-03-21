@@ -772,7 +772,10 @@ func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAdd
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
 	}
 	if !ValidNoteName(in.Name) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars)", in.Name)}}, IsError: true}, nil, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes)", in.Name)}}, IsError: true}, nil, nil
+	}
+	if err := ValidateSpecialNote(in.Name); err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	trimmed := strings.TrimSpace(in.Body)
 	if trimmed == "" {

@@ -269,9 +269,25 @@ func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) erro
 	}
 
 	if fields["notes"] && len(item.Notes) > 0 {
-		fmt.Println("notes:")
+		var metaNotes, userNotes []wn.Note
 		for _, n := range item.Notes {
-			fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
+			if strings.HasPrefix(n.Name, "wn:") {
+				metaNotes = append(metaNotes, n)
+			} else {
+				userNotes = append(userNotes, n)
+			}
+		}
+		if len(metaNotes) > 0 {
+			fmt.Println("metadata:")
+			for _, n := range metaNotes {
+				fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
+			}
+		}
+		if len(userNotes) > 0 {
+			fmt.Println("notes:")
+			for _, n := range userNotes {
+				fmt.Printf("  %s\t%s\t%s\n", n.Name, n.Created.Format(timeFmt), n.Body)
+			}
 		}
 	}
 
@@ -3093,17 +3109,32 @@ func init() {
 func runNoteAdd(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	if !wn.ValidNoteName(name) {
-		return fmt.Errorf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars)", name)
+		return fmt.Errorf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes)", name)
+	}
+	if err := wn.ValidateSpecialNote(name); err != nil {
+		return err
 	}
 	body := noteAddMessage
 	if body == "" {
-		var err error
-		body, err = wn.EditWithEditor("")
-		if err != nil {
-			return err
-		}
-		if strings.TrimSpace(body) == "" {
-			return fmt.Errorf("empty note")
+		if name == wn.NoteNameBranch {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("wn:branch: %w", err)
+			}
+			branch, err := wn.CurrentBranchInDir(cwd)
+			if err != nil {
+				return fmt.Errorf("wn:branch: could not detect current git branch: %w", err)
+			}
+			body = branch
+		} else {
+			var err error
+			body, err = wn.EditWithEditor("")
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(body) == "" {
+				return fmt.Errorf("empty note")
+			}
 		}
 	}
 	root, err := wn.FindRootForCLI()

@@ -65,7 +65,10 @@ func RunMerge(store Store, opts MergeOpts) error {
 	if !item.ReviewReady {
 		return fmt.Errorf("work item %s is not review-ready; merge only applies to review-ready items", item.ID)
 	}
-	idx := item.NoteIndexByName("branch")
+	idx := item.NoteIndexByName(NoteNameBranch)
+	if idx < 0 {
+		idx = item.NoteIndexByName("branch") // backward compat with legacy note name
+	}
 	if idx < 0 {
 		return fmt.Errorf("work item %s has no branch note (required for merge)", item.ID)
 	}

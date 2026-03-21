@@ -71,7 +71,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn log <id>` | Show history for an item. |
 | `wn prompt [parent-id] -m "question"` | Create a prompt item (a question for the user) and add it as a dependency of the parent. The parent becomes **blocked** until the user responds with `wn respond`. Omit parent-id for current task; omit `-m` to use `$EDITOR`. See [Agent/human prompt workflow](#agenthuman-prompt-workflow). |
 | `wn respond [prompt-id] -m "answer"` | Respond to a prompt item: marks it done and stores the answer as a `response` note. Unblocks the parent item. Omit prompt-id for current task; omit `-m` to use `$EDITOR`. |
-| `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars. |
+| `wn note add <name> [id] -m "..."` | Add or update a note by name (e.g. pr-url, issue-number); omit id for current task, omit `-m` to use `$EDITOR`. Names: alphanumeric, /, _, -, up to 32 chars. Special `wn:` names (e.g. `wn:branch`) are reserved for internal use; `wn:branch` auto-detects the current git branch when `-m` is omitted. |
 | `wn note list [id]` | List notes on an item (name, created, body), ordered by create time. |
 | `wn note show [id] <name>` | Print the raw body of a named note; omit id for current task. Useful for scripting, e.g. `git checkout $(wn note show branch)`. |
 | `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body. |
@@ -250,9 +250,9 @@ WORKTREE=$(wn worktree --next)
 
 **After the work is done:** run `wn release [id]` to mark the item review-ready (or `wn done` if you want to skip review). The worktree stays until you remove it — `git worktree remove <path>` or `wn merge` (which rebases, merges to main, and marks done in one step).
 
-**Branch notes:** The worktree path is derived from the branch name, which is stored as a `branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `branch` note before running: `wn note add branch -m "my-branch-name"`.
+**Branch notes:** The worktree path is derived from the branch name, which is stored as a `wn:branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `wn:branch` note before running: `wn note add wn:branch -m "my-branch-name"` (or omit `-m` to auto-detect from the current git branch).
 
-**Switching between worktrees:** When you `cd` into a worktree (e.g. after `wn launch` opens a tmux window), run `wn pick .` to re-select the associated work item as current. This looks up the current git branch and finds the item whose `branch` note matches.
+**Switching between worktrees:** When you `cd` into a worktree (e.g. after `wn launch` opens a tmux window), run `wn pick .` to re-select the associated work item as current. This looks up the current git branch and finds the item whose `wn:branch` note matches.
 
 ## Agent runners (`wn do`, `wn launch`)
 

@@ -3738,9 +3738,9 @@ func TestWorktreeSetup_withID(t *testing.T) {
 	if item.InProgressUntil.IsZero() {
 		t.Error("item should be claimed after wn worktree")
 	}
-	// Branch note should be set
-	if item.NoteIndexByName("branch") < 0 {
-		t.Error("item should have branch note after wn worktree")
+	// Branch note should be set using the wn:branch special note name
+	if item.NoteIndexByName(wn.NoteNameBranch) < 0 {
+		t.Error("item should have wn:branch note after wn worktree")
 	}
 }
 
@@ -5072,5 +5072,156 @@ func TestCleanupWorktreesCmd_confirmN(t *testing.T) {
 
 	if _, err := os.Stat(wtPath); err != nil {
 		t.Errorf("confirm 'n': worktree should still exist: %v", err)
+	}
+}
+
+// setupWnRootWithGit creates a temp dir with a git repo and a .wn root, adds a test item,
+// and returns the dir and item ID. Useful for tests that need git branch detection.
+func setupWnRootWithGit(t *testing.T) (dir string, itemID string) {
+	t.Helper()
+	dir, itemID = setupWnRoot(t)
+	cmds := [][]string{
+		{"git", "init"},
+		{"git", "config", "user.email", "test@example.com"},
+		{"git", "config", "user.name", "Test"},
+		{"git", "commit", "--allow-empty", "-m", "init"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+	}
+	return dir, itemID
+}
+
+func TestNoteAdd_WnBranchUnknownName(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "wn:unknown", itemID, "-m", "value"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Fatal("note add with unknown wn: name should fail")
+	}
+	if !strings.Contains(err.Error(), "wn:unknown") {
+		t.Errorf("error should mention the unknown name; got %v", err)
+	}
+}
+
+func TestNoteAdd_WnBranchExplicit(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "my-feature-branch"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add wn:branch: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	item, err := store.Get(itemID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	idx := item.NoteIndexByName(wn.NoteNameBranch)
+	if idx < 0 {
+		t.Fatalf("wn:branch note not found on item")
+	}
+	if item.Notes[idx].Body != "my-feature-branch" {
+		t.Errorf("wn:branch note body = %q, want my-feature-branch", item.Notes[idx].Body)
+	}
+}
+
+func TestNoteAdd_WnBranchAutoDetect(t *testing.T) {
+	dir, itemID := setupWnRootWithGit(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Detect what git considers the current branch
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v", err)
+	}
+	wantBranch := strings.TrimSpace(string(out))
+
+	noteAddMessage = "" // reset in case a prior test set it via -m
+	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add wn:branch (auto-detect): %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	item, err := store.Get(itemID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	idx := item.NoteIndexByName(wn.NoteNameBranch)
+	if idx < 0 {
+		t.Fatalf("wn:branch note not found on item after auto-detect")
+	}
+	if item.Notes[idx].Body != wantBranch {
+		t.Errorf("wn:branch auto-detect = %q, want %q", item.Notes[idx].Body, wantBranch)
+	}
+}
+
+func TestShowMetadataSection(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Add a special wn: note and a regular note
+	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "feat/my-branch"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add wn:branch: %v", err)
+	}
+	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "https://example.com/pr/1"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add pr-url: %v", err)
+	}
+
+	resetShowFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"show", "--fields", "notes", itemID})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("show: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "metadata:") {
+		t.Errorf("show output should have 'metadata:' section for wn: notes; got:\n%s", out)
+	}
+	if !strings.Contains(out, "wn:branch") {
+		t.Errorf("show output should include wn:branch in metadata section; got:\n%s", out)
+	}
+	if !strings.Contains(out, "notes:") {
+		t.Errorf("show output should have 'notes:' section for regular notes; got:\n%s", out)
+	}
+	if !strings.Contains(out, "pr-url") {
+		t.Errorf("show output should include pr-url in notes section; got:\n%s", out)
+	}
+	// wn: notes should NOT appear in the regular notes section
+	metadataIdx := strings.Index(out, "metadata:")
+	notesIdx := strings.Index(out, "notes:")
+	if metadataIdx >= 0 && notesIdx >= 0 && notesIdx < metadataIdx {
+		t.Errorf("metadata: section should come before notes: section")
 	}
 }

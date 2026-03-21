@@ -434,11 +434,11 @@ func TestSetupItemWorktree_createsWorktreeAndBranchNote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx := updated.NoteIndexByName("branch")
+	idx := updated.NoteIndexByName(NoteNameBranch)
 	if idx < 0 {
-		t.Error("branch note not added to item")
+		t.Error("wn:branch note not added to item")
 	} else if updated.Notes[idx].Body != branchName {
-		t.Errorf("branch note body = %q, want %q", updated.Notes[idx].Body, branchName)
+		t.Errorf("wn:branch note body = %q, want %q", updated.Notes[idx].Body, branchName)
 	}
 	var audit bytes.Buffer
 	_ = RemoveWorktree(repoDir, worktreePath, &audit)
@@ -611,4 +611,126 @@ func TestExpandCommandTemplate_noSessionID(t *testing.T) {
 	if strings.Contains(got, "--resume") {
 		t.Errorf("expected no --resume when sessionID is empty, got %q", got)
 	}
+}
+
+func TestResolveBranchName_UsesWnColonBranchNote(t *testing.T) {
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: NoteNameBranch, Body: "wn-abc123-fix-the-thing", Created: now}},
+	}
+	got := resolveBranchName(item, "")
+	if got != "wn-abc123-fix-the-thing" {
+		t.Errorf("resolveBranchName = %q, want wn-abc123-fix-the-thing", got)
+	}
+}
+
+func TestResolveBranchName_BackwardCompatOldBranchNote(t *testing.T) {
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: "branch", Body: "wn-abc123-old-style", Created: now}},
+	}
+	got := resolveBranchName(item, "")
+	if got != "wn-abc123-old-style" {
+		t.Errorf("resolveBranchName with old 'branch' note = %q, want wn-abc123-old-style", got)
+	}
+}
+
+func TestFindItemByBranch_WnColonNote(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: NoteNameBranch, Body: "wn-abc123-fix-the-thing", Created: now}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := FindItemByBranch(store, "wn-abc123-fix-the-thing")
+	if err != nil {
+		t.Fatalf("FindItemByBranch: %v", err)
+	}
+	if got == nil || got.ID != "abc123" {
+		t.Errorf("FindItemByBranch with wn:branch note = %v, want item abc123", got)
+	}
+}
+
+func TestFindItemByBranch_OldNoteBackwardCompat(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Fix the thing",
+		Created:     now,
+		Updated:     now,
+		Notes:       []Note{{Name: "branch", Body: "wn-abc123-fix-the-thing", Created: now}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	got, err := FindItemByBranch(store, "wn-abc123-fix-the-thing")
+	if err != nil {
+		t.Fatalf("FindItemByBranch: %v", err)
+	}
+	if got == nil || got.ID != "abc123" {
+		t.Errorf("FindItemByBranch with old 'branch' note = %v, want item abc123", got)
+	}
+}
+
+func TestSetupItemWorktree_writesWnColonBranchNote(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "newitem",
+		Description: "New feature",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := filepath.Join(repoDir, "worktrees")
+	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	worktreePath, _, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", nil)
+	if err != nil {
+		t.Fatalf("SetupItemWorktree: %v", err)
+	}
+	updated, err := store.Get("newitem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx := updated.NoteIndexByName(NoteNameBranch); idx < 0 {
+		t.Errorf("expected %q note on item after SetupItemWorktree, not found", NoteNameBranch)
+	}
+	if idx := updated.NoteIndexByName("branch"); idx >= 0 {
+		t.Errorf("unexpected old 'branch' note on item after SetupItemWorktree (should use %q)", NoteNameBranch)
+	}
+	var audit bytes.Buffer
+	_ = RemoveWorktree(repoDir, worktreePath, &audit)
 }

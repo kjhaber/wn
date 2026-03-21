@@ -259,7 +259,7 @@ func cleanupOrphanedBranches(store Store, mainRoot, ref string, activeBranches m
 		}
 		branch := ""
 		for _, n := range item.Notes {
-			if n.Name == "branch" {
+			if n.Name == NoteNameBranch || n.Name == "branch" {
 				branch = n.Body
 				break
 			}

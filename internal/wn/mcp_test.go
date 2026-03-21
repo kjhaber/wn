@@ -1642,3 +1642,61 @@ func TestMCP_wn_list_GitWorktree(t *testing.T) {
 		t.Errorf("wn_list from worktree: want [{id: wt1234}], got %s", text)
 	}
 }
+
+func TestMCP_wn_note_add_unknown_special_name(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_add",
+		Arguments: map[string]any{"id": "abc123", "name": "wn:unknown", "body": "value"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_add: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("wn_note_add with unknown wn: name should return error")
+	}
+	if !strings.Contains(textContent(res), "wn:unknown") {
+		t.Errorf("error should mention the unknown name; got: %s", textContent(res))
+	}
+}
+
+func TestMCP_wn_note_add_wn_branch(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_add",
+		Arguments: map[string]any{"id": "abc123", "name": "wn:branch", "body": "feat/my-branch"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_add: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_add wn:branch: %s", textContent(res))
+	}
+
+	showRes, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	var show struct {
+		Notes []struct {
+			Name string `json:"name"`
+			Body string `json:"body"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(textContent(showRes)), &show); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	found := false
+	for _, n := range show.Notes {
+		if n.Name == NoteNameBranch && n.Body == "feat/my-branch" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("wn:branch note not found after add; notes = %v", show.Notes)
+	}
+}

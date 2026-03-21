@@ -228,11 +228,14 @@ func worktreeDirForBranch(mainDirname, branchName string) string {
 	return mainDirname + "-" + strings.ReplaceAll(branchName, "/", "_")
 }
 
-// resolveBranchName returns the branch name for the item: note "branch" if set, else prefix+wn-<id>-<slug>.
+// resolveBranchName returns the branch name for the item: note NoteNameBranch ("wn:branch") if set,
+// falling back to the legacy "branch" note for backward compatibility, else prefix+wn-<id>-<slug>.
 // branchPrefix is applied only when generating a new name (e.g. "keith/" -> "keith/wn-abc123-add-feature").
 func resolveBranchName(item *Item, branchPrefix string) string {
-	if idx := item.NoteIndexByName("branch"); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
-		return strings.TrimSpace(item.Notes[idx].Body)
+	for _, noteName := range []string{NoteNameBranch, "branch"} {
+		if idx := item.NoteIndexByName(noteName); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
+			return strings.TrimSpace(item.Notes[idx].Body)
+		}
 	}
 	slug := BranchSlug(item.Description)
 	base := "wn-" + item.ID
@@ -286,7 +289,8 @@ func clearItemClaim(store Store, itemID string) error {
 	})
 }
 
-// FindItemByBranch searches all items for one whose "branch" note matches the given branch name.
+// FindItemByBranch searches all items for one whose branch note matches the given branch name.
+// Checks NoteNameBranch ("wn:branch") first, then falls back to legacy "branch" note.
 // Returns (nil, nil) if no matching item is found.
 func FindItemByBranch(store Store, branch string) (*Item, error) {
 	all, err := store.List()
@@ -294,9 +298,11 @@ func FindItemByBranch(store Store, branch string) (*Item, error) {
 		return nil, err
 	}
 	for _, it := range all {
-		idx := it.NoteIndexByName("branch")
-		if idx >= 0 && strings.TrimSpace(it.Notes[idx].Body) == branch {
-			return it, nil
+		for _, noteName := range []string{NoteNameBranch, "branch"} {
+			idx := it.NoteIndexByName(noteName)
+			if idx >= 0 && strings.TrimSpace(it.Notes[idx].Body) == branch {
+				return it, nil
+			}
 		}
 	}
 	return nil, nil
@@ -307,7 +313,14 @@ func FindItemByBranch(store Store, branch string) (*Item, error) {
 // released; caller is responsible for cleanup.
 func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, mainDirname, branchPrefix string, audit io.Writer) (worktreePath, branchName string, err error) {
 	branchName = resolveBranchName(item, branchPrefix)
-	reuseBranch := item.NoteIndexByName("branch") >= 0 && strings.TrimSpace(item.Notes[item.NoteIndexByName("branch")].Body) != ""
+	reuseBranch := func() bool {
+		for _, n := range []string{NoteNameBranch, "branch"} {
+			if idx := item.NoteIndexByName(n); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
+				return true
+			}
+		}
+		return false
+	}()
 	createBranch := !reuseBranch
 	if reuseBranch {
 		exists, checkErr := BranchExists(root, branchName)
@@ -324,7 +337,7 @@ func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, main
 	if err != nil {
 		return "", "", fmt.Errorf("worktree %s: %w", branchName, err)
 	}
-	if noteErr := addItemNote(store, item.ID, "branch", branchName); noteErr != nil {
+	if noteErr := addItemNote(store, item.ID, NoteNameBranch, branchName); noteErr != nil {
 		return "", "", fmt.Errorf("add branch note: %w", noteErr)
 	}
 	return worktreePath, branchName, nil
