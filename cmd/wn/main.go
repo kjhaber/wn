@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1389,6 +1390,7 @@ var cleanupWorktreesCmd = &cobra.Command{
 var cleanupWorktreesDryRun bool
 var cleanupWorktreesBranch string
 var cleanupWorktreesCleanIgnored bool
+var cleanupWorktreesForce bool
 
 func init() {
 	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
@@ -1398,7 +1400,17 @@ func init() {
 	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesDryRun, "dry-run", false, "Report what would be removed without making changes")
 	cleanupWorktreesCmd.Flags().StringVarP(&cleanupWorktreesBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
 	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesCleanIgnored, "clean-ignored", false, "Remove gitignored files (e.g. build artifacts) from each worktree before removal")
+	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesForce, "force", false, "Skip confirmation prompt and remove immediately")
 	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd, cleanupWorktreesCmd)
+}
+
+// promptYN writes prompt to w and reads one line from r.
+// Returns true only if the line is "y" or "Y". Defaults to false (no).
+func promptYN(r io.Reader, w io.Writer, prompt string) bool {
+	fmt.Fprintf(w, "%s [y/N]: ", prompt)
+	var line string
+	_, _ = fmt.Fscanln(r, &line)
+	return strings.EqualFold(strings.TrimSpace(line), "y")
 }
 
 func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error {
@@ -1493,22 +1505,58 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, cleanupWorktreesDryRun, cleanupWorktreesCleanIgnored, os.Stderr)
+
+	// Dry-run pass to find eligible worktrees before prompting.
+	preview, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, true, cleanupWorktreesCleanIgnored, nil)
+	if err != nil {
+		return err
+	}
+	var eligible []wn.CleanupWorktreeResult
+	for _, r := range preview {
+		if r.Status == "removed" {
+			eligible = append(eligible, r)
+		}
+	}
+
+	if len(eligible) == 0 {
+		fmt.Println("no worktrees to clean up")
+		return nil
+	}
+
+	// Show what would be removed.
+	for _, r := range eligible {
+		label := r.Branch
+		if r.ItemID != "" {
+			label = r.ItemID + " (" + r.Branch + ")"
+		}
+		fmt.Printf("  %s: %s\n", label, r.Path)
+	}
+
+	if cleanupWorktreesDryRun {
+		fmt.Printf("would remove %d worktree(s) (dry run)\n", len(eligible))
+		return nil
+	}
+
+	if !cleanupWorktreesForce {
+		msg := fmt.Sprintf("Remove %d worktree(s)?", len(eligible))
+		if !promptYN(os.Stdin, os.Stdout, msg) {
+			fmt.Println("aborted")
+			return nil
+		}
+	}
+
+	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, false, cleanupWorktreesCleanIgnored, os.Stderr)
 	if err != nil {
 		return err
 	}
 	for _, r := range results {
 		switch r.Status {
 		case "removed":
-			prefix := "removed"
-			if cleanupWorktreesDryRun {
-				prefix = "would remove"
-			}
 			label := r.Branch
 			if r.ItemID != "" {
 				label = r.ItemID + " (" + r.Branch + ")"
 			}
-			fmt.Printf("%s %s: %s\n", prefix, label, r.Path)
+			fmt.Printf("removed %s: %s\n", label, r.Path)
 		case "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached":
 			// Silently skip — these are expected non-actionable states.
 		case "error":

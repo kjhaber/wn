@@ -4742,3 +4742,196 @@ func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 		t.Errorf("stderr = %q, want to contain the configured command %q", stderrOut, verifyCmd)
 	}
 }
+
+// resetCleanupWorktreesFlags resets cleanup worktrees flags to defaults between tests.
+func resetCleanupWorktreesFlags() {
+	cleanupWorktreesDryRun = false
+	cleanupWorktreesBranch = ""
+	cleanupWorktreesCleanIgnored = false
+	cleanupWorktreesForce = false
+}
+
+// setupGitWnRepo creates a temp dir with a git repo and wn store, creates an item
+// with a branch note (already "merged" since the branch is at HEAD), and marks
+// the item done. Returns the dir and worktree path.
+func setupGitWnRepo(t *testing.T) (dir string, wtPath string) {
+	t.Helper()
+	dir = t.TempDir()
+	gitExecIn(t, dir, "init")
+	if err := os.WriteFile(filepath.Join(dir, "readme"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	gitExecIn(t, dir, "add", "readme")
+	gitExecIn(t, dir, "commit", "-m", "init")
+
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+	item := &wn.Item{
+		ID:          "wttest",
+		Description: "worktree test item",
+		Created:     now, Updated: now,
+		Tags: []string{}, DependsOn: []string{},
+		Log:   []wn.LogEntry{{At: now, Kind: "created"}},
+		Notes: []wn.Note{{Name: "branch", Created: now, Body: "wn-wttest-branch"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Create worktree on branch (branch is at HEAD, so already "merged")
+	wtPath = filepath.Join(dir, "wt-test")
+	gitExecIn(t, dir, "branch", "wn-wttest-branch", "HEAD")
+	gitExecIn(t, dir, "worktree", "add", wtPath, "wn-wttest-branch")
+
+	// Mark item done
+	if err := store.UpdateItem("wttest", func(it *wn.Item) (*wn.Item, error) {
+		it.Done = true
+		it.DoneStatus = wn.DoneStatusDone
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem done: %v", err)
+	}
+
+	return dir, wtPath
+}
+
+func TestPromptYN_yes(t *testing.T) {
+	r := strings.NewReader("y\n")
+	var w bytes.Buffer
+	got := promptYN(r, &w, "Remove 1 worktree?")
+	if !got {
+		t.Error("promptYN('y') = false, want true")
+	}
+	if !strings.Contains(w.String(), "Remove 1 worktree?") {
+		t.Errorf("promptYN output %q, want prompt text", w.String())
+	}
+}
+
+func TestPromptYN_uppercase(t *testing.T) {
+	r := strings.NewReader("Y\n")
+	var w bytes.Buffer
+	if !promptYN(r, &w, "prompt") {
+		t.Error("promptYN('Y') = false, want true")
+	}
+}
+
+func TestPromptYN_no(t *testing.T) {
+	r := strings.NewReader("n\n")
+	var w bytes.Buffer
+	if promptYN(r, &w, "prompt") {
+		t.Error("promptYN('n') = true, want false")
+	}
+}
+
+func TestPromptYN_empty(t *testing.T) {
+	r := strings.NewReader("\n")
+	var w bytes.Buffer
+	if promptYN(r, &w, "prompt") {
+		t.Error("promptYN('') = true, want false (default no)")
+	}
+}
+
+func TestPromptYN_eof(t *testing.T) {
+	r := strings.NewReader("")
+	var w bytes.Buffer
+	if promptYN(r, &w, "prompt") {
+		t.Error("promptYN(EOF) = true, want false")
+	}
+}
+
+func TestCleanupWorktreesCmd_force(t *testing.T) {
+	dir, wtPath := setupGitWnRepo(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetCleanupWorktreesFlags()
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cleanup", "worktrees", "--force"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(wtPath); err == nil {
+		t.Error("--force: worktree should have been removed")
+	}
+}
+
+func TestCleanupWorktreesCmd_confirmY(t *testing.T) {
+	dir, wtPath := setupGitWnRepo(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+	if _, err := w.WriteString("y\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	resetCleanupWorktreesFlags()
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cleanup", "worktrees"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(wtPath); err == nil {
+		t.Error("confirm 'y': worktree should have been removed")
+	}
+}
+
+func TestCleanupWorktreesCmd_confirmN(t *testing.T) {
+	dir, wtPath := setupGitWnRepo(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = origStdin
+		_ = os.RemoveAll(wtPath) // cleanup: test skipped removal
+	})
+	if _, err := w.WriteString("n\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	resetCleanupWorktreesFlags()
+	captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"cleanup", "worktrees"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("confirm 'n': worktree should still exist: %v", err)
+	}
+}
