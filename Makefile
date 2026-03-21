@@ -16,13 +16,14 @@ lint:
 	@golangci-lint run
 
 # Run unit tests (WN_PICKER=numbered forces numbered list so tests don't block on fzf)
+# WN_SETTINGS_USER/USER_LOCAL are cleared so user's env doesn't leak into test isolation via WN_CONFIG_DIR.
 test:
-	@WN_PICKER=numbered go test ./...
+	@WN_PICKER=numbered WN_SETTINGS_USER= WN_SETTINGS_USER_LOCAL= go test ./...
 
 # Run tests with coverage and print report
 cover:
 	@mkdir -p $(BUILD_DIR)
-	@WN_PICKER=numbered go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
+	@WN_PICKER=numbered WN_SETTINGS_USER= WN_SETTINGS_USER_LOCAL= go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
 # Build the binary (inject version from nearest git tag, fallback to "dev")
