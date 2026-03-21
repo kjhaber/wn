@@ -76,7 +76,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note show [id] <name>` | Print the raw body of a named note; omit id for current task. Useful for scripting, e.g. `git checkout $(wn note show branch)`. |
 | `wn note edit [id] <name> [-m "..."]` | Edit a note by name; omit `-m` to use `$EDITOR` with current body. |
 | `wn note rm [id] <name>` | Remove a note by name. |
-| `wn settings [--project]` | Open settings in `$EDITOR`. Default: user-level `~/.config/wn/settings.json`. Use `--project` for project-level `.wn/settings.json`. |
+| `wn settings show` | Print the fully merged effective settings as JSON. |
+| `wn settings edit [--user\|--user-local\|--project\|--project-local]` | Interactively pick a settings file to open in `$EDITOR` (fzf or numbered). Use a flag to skip the picker and open a specific file directly. Missing files are created as `{}` before opening. |
 | `wn verify` | Run the shell command configured in `settings.verify` (e.g. `make all`, `npm test`). Useful for agents and humans to confirm the build passes. |
 | `wn export [-o file]` | Export all items to JSON (stdout if no `-o`). |
 | `wn import <file>` | Import items from JSON export. When store has items, use `--append` (add/merge) or `--replace` (replace all). |
@@ -137,15 +138,21 @@ Tools: `wn_add`, `wn_list`, `wn_done`, `wn_undone`, `wn_desc`, `wn_show`, `wn_it
 
 ## Settings
 
-Settings live in `~/.config/wn/settings.json` (user-level) and optionally `.wn/settings.json` in your project (project settings override user settings field by field). Open with `wn settings` or `wn settings --project`.
+Settings are loaded in order (later files override earlier ones, field by field):
 
-To use multiple user-level settings files (e.g. shared dotfiles + machine-local overrides), set `WN_SETTINGS` to a comma-separated list of paths — later files override earlier ones:
+1. **User settings** — `~/.config/wn/settings.json` (macOS/Linux default, override with `WN_SETTINGS_USER`)
+2. **User-local settings** — optional machine-local overrides; set `WN_SETTINGS_USER_LOCAL` to enable
+3. **Project settings** — `.wn/settings.json` in your project root
+4. **Project-local settings** — `.wn/settings.local.json` (gitignored; personal project overrides)
+
+To use separate shared and machine-local user settings files (e.g. dotfiles + local overrides):
 
 ```sh
-export WN_SETTINGS=~/.config/wn/settings.json,~/.config-local/wn/settings.json
+export WN_SETTINGS_USER="$HOME/.config/wn/settings.json"
+export WN_SETTINGS_USER_LOCAL="$HOME/.config-local/wn/settings.json"
 ```
 
-Missing files are silently skipped. When `WN_SETTINGS` is set, it takes precedence over the default `~/.config/wn/settings.json` location.
+Missing files are silently skipped. Use `wn settings show` to see the merged effective settings, and `wn settings edit` to open any of these files in `$EDITOR`.
 
 ```json
 {

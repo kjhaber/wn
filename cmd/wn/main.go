@@ -2501,52 +2501,137 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 
 var settingsCmd = &cobra.Command{
 	Use:   "settings",
-	Short: "Open wn settings file in $EDITOR",
-	Long:  "Opens user-level settings (~/.config/wn/settings.json) in $EDITOR. Use --project to open project-level settings (.wn/settings.json) which override user settings when present.",
-	RunE:  runSettings,
+	Short: "Manage wn settings",
+	Long:  "Subcommands: show (print effective merged settings as JSON), edit (open a settings file in $EDITOR).",
 }
-var settingsProject bool
+
+var settingsShowCmd = &cobra.Command{
+	Use:   "show",
+	Short: "Print effective merged settings as JSON",
+	Long:  "Prints the fully merged effective settings (user + user-local + project + project-local) as JSON.",
+	RunE:  runSettingsShow,
+}
+
+var settingsEditCmd = &cobra.Command{
+	Use:   "edit",
+	Short: "Open a settings file in $EDITOR",
+	Long: `Interactively pick a settings file to open in $EDITOR. Use a flag to skip the picker:
+  --user          edit user settings (WN_SETTINGS_USER or default)
+  --user-local    edit user-local settings (WN_SETTINGS_USER_LOCAL)
+  --project       edit project settings (.wn/settings.json)
+  --project-local edit project-local settings (.wn/settings.local.json)
+
+Missing files are created as {} before opening.`,
+	RunE: runSettingsEdit,
+}
+
+var settingsEditUser bool
+var settingsEditUserLocal bool
+var settingsEditProject bool
+var settingsEditProjectLocal bool
 
 func init() {
-	settingsCmd.Flags().BoolVar(&settingsProject, "project", false, "Edit project-level settings (.wn/settings.json) instead of user settings")
+	settingsCmd.AddCommand(settingsShowCmd, settingsEditCmd)
+	settingsEditCmd.Flags().BoolVar(&settingsEditUser, "user", false, "Edit user settings")
+	settingsEditCmd.Flags().BoolVar(&settingsEditUserLocal, "user-local", false, "Edit user-local settings (requires WN_SETTINGS_USER_LOCAL)")
+	settingsEditCmd.Flags().BoolVar(&settingsEditProject, "project", false, "Edit project settings (.wn/settings.json)")
+	settingsEditCmd.Flags().BoolVar(&settingsEditProjectLocal, "project-local", false, "Edit project-local settings (.wn/settings.local.json)")
 }
 
-func runSettings(cmd *cobra.Command, args []string) error {
-	if settingsProject {
-		root, err := wn.FindRootForCLI()
-		if err != nil {
+func runSettingsShow(cmd *cobra.Command, _ []string) error {
+	root, _ := wn.FindRootForCLI()
+	settings, err := wn.ReadSettingsInRoot(root)
+	if err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	return nil
+}
+
+type settingsFileEntry struct {
+	label string
+	path  string
+}
+
+func settingsEditCandidates(root string) ([]settingsFileEntry, error) {
+	named, err := wn.UserSettingsNamedPaths()
+	if err != nil {
+		return nil, err
+	}
+	var candidates []settingsFileEntry
+	for _, n := range named {
+		candidates = append(candidates, settingsFileEntry{label: n.Name, path: n.Path})
+	}
+	if root != "" {
+		candidates = append(candidates, settingsFileEntry{label: "project", path: wn.ProjectSettingsPath(root)})
+		candidates = append(candidates, settingsFileEntry{label: "project-local", path: wn.ProjectLocalSettingsPath(root)})
+	}
+	return candidates, nil
+}
+
+func openSettingsFile(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 			return err
 		}
-		wnDir := filepath.Join(root, ".wn")
-		if err := os.MkdirAll(wnDir, 0755); err != nil {
+		if err := os.WriteFile(path, []byte("{}\n"), 0644); err != nil {
 			return err
 		}
-		settingsPath := wn.ProjectSettingsPath(root)
-		if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
-			if err := os.WriteFile(settingsPath, []byte("{}\n"), 0644); err != nil {
-				return err
+	}
+	return wn.RunEditorOnFile(path)
+}
+
+func runSettingsEdit(_ *cobra.Command, _ []string) error {
+	root, _ := wn.FindRootForCLI()
+	candidates, err := settingsEditCandidates(root)
+	if err != nil {
+		return err
+	}
+
+	var targetLabel string
+	switch {
+	case settingsEditUser:
+		targetLabel = "user"
+	case settingsEditUserLocal:
+		targetLabel = "user-local"
+	case settingsEditProject:
+		targetLabel = "project"
+	case settingsEditProjectLocal:
+		targetLabel = "project-local"
+	}
+	if targetLabel != "" {
+		for _, c := range candidates {
+			if c.label == targetLabel {
+				return openSettingsFile(c.path)
 			}
 		}
-		return wn.RunEditorOnFile(settingsPath)
+		return fmt.Errorf("settings file %q not available (for user-local, set WN_SETTINGS_USER_LOCAL; for project files, run from a wn project)", targetLabel)
 	}
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		return err
-	}
-	wnDir := filepath.Join(configDir, "wn")
-	if err := os.MkdirAll(wnDir, 0755); err != nil {
-		return err
-	}
-	settingsPath, err := wn.SettingsPath()
-	if err != nil {
-		return err
-	}
-	if _, err := os.Stat(settingsPath); os.IsNotExist(err) {
-		if err := os.WriteFile(settingsPath, []byte("{}\n"), 0644); err != nil {
-			return err
+
+	lines := make([]string, len(candidates))
+	for i, c := range candidates {
+		_, err := os.Stat(c.path)
+		exists := err == nil
+		label := "[" + c.label + "]"
+		if exists {
+			lines[i] = fmt.Sprintf("%-16s %s", label, c.path)
+		} else {
+			lines[i] = fmt.Sprintf("%-16s %s  [new]", label, c.path)
 		}
 	}
-	return wn.RunEditorOnFile(settingsPath)
+
+	idx, err := wn.PickStringInteractive(lines)
+	if err != nil {
+		return err
+	}
+	if idx < 0 {
+		return nil
+	}
+	return openSettingsFile(candidates[idx].path)
 }
 
 var verifyCmd = &cobra.Command{

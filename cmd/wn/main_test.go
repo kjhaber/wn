@@ -4743,6 +4743,119 @@ func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	}
 }
 
+func resetSettingsEditFlags() {
+	settingsEditUser = false
+	settingsEditUserLocal = false
+	settingsEditProject = false
+	settingsEditProjectLocal = false
+}
+
+func TestSettingsShow(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// User settings file
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"sort":"updated:desc","picker":"numbered"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS_USER", userPath)
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	// Project settings override sort
+	wnDir := filepath.Join(dir, ".wn")
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), []byte(`{"sort":"created:asc"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(nil)
+	rootCmd.SetArgs([]string{"settings", "show"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("settings show: %v", err)
+	}
+
+	var s wn.Settings
+	if err := json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &s); err != nil {
+		t.Fatalf("unmarshal settings show output: %v\noutput: %s", err, buf.String())
+	}
+	if s.Sort != "created:asc" {
+		t.Errorf("Sort = %q, want created:asc (project overrides user)", s.Sort)
+	}
+	if s.Picker != "numbered" {
+		t.Errorf("Picker = %q, want numbered (from user, project doesn't override)", s.Picker)
+	}
+}
+
+func TestSettingsEdit_projectFlag(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	t.Setenv("EDITOR", "true")
+	t.Setenv("WN_SETTINGS_USER", filepath.Join(t.TempDir(), "user.json"))
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	projectSettingsPath := filepath.Join(dir, ".wn", "settings.json")
+	defer resetSettingsEditFlags()
+	rootCmd.SetArgs([]string{"settings", "edit", "--project"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("settings edit --project: %v", err)
+	}
+
+	if _, err := os.Stat(projectSettingsPath); os.IsNotExist(err) {
+		t.Error("project settings file was not created by settings edit --project")
+	}
+	data, err := os.ReadFile(projectSettingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "{}" {
+		t.Errorf("project settings content = %q, want {}", strings.TrimSpace(string(data)))
+	}
+}
+
+func TestSettingsEdit_userFlag(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	t.Setenv("EDITOR", "true")
+	t.Setenv("WN_SETTINGS_USER", userPath)
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	defer resetSettingsEditFlags()
+	rootCmd.SetArgs([]string{"settings", "edit", "--user"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("settings edit --user: %v", err)
+	}
+
+	if _, err := os.Stat(userPath); os.IsNotExist(err) {
+		t.Error("user settings file was not created by settings edit --user")
+	}
+	data, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) != "{}" {
+		t.Errorf("user settings content = %q, want {}", strings.TrimSpace(string(data)))
+	}
+}
+
 // resetCleanupWorktreesFlags resets cleanup worktrees flags to defaults between tests.
 func resetCleanupWorktreesFlags() {
 	cleanupWorktreesDryRun = false

@@ -158,6 +158,58 @@ func pickMultiFzf(items []*Item, suffix func(*Item) string) ([]string, error) {
 	return ids, nil
 }
 
+// PickStringInteractive lets the user choose one entry from a list of display lines.
+// Returns the 0-based index of the selected entry, or -1 if cancelled.
+func PickStringInteractive(lines []string) (int, error) {
+	if len(lines) == 0 {
+		return -1, nil
+	}
+	if useFzf() {
+		return pickStringFzf(lines)
+	}
+	return pickStringNumbered(lines)
+}
+
+func pickStringFzf(lines []string) (int, error) {
+	cmd := exec.Command("fzf", "--no-multi")
+	cmd.Stdin = strings.NewReader(strings.Join(lines, "\n"))
+	cmd.Stderr = os.Stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+			return -1, nil
+		}
+		return -1, err
+	}
+	selected := strings.TrimSpace(string(out))
+	for i, line := range lines {
+		if line == selected {
+			return i, nil
+		}
+	}
+	return -1, nil
+}
+
+func pickStringNumbered(lines []string) (int, error) {
+	for i, line := range lines {
+		fmt.Printf("  %d. %s\n", i+1, line)
+	}
+	fmt.Print("Number (or Enter to cancel): ")
+	sc := bufio.NewScanner(os.Stdin)
+	if !sc.Scan() {
+		return -1, sc.Err()
+	}
+	text := strings.TrimSpace(sc.Text())
+	if text == "" {
+		return -1, nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil || n < 1 || n > len(lines) {
+		return -1, fmt.Errorf("invalid choice")
+	}
+	return n - 1, nil
+}
+
 func pickMultiNumbered(items []*Item, suffix func(*Item) string) ([]string, error) {
 	for i, it := range items {
 		line := fmt.Sprintf("  %d. %s: %s", i+1, it.ID, FirstLine(it.Description))

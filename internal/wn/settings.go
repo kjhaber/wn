@@ -8,34 +8,63 @@ import (
 	"strings"
 )
 
-// UserSettingsPaths returns the ordered list of user-level settings file paths.
-// If WN_SETTINGS is set, it is treated as a comma-separated list of paths (~ expanded).
-// Otherwise falls back to WN_CONFIG_DIR (for tests) or the OS user config dir.
-func UserSettingsPaths() ([]string, error) {
-	if env := os.Getenv("WN_SETTINGS"); env != "" {
-		parts := strings.Split(env, ",")
-		paths := make([]string, 0, len(parts))
-		for _, p := range parts {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			if strings.HasPrefix(p, "~/") {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return nil, err
-				}
-				p = filepath.Join(home, p[2:])
-			}
-			paths = append(paths, p)
-		}
-		return paths, nil
-	}
-	p, err := SettingsPath()
+// NamedSettingsPath is a settings file path with an associated label (e.g. "user", "user-local").
+type NamedSettingsPath struct {
+	Name string
+	Path string
+}
+
+// UserSettingsNamedPaths returns the ordered list of user-level settings file paths with labels.
+// The user path comes from WN_SETTINGS_USER (~ expanded), or falls back to SettingsPath().
+// An optional user-local path is added when WN_SETTINGS_USER_LOCAL is set (~ expanded).
+func UserSettingsNamedPaths() ([]NamedSettingsPath, error) {
+	userPath, err := userSettingsPath()
 	if err != nil {
 		return nil, err
 	}
-	return []string{p}, nil
+	result := []NamedSettingsPath{{Name: "user", Path: userPath}}
+	if local := os.Getenv("WN_SETTINGS_USER_LOCAL"); local != "" {
+		expanded, err := expandHomePath(local)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, NamedSettingsPath{Name: "user-local", Path: expanded})
+	}
+	return result, nil
+}
+
+// UserSettingsPaths returns the ordered list of user-level settings file paths.
+func UserSettingsPaths() ([]string, error) {
+	named, err := UserSettingsNamedPaths()
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, len(named))
+	for i, n := range named {
+		paths[i] = n.Path
+	}
+	return paths, nil
+}
+
+// userSettingsPath returns the effective user settings path.
+// Precedence: WN_SETTINGS_USER > SettingsPath() (which checks WN_CONFIG_DIR).
+func userSettingsPath() (string, error) {
+	if p := os.Getenv("WN_SETTINGS_USER"); p != "" {
+		return expandHomePath(p)
+	}
+	return SettingsPath()
+}
+
+// expandHomePath expands a leading ~/ to the user's home directory.
+func expandHomePath(p string) (string, error) {
+	if strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(home, p[2:]), nil
+	}
+	return p, nil
 }
 
 // RunnerConfig defines an agent command profile (cmd template, optional prompt override, worktree behavior).

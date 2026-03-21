@@ -185,3 +185,72 @@ func TestPickMultiInteractive_NumberedChoice(t *testing.T) {
 		t.Errorf("ids = %v, want [aa, bb]", ids)
 	}
 }
+
+func TestPickStringInteractive_Empty(t *testing.T) {
+	idx, err := PickStringInteractive(nil)
+	if err != nil {
+		t.Errorf("PickStringInteractive(nil) err = %v", err)
+	}
+	if idx != -1 {
+		t.Errorf("PickStringInteractive(nil) = %d, want -1", idx)
+	}
+	idx, err = PickStringInteractive([]string{})
+	if err != nil {
+		t.Errorf("PickStringInteractive([]) err = %v", err)
+	}
+	if idx != -1 {
+		t.Errorf("PickStringInteractive([]) = %d, want -1", idx)
+	}
+}
+
+func TestPickStringInteractive_NumberedChoice(t *testing.T) {
+	t.Setenv("WN_PICKER", "numbered")
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+
+	if _, err := w.WriteString("2\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	lines := []string{"option one", "option two", "option three"}
+	idx, err := PickStringInteractive(lines)
+	if err != nil {
+		t.Errorf("PickStringInteractive err = %v", err)
+	}
+	if idx != 1 {
+		t.Errorf("PickStringInteractive = %d, want 1 (second option, 0-indexed)", idx)
+	}
+}
+
+func TestPickStringInteractive_Cancelled(t *testing.T) {
+	t.Setenv("WN_PICKER", "numbered")
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	origStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = origStdin })
+
+	if _, err := w.WriteString("\n"); err != nil {
+		t.Fatal(err)
+	}
+	w.Close()
+
+	lines := []string{"option one", "option two"}
+	idx, err := PickStringInteractive(lines)
+	if err != nil {
+		t.Errorf("PickStringInteractive err = %v", err)
+	}
+	if idx != -1 {
+		t.Errorf("PickStringInteractive (cancel) = %d, want -1", idx)
+	}
+}
