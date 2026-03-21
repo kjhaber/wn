@@ -73,11 +73,12 @@ func CleanIgnoredFiles(dir string, audit io.Writer) error {
 
 // CleanupWorktreeResult reports one worktree's outcome from CleanupWorktrees.
 type CleanupWorktreeResult struct {
-	Path   string
-	Branch string
-	ItemID string
-	Status string // "removed", "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached", "error"
-	Reason string
+	Path          string
+	Branch        string
+	ItemID        string
+	Status        string // "removed", "branch_deleted", "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached", "error"
+	Reason        string
+	BranchDeleted bool // true if the branch was also deleted
 }
 
 // CleanupWorktrees finds non-main worktrees whose associated wn item is done and
@@ -85,11 +86,27 @@ type CleanupWorktreeResult struct {
 // When cleanIgnored is true, gitignored files are removed from each eligible
 // worktree before removal (to free disk space from build artifacts, etc.).
 // When dryRun is true, no changes are made but results are still returned.
+// When worktreesOnly is false (the default), the associated branch is also deleted
+// after the worktree is removed. Branches for which the worktree was already
+// removed (orphaned branches) are also cleaned up unless worktreesOnly is true.
 // The main worktree (first in git worktree list) is always skipped.
-func CleanupWorktrees(store Store, mainRoot, intoRef string, dryRun, cleanIgnored bool, audit io.Writer) ([]CleanupWorktreeResult, error) {
+func CleanupWorktrees(store Store, mainRoot, intoRef string, dryRun, cleanIgnored, worktreesOnly bool, audit io.Writer) ([]CleanupWorktreeResult, error) {
 	worktrees, err := ListWorktrees(mainRoot)
 	if err != nil {
 		return nil, err
+	}
+
+	ref := intoRef
+	if ref == "" {
+		ref = "HEAD"
+	}
+
+	// Track which branches are covered by an active worktree so we can detect orphans.
+	activeBranches := make(map[string]bool)
+	for _, wt := range worktrees[1:] {
+		if wt.Branch != "" {
+			activeBranches[wt.Branch] = true
+		}
 	}
 
 	var results []CleanupWorktreeResult
@@ -137,15 +154,13 @@ func CleanupWorktrees(store Store, mainRoot, intoRef string, dryRun, cleanIgnore
 
 		// Check if the branch is merged. If the branch no longer exists we treat
 		// it as merged (it was already cleaned up post-merge).
-		ref := intoRef
-		if ref == "" {
-			ref = "HEAD"
-		}
+		branchAlreadyGone := false
 		merged, err := BranchMergedInto(mainRoot, wt.Branch, ref)
 		if err != nil {
 			if strings.Contains(err.Error(), "does not exist") {
 				// Branch was already deleted — safe to remove orphaned worktree.
 				merged = true
+				branchAlreadyGone = true
 			} else {
 				results = append(results, CleanupWorktreeResult{
 					Path:   wt.Path,
@@ -197,12 +212,122 @@ func CleanupWorktrees(store Store, mainRoot, intoRef string, dryRun, cleanIgnore
 			continue
 		}
 
+		branchDeleted := false
+		if !worktreesOnly && !branchAlreadyGone {
+			if delErr := DeleteBranch(mainRoot, wt.Branch, audit); delErr != nil {
+				auditLog(audit, "warning: delete branch %s: %v", wt.Branch, delErr)
+			} else {
+				branchDeleted = true
+			}
+		}
+
 		results = append(results, CleanupWorktreeResult{
-			Path:   wt.Path,
-			Branch: wt.Branch,
-			ItemID: item.ID,
-			Status: "removed",
-			Reason: fmt.Sprintf("removed (branch %s merged into %s)", wt.Branch, ref),
+			Path:          wt.Path,
+			Branch:        wt.Branch,
+			ItemID:        item.ID,
+			Status:        "removed",
+			Reason:        fmt.Sprintf("removed (branch %s merged into %s)", wt.Branch, ref),
+			BranchDeleted: branchDeleted,
+		})
+	}
+
+	// Scan for orphaned branches: branches with done+merged items but no active worktree.
+	if !worktreesOnly {
+		orphanResults, err := cleanupOrphanedBranches(store, mainRoot, ref, activeBranches, dryRun, audit)
+		if err != nil {
+			auditLog(audit, "warning: orphaned branch scan: %v", err)
+		} else {
+			results = append(results, orphanResults...)
+		}
+	}
+
+	return results, nil
+}
+
+// cleanupOrphanedBranches finds branches associated with done+merged wn items
+// that have no active worktree, and deletes them.
+func cleanupOrphanedBranches(store Store, mainRoot, ref string, activeBranches map[string]bool, dryRun bool, audit io.Writer) ([]CleanupWorktreeResult, error) {
+	items, err := store.List()
+	if err != nil {
+		return nil, fmt.Errorf("store.List: %w", err)
+	}
+
+	var results []CleanupWorktreeResult
+	for _, item := range items {
+		if !item.Done {
+			continue
+		}
+		branch := ""
+		for _, n := range item.Notes {
+			if n.Name == "branch" {
+				branch = n.Body
+				break
+			}
+		}
+		if branch == "" {
+			continue
+		}
+		// Skip branches that are currently checked out in an active worktree
+		// (those are handled by the main worktree loop above).
+		if activeBranches[branch] {
+			continue
+		}
+
+		exists, err := BranchExists(mainRoot, branch)
+		if err != nil {
+			results = append(results, CleanupWorktreeResult{
+				Branch: branch,
+				ItemID: item.ID,
+				Status: "error",
+				Reason: fmt.Sprintf("branch existence check failed: %v", err),
+			})
+			continue
+		}
+		if !exists {
+			continue
+		}
+
+		merged, err := BranchMergedInto(mainRoot, branch, ref)
+		if err != nil {
+			results = append(results, CleanupWorktreeResult{
+				Branch: branch,
+				ItemID: item.ID,
+				Status: "error",
+				Reason: fmt.Sprintf("merge check failed: %v", err),
+			})
+			continue
+		}
+		if !merged {
+			continue
+		}
+
+		if dryRun {
+			results = append(results, CleanupWorktreeResult{
+				Branch:        branch,
+				ItemID:        item.ID,
+				Status:        "branch_deleted",
+				Reason:        "would delete orphaned branch (dry run)",
+				BranchDeleted: true,
+			})
+			continue
+		}
+
+		if err := DeleteBranch(mainRoot, branch, audit); err != nil {
+			results = append(results, CleanupWorktreeResult{
+				Branch: branch,
+				ItemID: item.ID,
+				Status: "error",
+				Reason: fmt.Sprintf("git branch -D failed: %v", err),
+			})
+			continue
+		}
+
+		results = append(results, CleanupWorktreeResult{
+			Branch:        branch,
+			ItemID:        item.ID,
+			Status:        "branch_deleted",
+			Reason:        fmt.Sprintf("deleted orphaned branch %s (merged into %s)", branch, ref),
+			BranchDeleted: true,
 		})
 	}
 	return results, nil

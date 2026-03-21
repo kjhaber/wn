@@ -99,7 +99,7 @@ func TestCleanupWorktrees_removesEligible(t *testing.T) {
 	execIn(t, dir, "git", "checkout", def)
 	execIn(t, dir, "git", "merge", "wn-aabbcc-cleanup", "--no-ff", "-m", "merge feature")
 
-	results, err := CleanupWorktrees(store, dir, "", false, false, nil)
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestCleanupWorktrees_skipsNotDone(t *testing.T) {
 	}
 	defer func() { _ = RemoveWorktree(dir, wtPath, nil) }()
 
-	results, err := CleanupWorktrees(store, dir, "", false, false, nil)
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestCleanupWorktrees_skipsNotMerged(t *testing.T) {
 		t.Fatalf("UpdateItem done: %v", err)
 	}
 
-	results, err := CleanupWorktrees(store, dir, "", false, false, nil)
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestCleanupWorktrees_skipsNoItem(t *testing.T) {
 	}
 	defer func() { _ = RemoveWorktree(dir, wtPath, nil) }()
 
-	results, err := CleanupWorktrees(store, dir, "", false, false, nil)
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees: %v", err)
 	}
@@ -304,7 +304,7 @@ func TestCleanupWorktrees_dryRun(t *testing.T) {
 		t.Fatalf("UpdateItem done: %v", err)
 	}
 
-	results, err := CleanupWorktrees(store, dir, "", true /* dryRun */, false, nil)
+	results, err := CleanupWorktrees(store, dir, "", true /* dryRun */, false, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees dryRun: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestCleanupWorktrees_cleanIgnored(t *testing.T) {
 	execIn(t, dir, "git", "checkout", def)
 	execIn(t, dir, "git", "merge", "wn-clnigg-branch", "--no-ff", "-m", "merge")
 
-	results, err := CleanupWorktrees(store, dir, "", false, true /* cleanIgnored */, nil)
+	results, err := CleanupWorktrees(store, dir, "", false, true /* cleanIgnored */, false, nil)
 	if err != nil {
 		t.Fatalf("CleanupWorktrees(cleanIgnored): %v", err)
 	}
@@ -395,5 +395,282 @@ func TestCleanupWorktrees_cleanIgnored(t *testing.T) {
 	// Worktree should be gone
 	if _, err := os.Stat(wtPath); err == nil {
 		t.Error("worktree should have been removed")
+	}
+}
+
+func TestCleanupWorktrees_deletesBranchByDefault(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "delbr1", Description: "branch delete test", Created: now, Updated: now,
+		Tags: []string{}, DependsOn: []string{},
+		Log:   []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{{Name: "branch", Created: now, Body: "wn-delbr1-branch"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	var audit bytes.Buffer
+	wtPath := filepath.Join(dir, "wt-delbr1")
+	_, err = EnsureWorktree(dir, wtPath, "wn-delbr1-branch", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+
+	// Add a commit so there's something to merge
+	writeFile(t, filepath.Join(wtPath, "delbr1.txt"), "work")
+	execIn(t, wtPath, "git", "add", "delbr1.txt")
+	execIn(t, wtPath, "git", "commit", "-m", "add delbr1")
+
+	// Mark done and merge
+	if err := store.UpdateItem("delbr1", func(it *Item) (*Item, error) {
+		it.Done = true
+		it.DoneStatus = DoneStatusDone
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem done: %v", err)
+	}
+	def, _ := DefaultBranch(dir)
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-delbr1-branch", "--no-ff", "-m", "merge delbr1")
+
+	// Run cleanup without worktrees-only (default: also delete branches)
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	var removed []CleanupWorktreeResult
+	for _, r := range results {
+		if r.Status == "removed" && r.Branch == "wn-delbr1-branch" {
+			removed = append(removed, r)
+		}
+	}
+	if len(removed) != 1 {
+		t.Errorf("want 1 removed result, got %d; results: %v", len(removed), results)
+	}
+	if len(removed) == 1 && !removed[0].BranchDeleted {
+		t.Errorf("BranchDeleted should be true when worktreesOnly=false")
+	}
+
+	// Worktree should be gone
+	if _, err := os.Stat(wtPath); err == nil {
+		t.Error("worktree path should have been removed")
+	}
+	// Branch should also be deleted
+	exists, err := BranchExists(dir, "wn-delbr1-branch")
+	if err != nil {
+		t.Fatalf("BranchExists: %v", err)
+	}
+	if exists {
+		t.Error("branch should have been deleted")
+	}
+}
+
+func TestCleanupWorktrees_worktreesOnlySkipsBranchDelete(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "wtonly", Description: "worktrees only test", Created: now, Updated: now,
+		Tags: []string{}, DependsOn: []string{},
+		Log:   []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{{Name: "branch", Created: now, Body: "wn-wtonly-branch"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	var audit bytes.Buffer
+	wtPath := filepath.Join(dir, "wt-wtonly")
+	_, err = EnsureWorktree(dir, wtPath, "wn-wtonly-branch", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+
+	writeFile(t, filepath.Join(wtPath, "wtonly.txt"), "work")
+	execIn(t, wtPath, "git", "add", "wtonly.txt")
+	execIn(t, wtPath, "git", "commit", "-m", "add wtonly")
+
+	if err := store.UpdateItem("wtonly", func(it *Item) (*Item, error) {
+		it.Done = true
+		it.DoneStatus = DoneStatusDone
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem done: %v", err)
+	}
+	def, _ := DefaultBranch(dir)
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-wtonly-branch", "--no-ff", "-m", "merge wtonly")
+
+	// Run cleanup with worktrees-only=true
+	results, err := CleanupWorktrees(store, dir, "", false, false, true, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	var removed []CleanupWorktreeResult
+	for _, r := range results {
+		if r.Status == "removed" && r.Branch == "wn-wtonly-branch" {
+			removed = append(removed, r)
+		}
+	}
+	if len(removed) != 1 {
+		t.Errorf("want 1 removed result, got %d; results: %v", len(removed), results)
+	}
+	if len(removed) == 1 && removed[0].BranchDeleted {
+		t.Errorf("BranchDeleted should be false when worktreesOnly=true")
+	}
+
+	// Worktree should be gone
+	if _, err := os.Stat(wtPath); err == nil {
+		t.Error("worktree path should have been removed")
+	}
+	// Branch should still exist
+	exists, err := BranchExists(dir, "wn-wtonly-branch")
+	if err != nil {
+		t.Fatalf("BranchExists: %v", err)
+	}
+	if !exists {
+		t.Error("branch should still exist when worktreesOnly=true")
+	}
+}
+
+func TestCleanupWorktrees_orphanedBranchCleaned(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "orphan", Description: "orphaned branch test", Created: now, Updated: now,
+		Tags: []string{}, DependsOn: []string{},
+		Log:   []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{{Name: "branch", Created: now, Body: "wn-orphan-branch"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Create branch with a commit but NO worktree
+	def, _ := DefaultBranch(dir) // capture before switching branches
+	execIn(t, dir, "git", "branch", "wn-orphan-branch")
+	// Temporarily check it out to add a commit, then go back
+	execIn(t, dir, "git", "checkout", "wn-orphan-branch")
+	writeFile(t, filepath.Join(dir, "orphan.txt"), "orphaned work")
+	execIn(t, dir, "git", "add", "orphan.txt")
+	execIn(t, dir, "git", "commit", "-m", "orphan commit")
+
+	// Mark done and merge back to main
+	if err := store.UpdateItem("orphan", func(it *Item) (*Item, error) {
+		it.Done = true
+		it.DoneStatus = DoneStatusDone
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem done: %v", err)
+	}
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-orphan-branch", "--no-ff", "-m", "merge orphan")
+	// Branch exists but no worktree for it
+
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	var branchDeleted []CleanupWorktreeResult
+	for _, r := range results {
+		if r.Status == "branch_deleted" && r.Branch == "wn-orphan-branch" {
+			branchDeleted = append(branchDeleted, r)
+		}
+	}
+	if len(branchDeleted) != 1 {
+		t.Errorf("want 1 branch_deleted result, got %d; results: %v", len(branchDeleted), results)
+	}
+	if len(branchDeleted) == 1 && !branchDeleted[0].BranchDeleted {
+		t.Errorf("BranchDeleted should be true for orphaned branch result")
+	}
+
+	// Branch should be gone
+	exists, err := BranchExists(dir, "wn-orphan-branch")
+	if err != nil {
+		t.Fatalf("BranchExists: %v", err)
+	}
+	if exists {
+		t.Error("orphaned branch should have been deleted")
+	}
+}
+
+func TestCleanupWorktrees_orphanedBranchWorktreesOnly(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+	item := &Item{
+		ID: "orphnw", Description: "orphaned branch worktrees-only test", Created: now, Updated: now,
+		Tags: []string{}, DependsOn: []string{},
+		Log:   []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{{Name: "branch", Created: now, Body: "wn-orphnw-branch"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	// Create branch with a commit but NO worktree
+	def, _ := DefaultBranch(dir) // capture before switching branches
+	execIn(t, dir, "git", "branch", "wn-orphnw-branch")
+	execIn(t, dir, "git", "checkout", "wn-orphnw-branch")
+	writeFile(t, filepath.Join(dir, "orphnw.txt"), "orphaned work")
+	execIn(t, dir, "git", "add", "orphnw.txt")
+	execIn(t, dir, "git", "commit", "-m", "orphnw commit")
+
+	if err := store.UpdateItem("orphnw", func(it *Item) (*Item, error) {
+		it.Done = true
+		it.DoneStatus = DoneStatusDone
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem done: %v", err)
+	}
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "wn-orphnw-branch", "--no-ff", "-m", "merge orphnw")
+
+	// Run with worktrees-only=true: orphaned branches should be skipped
+	results, err := CleanupWorktrees(store, dir, "", false, false, true, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	for _, r := range results {
+		if r.Branch == "wn-orphnw-branch" && r.Status == "branch_deleted" {
+			t.Errorf("should not delete orphaned branch when worktreesOnly=true")
+		}
+	}
+
+	// Branch should still exist
+	exists, err := BranchExists(dir, "wn-orphnw-branch")
+	if err != nil {
+		t.Fatalf("BranchExists: %v", err)
+	}
+	if !exists {
+		t.Error("orphaned branch should still exist when worktreesOnly=true")
 	}
 }

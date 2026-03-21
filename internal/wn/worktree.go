@@ -181,6 +181,19 @@ func CommitWorktreeChanges(worktreePath, message string, audit io.Writer) error 
 	return nil
 }
 
+// DeleteBranch deletes the local git branch branchName using -D (force delete).
+// Callers should verify the branch is merged before calling.
+// audit is written to with the git command (can be nil).
+func DeleteBranch(mainRoot, branchName string, audit io.Writer) error {
+	auditLog(audit, "git branch -D %s", branchName)
+	cmd := exec.Command("git", "branch", "-D", branchName)
+	cmd.Dir = mainRoot
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git branch -D: %w\n%s", err, out)
+	}
+	return nil
+}
+
 // RemoveWorktree removes the worktree at worktreePath. mainRoot is the repo root (where .git is).
 // audit is written to with the git command (can be nil).
 func RemoveWorktree(mainRoot, worktreePath string, audit io.Writer) error {
