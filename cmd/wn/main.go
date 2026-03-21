@@ -1381,8 +1381,8 @@ var cleanupCloseDoneItemsDryRun bool
 
 var cleanupWorktreesCmd = &cobra.Command{
 	Use:   "worktrees",
-	Short: "Remove completed worktrees whose branches have been merged",
-	Long:  "Finds all non-main git worktrees whose associated wn item is done and whose branch has been merged into the current HEAD (or --branch). Removes those worktrees. Use --clean-ignored to also remove gitignored files (build artifacts, temp config) before removal. Use --dry-run to preview without making changes.",
+	Short: "Remove completed worktrees and branches whose work is merged",
+	Long:  "Finds all non-main git worktrees whose associated wn item is done and whose branch has been merged into the current HEAD (or --branch). Removes those worktrees and deletes their branches. Also finds and deletes orphaned branches (branches with no worktree whose item is done and merged). Use --worktrees-only to skip branch deletion. Use --clean-ignored to also remove gitignored files (build artifacts, temp config) before removal. Use --dry-run to preview without making changes.",
 	Args:  cobra.NoArgs,
 	RunE:  runCleanupWorktrees,
 }
@@ -1391,6 +1391,7 @@ var cleanupWorktreesDryRun bool
 var cleanupWorktreesBranch string
 var cleanupWorktreesCleanIgnored bool
 var cleanupWorktreesForce bool
+var cleanupWorktreesWorktreesOnly bool
 
 func init() {
 	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
@@ -1401,6 +1402,7 @@ func init() {
 	cleanupWorktreesCmd.Flags().StringVarP(&cleanupWorktreesBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
 	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesCleanIgnored, "clean-ignored", false, "Remove gitignored files (e.g. build artifacts) from each worktree before removal")
 	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesForce, "force", false, "Skip confirmation prompt and remove immediately")
+	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesWorktreesOnly, "worktrees-only", false, "Remove worktrees but do not delete their branches")
 	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd, cleanupWorktreesCmd)
 }
 
@@ -1506,20 +1508,20 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Dry-run pass to find eligible worktrees before prompting.
-	preview, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, true, cleanupWorktreesCleanIgnored, nil)
+	// Dry-run pass to find eligible items before prompting.
+	preview, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, true, cleanupWorktreesCleanIgnored, cleanupWorktreesWorktreesOnly, nil)
 	if err != nil {
 		return err
 	}
 	var eligible []wn.CleanupWorktreeResult
 	for _, r := range preview {
-		if r.Status == "removed" {
+		if r.Status == "removed" || r.Status == "branch_deleted" {
 			eligible = append(eligible, r)
 		}
 	}
 
 	if len(eligible) == 0 {
-		fmt.Println("no worktrees to clean up")
+		fmt.Println("no worktrees or branches to clean up")
 		return nil
 	}
 
@@ -1529,23 +1531,43 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		if r.ItemID != "" {
 			label = r.ItemID + " (" + r.Branch + ")"
 		}
-		fmt.Printf("  %s: %s\n", label, r.Path)
+		if r.Status == "branch_deleted" {
+			fmt.Printf("  branch %s (orphaned)\n", label)
+		} else {
+			fmt.Printf("  %s: %s\n", label, r.Path)
+		}
 	}
 
 	if cleanupWorktreesDryRun {
-		fmt.Printf("would remove %d worktree(s) (dry run)\n", len(eligible))
+		worktreeCount := 0
+		branchCount := 0
+		for _, r := range eligible {
+			if r.Status == "removed" {
+				worktreeCount++
+			} else {
+				branchCount++
+			}
+		}
+		parts := []string{}
+		if worktreeCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d worktree(s)", worktreeCount))
+		}
+		if branchCount > 0 {
+			parts = append(parts, fmt.Sprintf("%d orphaned branch(es)", branchCount))
+		}
+		fmt.Printf("would remove %s (dry run)\n", strings.Join(parts, " and "))
 		return nil
 	}
 
 	if !cleanupWorktreesForce {
-		msg := fmt.Sprintf("Remove %d worktree(s)?", len(eligible))
+		msg := fmt.Sprintf("Remove %d item(s)?", len(eligible))
 		if !promptYN(os.Stdin, os.Stdout, msg) {
 			fmt.Println("aborted")
 			return nil
 		}
 	}
 
-	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, false, cleanupWorktreesCleanIgnored, os.Stderr)
+	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, false, cleanupWorktreesCleanIgnored, cleanupWorktreesWorktreesOnly, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -1556,7 +1578,17 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 			if r.ItemID != "" {
 				label = r.ItemID + " (" + r.Branch + ")"
 			}
-			fmt.Printf("removed %s: %s\n", label, r.Path)
+			suffix := ""
+			if r.BranchDeleted {
+				suffix = " (branch deleted)"
+			}
+			fmt.Printf("removed %s: %s%s\n", label, r.Path, suffix)
+		case "branch_deleted":
+			label := r.Branch
+			if r.ItemID != "" {
+				label = r.ItemID + " (" + r.Branch + ")"
+			}
+			fmt.Printf("deleted orphaned branch %s\n", label)
 		case "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached":
 			// Silently skip — these are expected non-actionable states.
 		case "error":
