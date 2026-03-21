@@ -4713,6 +4713,32 @@ func TestVerifyCommand_failingCommand_errors(t *testing.T) {
 	}
 }
 
+func TestVerifyCommand_failingCommand_suppressesUsage(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	writeVerifySettings(t, dir, "false")
+
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	// Cobra prints usage to rootCmd's out writer (via Println); capture it to assert it's suppressed.
+	var outBuf bytes.Buffer
+	rootCmd.SetOut(&outBuf)
+	defer rootCmd.SetOut(nil)
+
+	rootCmd.SetArgs([]string{"verify"})
+	_ = rootCmd.Execute()
+
+	if strings.Contains(outBuf.String(), "Usage:") {
+		t.Errorf("wn verify should not print usage on command failure; got: %q", outBuf.String())
+	}
+}
+
 func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	dir, _ := setupWnRoot(t)
 	cwd, _ := os.Getwd()

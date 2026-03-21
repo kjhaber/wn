@@ -2667,10 +2667,11 @@ func runSettingsEdit(_ *cobra.Command, _ []string) error {
 }
 
 var verifyCmd = &cobra.Command{
-	Use:   "verify",
-	Short: "Run the configured verify command (e.g. make all, npm test)",
-	Long:  "Runs the shell command configured in settings.verify. Set it in project settings (.wn/settings.json) or user settings (~/.config/wn/settings.json). Useful for agents and humans alike to confirm the build passes.",
-	RunE:  runVerify,
+	Use:          "verify",
+	Short:        "Run the configured verify command (e.g. make all, npm test)",
+	Long:         "Runs the shell command configured in settings.verify. Set it in project settings (.wn/settings.json) or user settings (~/.config/wn/settings.json). Useful for agents and humans alike to confirm the build passes.",
+	RunE:         runVerify,
+	SilenceUsage: true,
 }
 
 func runVerify(cobraCmd *cobra.Command, _ []string) error {
