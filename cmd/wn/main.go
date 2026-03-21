@@ -1378,12 +1378,27 @@ var cleanupCloseDoneItemsCmd = &cobra.Command{
 var cleanupCloseDoneItemsAge string
 var cleanupCloseDoneItemsDryRun bool
 
+var cleanupWorktreesCmd = &cobra.Command{
+	Use:   "worktrees",
+	Short: "Remove completed worktrees whose branches have been merged",
+	Long:  "Finds all non-main git worktrees whose associated wn item is done and whose branch has been merged into the current HEAD (or --branch). Removes those worktrees. Use --clean-ignored to also remove gitignored files (build artifacts, temp config) before removal. Use --dry-run to preview without making changes.",
+	Args:  cobra.NoArgs,
+	RunE:  runCleanupWorktrees,
+}
+
+var cleanupWorktreesDryRun bool
+var cleanupWorktreesBranch string
+var cleanupWorktreesCleanIgnored bool
+
 func init() {
 	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
 	cleanupSetMergedReviewItemsDoneCmd.Flags().StringVarP(&cleanupMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
 	cleanupCloseDoneItemsCmd.Flags().StringVar(&cleanupCloseDoneItemsAge, "age", "", "Age threshold (e.g. 30d, 7d, 48h); items done longer ago are closed")
 	cleanupCloseDoneItemsCmd.Flags().BoolVar(&cleanupCloseDoneItemsDryRun, "dry-run", false, "Report what would be closed without making changes")
-	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd)
+	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesDryRun, "dry-run", false, "Report what would be removed without making changes")
+	cleanupWorktreesCmd.Flags().StringVarP(&cleanupWorktreesBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
+	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesCleanIgnored, "clean-ignored", false, "Remove gitignored files (e.g. build artifacts) from each worktree before removal")
+	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd, cleanupWorktreesCmd)
 }
 
 func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error {
@@ -1464,6 +1479,40 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
 		default:
 			// Unknown status: still print for visibility.
 			fmt.Printf("%s %s: %s\n", r.Status, r.ID, r.Reason)
+		}
+	}
+	return nil
+}
+
+func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, cleanupWorktreesDryRun, cleanupWorktreesCleanIgnored, os.Stderr)
+	if err != nil {
+		return err
+	}
+	for _, r := range results {
+		switch r.Status {
+		case "removed":
+			prefix := "removed"
+			if cleanupWorktreesDryRun {
+				prefix = "would remove"
+			}
+			label := r.Branch
+			if r.ItemID != "" {
+				label = r.ItemID + " (" + r.Branch + ")"
+			}
+			fmt.Printf("%s %s: %s\n", prefix, label, r.Path)
+		case "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached":
+			// Silently skip — these are expected non-actionable states.
+		case "error":
+			fmt.Fprintf(os.Stderr, "error %s: %s\n", r.Branch, r.Reason)
 		}
 	}
 	return nil
