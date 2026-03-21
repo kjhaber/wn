@@ -1643,6 +1643,46 @@ func TestMCP_wn_list_GitWorktree(t *testing.T) {
 	}
 }
 
+func TestMCP_wn_note_add_empty_body(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	// Empty body should be allowed and stored as empty string
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_add",
+		Arguments: map[string]any{"id": "abc123", "name": "my-tag"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_add: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_add with empty body should succeed; got: %s", textContent(res))
+	}
+
+	showRes, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "wn_show", Arguments: map[string]any{"id": "abc123"}})
+	if err != nil {
+		t.Fatalf("CallTool wn_show: %v", err)
+	}
+	var show struct {
+		Notes []struct {
+			Name string `json:"name"`
+			Body string `json:"body"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal([]byte(textContent(showRes)), &show); err != nil {
+		t.Fatalf("wn_show JSON: %v", err)
+	}
+	found := false
+	for _, n := range show.Notes {
+		if n.Name == "my-tag" && n.Body == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("empty-body note not found; notes = %v", show.Notes)
+	}
+}
+
 func TestMCP_wn_note_add_unknown_special_name(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()

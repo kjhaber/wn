@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRmdepend)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_note_add",
-		Description: "Add or update a note on a work item by name. Note name: alphanumeric, slash, underscore, hyphen, 1–32 chars (e.g. pr-url, issue-number). If id is omitted, uses current task.",
+		Description: "Add or update a note on a work item by name. Note name: alphanumeric, slash, underscore, hyphen, 1–32 chars (e.g. pr-url, issue-number); or wn:<name> for special notes (e.g. wn:branch). Body is optional — omit to store an empty note, or for wn:branch to auto-detect the current git branch. If id is omitted, uses current task.",
 	}, handleWnNoteAdd)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_note_edit",
@@ -753,8 +754,8 @@ func handleWnRmdepend(ctx context.Context, req *mcp.CallToolRequest, in wnRmdepe
 
 type wnNoteAddIn struct {
 	ID   string `json:"id,omitempty" jsonschema:"Work item id; omit for current task"`
-	Name string `json:"name" jsonschema:"Note name (alphanumeric, slash, underscore, hyphen, 1-32 chars)"`
-	Body string `json:"body" jsonschema:"Note text (add or update)"`
+	Name string `json:"name" jsonschema:"Note name (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes e.g. wn:branch)"`
+	Body string `json:"body,omitempty" jsonschema:"Note text; omit or leave empty to store an empty note. For wn:branch specifically, omitting body auto-detects the current git branch from the process cwd."`
 	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
@@ -778,8 +779,16 @@ func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAdd
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	trimmed := strings.TrimSpace(in.Body)
-	if trimmed == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "body is required and cannot be empty"}}, IsError: true}, nil, nil
+	if trimmed == "" && in.Name == NoteNameBranch {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: %v", err)}}, IsError: true}, nil, nil
+		}
+		branch, err := CurrentBranchInDir(cwd)
+		if err != nil {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: could not detect current git branch: %v", err)}}, IsError: true}, nil, nil
+		}
+		trimmed = branch
 	}
 	now := time.Now().UTC()
 	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
