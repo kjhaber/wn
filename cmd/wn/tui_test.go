@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kjhaber/wn/internal/wn"
 )
 
@@ -533,6 +534,47 @@ func TestHandleEditor_RespondMarksItemDoneWithNote(t *testing.T) {
 	}
 }
 
+// --- renderHints and help toggle ---
+
+func TestRenderHints_CompactFitsIn80Chars(t *testing.T) {
+	m := tuiModel{width: 80, height: 24}
+	hints := m.renderHints()
+	w := lipgloss.Width(hints)
+	if w > 80 {
+		t.Errorf("renderHints visual width %d exceeds 80 chars", w)
+	}
+}
+
+func TestRenderHints_ContainsHelpKey(t *testing.T) {
+	m := tuiModel{width: 80, height: 24}
+	hints := m.renderHints()
+	if !strings.Contains(hints, "?") {
+		t.Error("renderHints should contain '?' for help toggle")
+	}
+}
+
+func TestHandleKey_QuestionMark_TogglesHelp(t *testing.T) {
+	m := tuiModel{width: 80, height: 24}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	if !result.showHelp {
+		t.Error("'?' should enable showHelp")
+	}
+	result2, _ := result.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	if result2.showHelp {
+		t.Error("'?' again should disable showHelp")
+	}
+}
+
+func TestTUIHelpContent_ContainsAllShortcuts(t *testing.T) {
+	content := tuiHelpContent()
+	shortcuts := []string{"a", "e", "x", "u", "-", "D", "r", ">", "/", "#", "f", "q"}
+	for _, s := range shortcuts {
+		if !strings.Contains(content, "["+s+"]") {
+			t.Errorf("help content missing shortcut [%s]", s)
+		}
+	}
+}
+
 // --- default filter ---
 
 func TestNewTUI_DefaultFilterIsActive(t *testing.T) {
@@ -675,7 +717,6 @@ func TestBuildRows_SameGroupNoExtraHeader(t *testing.T) {
 		t.Errorf("expected 3 rows (1 header + 2 items), got %d: %v", len(m.rows), m.rows)
 	}
 }
-
 func TestHandleKey_R_rejectsNonPromptItem(t *testing.T) {
 	root := t.TempDir()
 	if err := wn.InitRoot(root); err != nil {

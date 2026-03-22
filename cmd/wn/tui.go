@@ -97,6 +97,8 @@ type tuiModel struct {
 	width  int
 	height int
 
+	showHelp bool
+
 	msg string
 	err error
 }
@@ -300,6 +302,11 @@ func (m *tuiModel) refreshViewport() {
 	if !m.vpReady {
 		return
 	}
+	if m.showHelp {
+		m.vp.SetContent(tuiHelpContent())
+		m.vp.GotoTop()
+		return
+	}
 	it := m.selected()
 	if it == nil {
 		m.vp.SetContent("(no items)")
@@ -486,10 +493,15 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		m.listOffset = 0
 		m.refreshViewport()
 
+	case "?":
+		m.showHelp = !m.showHelp
+		m.refreshViewport()
+
 	case "esc":
 		m.filterMode = false
 		m.filterText = ""
-		m.statusFilter = tuiFilterActive
+		m.statusFilter = tuiFilterAll
+		m.showHelp = false
 		m.applyFilter()
 		m.clampCursor()
 		m.refreshViewport()
@@ -823,18 +835,38 @@ func (m tuiModel) renderFooter() string {
 }
 
 func (m tuiModel) renderHints() string {
+	if m.showHelp {
+		return styleFooter.Render(" [?]close help  [q]quit")
+	}
 	type hint struct{ k, d string }
 	hints := []hint{
-		{"a", "add"}, {"e", "edit"}, {"x", "done"}, {"r", "respond"},
-		{"-", "suspend"}, {"u", "undone"}, {"D", "delete"},
-		{"↵", "set current"}, {">", "launch"}, {"/", "search"}, {"#", "tag filter"},
-		{"f", "cycle filter"}, {"PgUp/Dn", "scroll"}, {"q", "quit"},
+		{"↵", "current"}, {"a", "add"}, {"e", "edit"}, {"x", "done"},
+		{"/", "search"}, {"f", "filter"}, {"q", "quit"}, {"?", "more"},
 	}
 	var parts []string
 	for _, h := range hints {
 		parts = append(parts, styleKey.Render("["+h.k+"]")+styleFooter.Render(h.d))
 	}
 	return " " + strings.Join(parts, "  ")
+}
+
+// tuiHelpContent returns a formatted string of all keyboard shortcuts for display in the help overlay.
+func tuiHelpContent() string {
+	var b strings.Builder
+	b.WriteString("Keyboard Shortcuts\n\n")
+	b.WriteString("Item Actions:\n")
+	b.WriteString("  [a]  add new item          [e]  edit selected\n")
+	b.WriteString("  [x]  mark done             [u]  mark undone\n")
+	b.WriteString("  [-]  suspend               [D]  delete\n")
+	b.WriteString("  [r]  respond to prompt     [↵]  set as current\n")
+	b.WriteString("  [>]  launch in worktree\n")
+	b.WriteString("\nNavigation & Filter:\n")
+	b.WriteString("  [/]  search by text        [#]  search by tag\n")
+	b.WriteString("  [f]  cycle status filter   [Esc]  clear filters\n")
+	b.WriteString("  [↑/k]  move up             [↓/j]  move down\n")
+	b.WriteString("  [PgUp/PgDn]  scroll detail pane\n")
+	b.WriteString("\n  [?]  toggle this help     [q]  quit\n")
+	return b.String()
 }
 
 // wrapLines word-wraps text to fit within width columns, preserving explicit newlines.
