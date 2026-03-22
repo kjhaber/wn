@@ -357,6 +357,97 @@ func TestNextUndoneItem_withTag(t *testing.T) {
 	}
 }
 
+func TestFilterByTag_compound(t *testing.T) {
+	mkItem := func(id string, tags ...string) *Item {
+		return &Item{ID: id, Tags: tags}
+	}
+	items := []*Item{
+		mkItem("aaa", "agent", "backend"),
+		mkItem("bbb", "agent"),
+		mkItem("ccc", "backend"),
+		mkItem("ddd"),
+	}
+
+	tests := []struct {
+		name    string
+		tag     string
+		wantIDs []string
+	}{
+		// single tag (backward-compatible)
+		{"empty tag returns all", "", []string{"aaa", "bbb", "ccc", "ddd"}},
+		{"single tag agent", "agent", []string{"aaa", "bbb"}},
+		{"single tag backend", "backend", []string{"aaa", "ccc"}},
+		{"single tag missing", "nonexistent", nil},
+		// AND semantics (comma-separated)
+		{"AND agent,backend", "agent,backend", []string{"aaa"}},
+		{"AND backend,agent", "backend,agent", []string{"aaa"}},
+		{"AND agent,nonexistent", "agent,nonexistent", nil},
+		// OR semantics (pipe-separated)
+		{"OR agent|backend", "agent|backend", []string{"aaa", "bbb", "ccc"}},
+		{"OR agent|nonexistent", "agent|nonexistent", []string{"aaa", "bbb"}},
+		{"OR nonexistent|missing", "nonexistent|missing", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FilterByTag(items, tt.tag)
+			gotIDs := itemIDs(got)
+			if len(gotIDs) != len(tt.wantIDs) {
+				t.Fatalf("FilterByTag(%q) = %v, want %v", tt.tag, gotIDs, tt.wantIDs)
+			}
+			for i, id := range tt.wantIDs {
+				if gotIDs[i] != id {
+					t.Errorf("FilterByTag(%q)[%d] = %q, want %q", tt.tag, i, gotIDs[i], id)
+				}
+			}
+		})
+	}
+}
+
+func TestNextUndoneItem_compoundTag(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for i, tc := range []struct {
+		id   string
+		tags []string
+	}{
+		{"aaa", []string{"agent", "backend"}},
+		{"bbb", []string{"agent"}},
+		{"ccc", []string{"backend"}},
+	} {
+		ord := i
+		item := &Item{
+			ID: tc.id, Description: "item " + tc.id,
+			Created: now, Updated: now, Order: &ord, Tags: tc.tags,
+			Log: []LogEntry{{At: now, Kind: "created"}},
+		}
+		if err := store.Put(item); err != nil {
+			t.Fatalf("Put %s: %v", tc.id, err)
+		}
+	}
+
+	// AND: only aaa has both agent and backend
+	next, err := NextUndoneItem(store, "agent,backend")
+	if err != nil {
+		t.Fatalf("NextUndoneItem(agent,backend): %v", err)
+	}
+	if next == nil || next.ID != "aaa" {
+		t.Errorf("NextUndoneItem(agent,backend) = %v, want aaa", next)
+	}
+
+	// OR: aaa comes first in topo order and has agent|backend
+	next, err = NextUndoneItem(store, "agent|backend")
+	if err != nil {
+		t.Fatalf("NextUndoneItem(agent|backend): %v", err)
+	}
+	if next == nil || next.ID != "aaa" {
+		t.Errorf("NextUndoneItem(agent|backend) = %v, want aaa", next)
+	}
+}
+
 func TestItemListStatus_promptReady(t *testing.T) {
 	now := time.Now().UTC()
 	future := now.Add(time.Hour)

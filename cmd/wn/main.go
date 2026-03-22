@@ -1668,7 +1668,7 @@ var nextClaimBy string
 var nextTag string
 
 func init() {
-	nextCmd.Flags().StringVar(&nextTag, "tag", "", "Only consider items with this tag (next undone in dependency order)")
+	nextCmd.Flags().StringVar(&nextTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
 	nextCmd.Flags().StringVar(&nextClaimFor, "claim", "", "Also claim the task for this duration (e.g. 30m, 1h)")
 	nextCmd.Flags().StringVar(&nextClaimBy, "claim-by", "", "Optional worker ID when using --claim")
 }
@@ -1734,6 +1734,7 @@ var pickUndone bool
 var pickDone bool
 var pickAll bool
 var pickReviewReady bool
+var pickTag string
 
 func initPick() {
 	pickCmd.Flags().BoolVar(&pickUndone, "undone", false, "Pick from undone items only (default)")
@@ -1741,6 +1742,7 @@ func initPick() {
 	pickCmd.Flags().BoolVar(&pickAll, "all", false, "Pick from all items")
 	pickCmd.Flags().BoolVar(&pickReviewReady, "rr", false, "Pick from review-ready items only")
 	pickCmd.Flags().BoolVar(&pickReviewReady, "review-ready", false, "Pick from review-ready items only")
+	pickCmd.Flags().StringVar(&pickTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
 }
 
 func runPick(cmd *cobra.Command, args []string) error {
@@ -1859,6 +1861,7 @@ func runPick(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	items = wn.FilterByTag(items, pickTag)
 	if len(items) == 0 {
 		msg := "No undone tasks."
 		if pickDone {
@@ -2802,7 +2805,7 @@ func init() {
 	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
 	listCmd.Flags().BoolVar(&listReviewReady, "review-ready", false, "List review-ready items only")
 	listCmd.Flags().BoolVar(&listReviewReady, "rr", false, "List review-ready items only")
-	listCmd.Flags().StringVar(&listTag, "tag", "", "Filter by tag")
+	listCmd.Flags().StringVar(&listTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
 	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
 	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
 	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N items")
@@ -2880,18 +2883,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	} else {
 		items = nil
 	}
-	if listTag != "" {
-		var filtered []*wn.Item
-		for _, it := range items {
-			for _, t := range it.Tags {
-				if t == listTag {
-					filtered = append(filtered, it)
-					break
-				}
-			}
-		}
-		items = filtered
-	}
+	items = wn.FilterByTag(items, listTag)
 	var ordered []*wn.Item
 	sortSpec := listSortSpec(root)
 	if len(sortSpec) > 0 {

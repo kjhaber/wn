@@ -223,7 +223,7 @@ func uniqueStrings(s []string) []string {
 }
 
 type wnListIn struct {
-	Tag    string `json:"tag,omitempty" jsonschema:"Filter by tag (optional)"`
+	Tag    string `json:"tag,omitempty" jsonschema:"Filter by tag (optional); use 'a,b' for AND (must have both) or 'a|b' for OR (has either)"`
 	Limit  int    `json:"limit,omitempty" jsonschema:"Return at most N items (optional; no limit if 0 or omitted)"`
 	Offset int    `json:"offset,omitempty" jsonschema:"Skip first N items (optional)"`
 	Cursor string `json:"cursor,omitempty" jsonschema:"Start after this item id (optional; for key-set pagination)"`
@@ -252,18 +252,7 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	if in.Tag != "" {
-		filtered := items[:0]
-		for _, it := range items {
-			for _, t := range it.Tags {
-				if t == in.Tag {
-					filtered = append(filtered, it)
-					break
-				}
-			}
-		}
-		items = filtered
-	}
+	items = FilterByTag(items, in.Tag)
 	var ordered []*Item
 	settings, _ := ReadSettingsInRoot(root)
 	if spec := SortSpecFromSettings(settings); len(spec) > 0 {
@@ -612,7 +601,7 @@ func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnRelease
 
 type wnNextIn struct {
 	Root     string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
-	Tag      string `json:"tag,omitempty" jsonschema:"Optional tag; when set, return/set current to the next undone item that has this tag (dependency order)"`
+	Tag      string `json:"tag,omitempty" jsonschema:"Optional tag filter (dependency order); use 'a,b' for AND (must have both) or 'a|b' for OR (has either)"`
 	ClaimFor string `json:"claim_for,omitempty" jsonschema:"If set, atomically claim the returned item for this duration (e.g. 30m, 1h)"`
 	ClaimBy  string `json:"claim_by,omitempty" jsonschema:"Optional worker id when claim_for is set"`
 }

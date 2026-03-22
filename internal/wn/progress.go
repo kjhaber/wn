@@ -1,6 +1,10 @@
 package wn
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // ItemListStatus returns the display status for list/JSON output.
 // Possible values: "undone", "blocked", "claimed", "review", "done", "closed", "suspend".
@@ -135,18 +139,47 @@ func ReviewReadyItems(store Store) ([]*Item, error) {
 	return result, nil
 }
 
-// FilterByTag returns items that have the given tag. If tag is empty, returns items unchanged.
+// FilterByTag returns items matching the tag expression. If tag is empty, returns items unchanged.
+// Compound expressions: "a,b" means AND (item must have all tags); "a|b" means OR (item has any).
+// Plain "a" is a single-tag exact match (backward-compatible).
 func FilterByTag(items []*Item, tag string) []*Item {
 	if tag == "" {
 		return items
 	}
+	var match func(*Item) bool
+	if strings.Contains(tag, ",") {
+		required := strings.Split(tag, ",")
+		match = func(it *Item) bool {
+			tagSet := make(map[string]bool, len(it.Tags))
+			for _, t := range it.Tags {
+				tagSet[t] = true
+			}
+			for _, r := range required {
+				if !tagSet[r] {
+					return false
+				}
+			}
+			return true
+		}
+	} else if strings.Contains(tag, "|") {
+		any := strings.Split(tag, "|")
+		match = func(it *Item) bool {
+			for _, t := range it.Tags {
+				if slices.Contains(any, t) {
+					return true
+				}
+			}
+			return false
+		}
+	} else {
+		match = func(it *Item) bool {
+			return slices.Contains(it.Tags, tag)
+		}
+	}
 	filtered := make([]*Item, 0, len(items))
 	for _, it := range items {
-		for _, t := range it.Tags {
-			if t == tag {
-				filtered = append(filtered, it)
-				break
-			}
+		if match(it) {
+			filtered = append(filtered, it)
 		}
 	}
 	return filtered
