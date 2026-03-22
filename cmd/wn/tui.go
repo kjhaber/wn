@@ -305,7 +305,7 @@ func (m *tuiModel) refreshViewport() {
 		m.vp.SetContent("(no items)")
 		return
 	}
-	m.vp.SetContent(tuiItemDetail(it, m.blockedSet[it.ID], m.store))
+	m.vp.SetContent(tuiItemDetail(it, m.blockedSet[it.ID], m.store, m.vp.Width))
 	m.vp.GotoTop()
 }
 
@@ -837,12 +837,52 @@ func (m tuiModel) renderHints() string {
 	return " " + strings.Join(parts, "  ")
 }
 
+// wrapLines word-wraps text to fit within width columns, preserving explicit newlines.
+// If width <= 0, text is returned unchanged.
+func wrapLines(text string, width int) string {
+	if width <= 0 {
+		return text
+	}
+	lines := strings.Split(text, "\n")
+	var out []string
+	for _, line := range lines {
+		if len([]rune(line)) <= width {
+			out = append(out, line)
+			continue
+		}
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			out = append(out, line)
+			continue
+		}
+		var current strings.Builder
+		for _, word := range words {
+			wlen := len([]rune(word))
+			if current.Len() == 0 {
+				current.WriteString(word)
+			} else if current.Len()+1+wlen <= width {
+				current.WriteByte(' ')
+				current.WriteString(word)
+			} else {
+				out = append(out, current.String())
+				current.Reset()
+				current.WriteString(word)
+			}
+		}
+		if current.Len() > 0 {
+			out = append(out, current.String())
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
 // tuiItemDetail renders a work item as a multi-line string for the detail pane.
-func tuiItemDetail(item *wn.Item, blocked bool, store wn.Store) string {
+// width is the column width for word-wrapping; pass 0 to disable wrapping.
+func tuiItemDetail(item *wn.Item, blocked bool, store wn.Store, width int) string {
 	const timeFmt = "2006-01-02 15:04"
 	var b strings.Builder
 
-	b.WriteString(item.Description)
+	b.WriteString(wrapLines(item.Description, width))
 	b.WriteString("\n")
 
 	b.WriteString("\nstatus: ")
@@ -864,7 +904,12 @@ func tuiItemDetail(item *wn.Item, blocked bool, store wn.Store) string {
 	if len(item.Notes) > 0 {
 		b.WriteString("\nnotes:\n")
 		for _, n := range item.Notes {
-			b.WriteString(fmt.Sprintf("  %-20s  %s\n  %s\n", n.Name, n.Created.Format(timeFmt), n.Body))
+			// Wrap the note body; subtract 2 for the leading "  " indent.
+			noteWidth := width - 2
+			body := wrapLines(n.Body, noteWidth)
+			// Re-indent wrapped lines.
+			indentedBody := strings.ReplaceAll(body, "\n", "\n  ")
+			b.WriteString(fmt.Sprintf("  %-20s  %s\n  %s\n", n.Name, n.Created.Format(timeFmt), indentedBody))
 		}
 	}
 

@@ -49,7 +49,7 @@ func TestTUIItemDetail_BasicFields(t *testing.T) {
 		Tags:        []string{"feature", "urgent"},
 		Log:         []wn.LogEntry{{At: time.Now().UTC(), Kind: "created"}},
 	}
-	got := tuiItemDetail(item, false, nil)
+	got := tuiItemDetail(item, false, nil, 80)
 
 	if !strings.Contains(got, "My task") {
 		t.Error("expected description in detail")
@@ -80,7 +80,7 @@ func TestTUIItemDetail_DoneStatus(t *testing.T) {
 		Created:     time.Now().UTC(),
 		Updated:     time.Now().UTC(),
 	}
-	got := tuiItemDetail(item, false, nil)
+	got := tuiItemDetail(item, false, nil, 80)
 	if !strings.Contains(got, "status:") {
 		t.Error("expected status in detail")
 	}
@@ -97,7 +97,7 @@ func TestTUIItemDetail_WithNotes(t *testing.T) {
 			{Name: "pr-url", Created: now, Body: "https://example.com/pr/1"},
 		},
 	}
-	got := tuiItemDetail(item, false, nil)
+	got := tuiItemDetail(item, false, nil, 80)
 	if !strings.Contains(got, "notes:") {
 		t.Error("expected notes section")
 	}
@@ -116,9 +116,150 @@ func TestTUIItemDetail_NoDepsWhenEmpty(t *testing.T) {
 		Created:     time.Now().UTC(),
 		Updated:     time.Now().UTC(),
 	}
-	got := tuiItemDetail(item, false, nil)
+	got := tuiItemDetail(item, false, nil, 80)
 	if strings.Contains(got, "deps:") {
 		t.Error("should not show deps when none")
+	}
+}
+
+func TestTUIItemDetail_LongDescriptionWraps(t *testing.T) {
+	// A description with no newlines longer than the width should be wrapped.
+	longDesc := "This is a very long description that should be wrapped because it exceeds the specified column width by quite a bit and needs to be readable."
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: longDesc,
+		Created:     time.Now().UTC(),
+		Updated:     time.Now().UTC(),
+	}
+	width := 40
+	got := tuiItemDetail(item, false, nil, width)
+
+	// All content should still be present (no truncation).
+	if !strings.Contains(got, "This is a very long description") {
+		t.Error("expected beginning of description in output")
+	}
+	if !strings.Contains(got, "readable.") {
+		t.Error("expected end of description in output")
+	}
+
+	// Every line of the description portion should fit within the width.
+	descPart := strings.Split(got, "\nstatus:")[0]
+	for _, line := range strings.Split(descPart, "\n") {
+		if len([]rune(line)) > width {
+			t.Errorf("description line exceeds width %d: %q (len=%d)", width, line, len([]rune(line)))
+		}
+	}
+}
+
+func TestTUIItemDetail_ExistingNewlinesPreserved(t *testing.T) {
+	// Explicit newlines in the description must be preserved after wrapping.
+	desc := "First paragraph.\n\nSecond paragraph."
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: desc,
+		Created:     time.Now().UTC(),
+		Updated:     time.Now().UTC(),
+	}
+	got := tuiItemDetail(item, false, nil, 80)
+	if !strings.Contains(got, "First paragraph.") {
+		t.Error("expected first paragraph")
+	}
+	if !strings.Contains(got, "Second paragraph.") {
+		t.Error("expected second paragraph")
+	}
+	// The blank line between paragraphs should still appear.
+	if !strings.Contains(got, "First paragraph.\n\nSecond paragraph.") {
+		t.Error("blank line between paragraphs should be preserved")
+	}
+}
+
+func TestTUIItemDetail_LongNoteBodyWraps(t *testing.T) {
+	now := time.Now().UTC()
+	longBody := "This note body is intentionally very long so that it will need to be word-wrapped when displayed in a narrow terminal column."
+	item := &wn.Item{
+		ID:          "abc123",
+		Description: "Task",
+		Created:     now,
+		Updated:     now,
+		Notes:       []wn.Note{{Name: "detail", Created: now, Body: longBody}},
+	}
+	width := 40
+	got := tuiItemDetail(item, false, nil, width)
+
+	// Note body content must be present (check words that fit on one line).
+	if !strings.Contains(got, "intentionally") {
+		t.Error("expected 'intentionally' from note body in output")
+	}
+	if !strings.Contains(got, "word-wrapped") {
+		t.Error("expected 'word-wrapped' from note body in output")
+	}
+
+	// Find the notes section and check that no note-body line exceeds width.
+	noteIdx := strings.Index(got, "\nnotes:")
+	if noteIdx < 0 {
+		t.Fatal("notes section not found")
+	}
+	notesSection := got[noteIdx+1:]
+	for _, line := range strings.Split(notesSection, "\n") {
+		stripped := strings.TrimLeft(line, " ") // strip leading indent
+		if len([]rune(stripped)) > width {
+			t.Errorf("note body line exceeds width %d: %q (len=%d)", width, stripped, len([]rune(stripped)))
+		}
+	}
+}
+
+// --- wrapLines ---
+
+func TestWrapLines_ShortLinesUnchanged(t *testing.T) {
+	in := "short line"
+	got := wrapLines(in, 40)
+	if got != in {
+		t.Errorf("wrapLines(%q, 40) = %q, want %q", in, got, in)
+	}
+}
+
+func TestWrapLines_LongLineWraps(t *testing.T) {
+	in := "one two three four five six seven eight nine ten"
+	got := wrapLines(in, 20)
+	for _, line := range strings.Split(got, "\n") {
+		if len(line) > 20 {
+			t.Errorf("line exceeds width 20: %q", line)
+		}
+	}
+	// All words must still appear.
+	if !strings.Contains(got, "one") || !strings.Contains(got, "ten") {
+		t.Error("expected all words to be present after wrap")
+	}
+}
+
+func TestWrapLines_PreservesExplicitNewlines(t *testing.T) {
+	in := "para one\n\npara two"
+	got := wrapLines(in, 40)
+	if got != in {
+		t.Errorf("wrapLines should preserve explicit newlines: got %q", got)
+	}
+}
+
+func TestWrapLines_MultiParagraphWrap(t *testing.T) {
+	in := "a b c d e f g h i j\n\nk l m n o p q r s t"
+	got := wrapLines(in, 10)
+	// Blank line should be preserved.
+	if !strings.Contains(got, "\n\n") {
+		t.Error("expected blank line to be preserved in output")
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if len(line) > 10 {
+			t.Errorf("line exceeds width 10: %q", line)
+		}
+	}
+}
+
+func TestWrapLines_ZeroWidthNoWrap(t *testing.T) {
+	in := "a very long line that would normally wrap"
+	got := wrapLines(in, 0)
+	// width <= 0 means no wrapping.
+	if got != in {
+		t.Errorf("wrapLines with width=0 should return unchanged: got %q", got)
 	}
 }
 
