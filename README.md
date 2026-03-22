@@ -67,7 +67,6 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn cleanup set-merged-review-items-done` | Check all review-ready items; mark done if their `branch` note has been merged to the current branch. Use `--dry-run` to preview; `-b main` to check against a specific ref. |
 | `wn cleanup close-done-items [--age 30d]` | Close items that have been in **done** state longer than the configured age. Use `--dry-run` to preview. |
 | `wn cleanup worktrees` | Remove git worktrees whose associated wn item is done and whose branch has been merged, and delete their branches. Also finds and deletes orphaned branches (no worktree, but done+merged item). Prompts for confirmation before removing. Use `--worktrees-only` to skip branch deletion; `--force` to skip the prompt; `--dry-run` to preview without removing; `--clean-ignored` to also remove gitignored files (build artifacts, temp config) before removal; `-b <ref>` to check against a specific ref instead of HEAD. |
-| `wn merge [--wid <id>]` | Merge a review-ready item's branch into main: rebase, merge, validate (e.g. `make`), mark done, delete branch. Omit `--wid` for current task. Use `--main-branch` and `--validate` to override defaults. |
 | `wn log <id>` | Show history for an item. |
 | `wn prompt [parent-id] -m "question"` | Create a prompt item (a question for the user) and add it as a dependency of the parent. The parent becomes **blocked** until the user responds with `wn respond`. Omit parent-id for current task; omit `-m` to use `$EDITOR`. See [Agent/human prompt workflow](#agenthuman-prompt-workflow). |
 | `wn respond [prompt-id] -m "answer"` | Respond to a prompt item: marks it done and stores the answer as a `response` note. Unblocks the parent item. Omit prompt-id for current task; omit `-m` to use `$EDITOR`. |
@@ -99,7 +98,7 @@ Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the w
 | **closed** | Completed and closed (e.g. archived). Terminal state. |
 | **suspend** | Deferred—not ready to implement or not sure you want to. Like done (excluded from next/claim) but not retired to closed; use for ideas you might revisit. |
 
-**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays in the list but is excluded from `wn next` and agent claim so it won't be picked again. Use `wn list --rr` to see review-ready items. Mark it done when work is merged (`wn done`, `wn merge`, or `wn cleanup set-merged-review-items-done`).
+**Review-ready:** When you or an agent runs `wn release`, the item is marked *review-ready*: it stays in the list but is excluded from `wn next` and agent claim so it won't be picked again. Use `wn list --rr` to see review-ready items. Mark it done when work is merged (`wn done` or `wn cleanup set-merged-review-items-done`).
 
 ## Shell completion
 
@@ -248,7 +247,7 @@ WORKTREE=$(wn worktree --next)
 
 **Flags:** `--next` claims the next undone item (respects `next.tag` from settings; override with `--tag`). `--claim <duration>` overrides `worktree.claim`. `--branch-prefix` and `--worktree-base` override the corresponding settings.
 
-**After the work is done:** run `wn release [id]` to mark the item review-ready (or `wn done` if you want to skip review). The worktree stays until you remove it — `git worktree remove <path>` or `wn merge` (which rebases, merges to main, and marks done in one step).
+**After the work is done:** run `wn release [id]` to mark the item review-ready (or `wn done` if you want to skip review). The worktree stays until you remove it — `git worktree remove <path>`.
 
 **Branch notes:** The worktree path is derived from the branch name, which is stored as a `wn:branch` note on the item. On a subsequent run the same branch and worktree are reused. To use a specific branch, set the `wn:branch` note before running: `wn note add wn:branch -m "my-branch-name"` (or omit `-m` to auto-detect from the current git branch).
 
