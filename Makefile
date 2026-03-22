@@ -2,10 +2,13 @@
 
 BUILD_DIR := build
 
-.PHONY: fmt lint test cover build clean all
+.PHONY: fmt lint test cover build clean all check
 
 # Default target runs all quality checks then builds
 all: fmt lint cover build
+
+# All checks except golangci-lint (used in CI where lint runs via golangci-lint-action)
+check: fmt cover build
 
 # Check that all Go files are formatted (fails if any need formatting)
 fmt:
