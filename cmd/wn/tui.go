@@ -65,6 +65,16 @@ const (
 	tuiEditorRespond
 )
 
+const tuiRefreshInterval = 10 * time.Second
+
+type tuiTickMsg time.Time
+
+func tuiTickCmd() tea.Cmd {
+	return tea.Tick(tuiRefreshInterval, func(t time.Time) tea.Msg {
+		return tuiTickMsg(t)
+	})
+}
+
 type tuiLoadedMsg []*wn.Item
 type tuiEditorMsg struct {
 	action  tuiEditorAction
@@ -114,7 +124,7 @@ func newTUI(store wn.Store, root string, settings wn.Settings, currentID string)
 }
 
 func (m tuiModel) Init() tea.Cmd {
-	return m.cmdLoad()
+	return tea.Batch(m.cmdLoad(), tuiTickCmd())
 }
 
 func (m tuiModel) cmdLoad() tea.Cmd {
@@ -335,6 +345,9 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.refreshViewport()
 		return m, nil
+
+	case tuiTickMsg:
+		return m, tea.Batch(m.cmdLoad(), tuiTickCmd())
 
 	case tuiLoadedMsg:
 		m.allItems = []*wn.Item(msg)

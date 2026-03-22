@@ -717,6 +717,31 @@ func TestBuildRows_SameGroupNoExtraHeader(t *testing.T) {
 		t.Errorf("expected 3 rows (1 header + 2 items), got %d: %v", len(m.rows), m.rows)
 	}
 }
+
+// --- auto-refresh ---
+
+func TestTUIRefreshInterval_IsReasonable(t *testing.T) {
+	if tuiRefreshInterval < 5*time.Second || tuiRefreshInterval > 60*time.Second {
+		t.Errorf("tuiRefreshInterval %v is outside reasonable range [5s, 60s]", tuiRefreshInterval)
+	}
+}
+
+func TestUpdate_TickMsgReturnsCmd(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	m := tuiModel{store: store, root: root, width: 80, height: 24}
+	_, cmd := m.Update(tuiTickMsg(time.Now()))
+	if cmd == nil {
+		t.Error("tuiTickMsg should return a non-nil cmd to schedule reload and next tick")
+	}
+}
+
 func TestHandleKey_R_rejectsNonPromptItem(t *testing.T) {
 	root := t.TempDir()
 	if err := wn.InitRoot(root); err != nil {
