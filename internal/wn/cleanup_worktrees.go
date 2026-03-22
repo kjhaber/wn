@@ -173,6 +173,15 @@ func CleanupWorktrees(store Store, mainRoot, intoRef string, dryRun, cleanIgnore
 			}
 		}
 		if !merged {
+			// Branch exists but is not an ancestor — may be a squash merge.
+			// Fall back to a stored commit hash if available.
+			if commitRef := commitRefFromNotes(item); commitRef != "" {
+				if commitMerged, commitErr := CommitMergedInto(mainRoot, commitRef, ref); commitErr == nil && commitMerged {
+					merged = true
+				}
+			}
+		}
+		if !merged {
 			results = append(results, CleanupWorktreeResult{
 				Path:   wt.Path,
 				Branch: wt.Branch,
@@ -296,6 +305,14 @@ func cleanupOrphanedBranches(store Store, mainRoot, ref string, activeBranches m
 				Reason: fmt.Sprintf("merge check failed: %v", err),
 			})
 			continue
+		}
+		if !merged {
+			// Branch exists but is not an ancestor — may be a squash merge.
+			if commitRef := commitRefFromNotes(item); commitRef != "" {
+				if commitMerged, commitErr := CommitMergedInto(mainRoot, commitRef, ref); commitErr == nil && commitMerged {
+					merged = true
+				}
+			}
 		}
 		if !merged {
 			continue

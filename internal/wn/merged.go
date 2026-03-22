@@ -26,7 +26,10 @@ func MarkMergedItems(store Store, repoRoot, intoRef string, dryRun bool) ([]Mark
 	}
 	var results []MarkMergedResult
 	for _, it := range items {
-		idx := it.NoteIndexByName("branch")
+		idx := it.NoteIndexByName(NoteNameBranch)
+		if idx < 0 {
+			idx = it.NoteIndexByName("branch")
+		}
 		if idx < 0 {
 			results = append(results, MarkMergedResult{ID: it.ID, Status: "skipped_no_branch", Reason: "no branch note"})
 			continue
@@ -58,6 +61,15 @@ func MarkMergedItems(store Store, repoRoot, intoRef string, dryRun bool) ([]Mark
 			} else {
 				results = append(results, MarkMergedResult{ID: it.ID, Status: "skipped_error", Reason: err.Error()})
 				continue
+			}
+		}
+		if !merged {
+			// Branch exists but is not an ancestor — may be a squash merge.
+			// Fall back to a stored commit hash if available.
+			if commitRef := commitRefFromNotes(it); commitRef != "" {
+				if commitMerged, commitErr := CommitMergedInto(repoRoot, commitRef, intoRef); commitErr == nil && commitMerged {
+					merged = true
+				}
 			}
 		}
 		if !merged {

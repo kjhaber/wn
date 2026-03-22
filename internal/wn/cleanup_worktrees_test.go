@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -672,5 +673,123 @@ func TestCleanupWorktrees_orphanedBranchWorktreesOnly(t *testing.T) {
 	}
 	if !exists {
 		t.Error("orphaned branch should still exist when worktreesOnly=true")
+	}
+}
+
+func TestCleanupWorktrees_squashMergeWithCommitNote(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	// Create a worktree on a feature branch with a commit.
+	var audit bytes.Buffer
+	wtPath := filepath.Join(dir, "wt-squash")
+	_, err = EnsureWorktree(dir, wtPath, "wn-squash-branch", true, &audit)
+	if err != nil {
+		t.Fatalf("EnsureWorktree: %v", err)
+	}
+	writeFile(t, filepath.Join(wtPath, "squash.txt"), "squash work")
+	execIn(t, wtPath, "git", "add", "squash.txt")
+	execIn(t, wtPath, "git", "commit", "-m", "squash work")
+
+	// Squash-merge the branch into main.
+	def, _ := DefaultBranch(dir)
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "--squash", "wn-squash-branch")
+	execIn(t, dir, "git", "commit", "-m", "squash merge wn-squash-branch")
+	squashCommit := strings.TrimSpace(execOut(t, dir, "git", "rev-parse", "HEAD"))
+
+	// Item is done and has the squash commit stored as a note.
+	item := &Item{
+		ID: "squash", Description: "squash test", Created: now, Updated: now,
+		Done:       true,
+		DoneStatus: DoneStatusDone,
+		Tags:       []string{}, DependsOn: []string{},
+		Log: []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{
+			{Name: NoteNameBranch, Body: "wn-squash-branch", Created: now},
+			{Name: "commit", Body: squashCommit, Created: now},
+		},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	var removed []CleanupWorktreeResult
+	for _, r := range results {
+		if r.Status == "removed" {
+			removed = append(removed, r)
+		}
+	}
+	if len(removed) != 1 {
+		t.Errorf("want 1 removed for squash merge, got %d; all results: %v", len(removed), results)
+	}
+	if _, statErr := os.Stat(wtPath); statErr == nil {
+		t.Error("worktree path should have been removed")
+	}
+}
+
+func TestCleanupWorktrees_orphanedBranchSquashMerge(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+
+	now := time.Now().UTC()
+
+	// Create branch with a commit but NO worktree.
+	def, _ := DefaultBranch(dir)
+	execIn(t, dir, "git", "branch", "wn-sqorphan-branch")
+	execIn(t, dir, "git", "checkout", "wn-sqorphan-branch")
+	writeFile(t, filepath.Join(dir, "sqorphan.txt"), "work")
+	execIn(t, dir, "git", "add", "sqorphan.txt")
+	execIn(t, dir, "git", "commit", "-m", "sqorphan work")
+
+	// Squash-merge into main (no worktree involved).
+	execIn(t, dir, "git", "checkout", def)
+	execIn(t, dir, "git", "merge", "--squash", "wn-sqorphan-branch")
+	execIn(t, dir, "git", "commit", "-m", "squash merge sqorphan")
+	squashCommit := strings.TrimSpace(execOut(t, dir, "git", "rev-parse", "HEAD"))
+
+	item := &Item{
+		ID: "sqorph", Description: "squash orphan test", Created: now, Updated: now,
+		Done:       true,
+		DoneStatus: DoneStatusDone,
+		Tags:       []string{}, DependsOn: []string{},
+		Log: []LogEntry{{At: now, Kind: "created"}},
+		Notes: []Note{
+			{Name: NoteNameBranch, Body: "wn-sqorphan-branch", Created: now},
+			{Name: "commit", Body: squashCommit, Created: now},
+		},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+
+	results, err := CleanupWorktrees(store, dir, "", false, false, false, nil)
+	if err != nil {
+		t.Fatalf("CleanupWorktrees: %v", err)
+	}
+
+	var branchDeleted []CleanupWorktreeResult
+	for _, r := range results {
+		if r.Status == "branch_deleted" && r.Branch == "wn-sqorphan-branch" {
+			branchDeleted = append(branchDeleted, r)
+		}
+	}
+	if len(branchDeleted) != 1 {
+		t.Errorf("want 1 branch_deleted for squash orphan, got %d; all results: %v", len(branchDeleted), results)
 	}
 }
