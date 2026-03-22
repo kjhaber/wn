@@ -105,13 +105,13 @@ func TestFindRootForCLI_UsesWN_ROOT(t *testing.T) {
 	otherDir := t.TempDir()
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Setenv("WN_ROOT", tmp)
+	_ = os.Setenv("WN_ROOT", tmp)
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 	if err := os.Chdir(otherDir); err != nil {
@@ -145,13 +145,13 @@ func TestFindRootForCLI_GitWorktree(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Unsetenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 	if err := os.Chdir(worktreeDir); err != nil {
@@ -179,13 +179,13 @@ func TestFindRootForCLI_GitWorktree_NoWn(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Unsetenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 	if err := os.Chdir(worktreeDir); err != nil {
@@ -222,13 +222,13 @@ func TestFindRoot_GitWorktree(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Unsetenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 	if err := os.Chdir(worktreeDir); err != nil {
@@ -256,13 +256,13 @@ func TestFindRoot_GitWorktree_NoWn(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Unsetenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 	if err := os.Chdir(worktreeDir); err != nil {

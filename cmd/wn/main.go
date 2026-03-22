@@ -771,7 +771,7 @@ func runTagList(cmd *cobra.Command, args []string) error {
 	}
 	out := cmd.Root().OutOrStdout()
 	for _, t := range item.Tags {
-		fmt.Fprintln(out, t)
+		_, _ = fmt.Fprintln(out, t)
 	}
 	return nil
 }
@@ -992,7 +992,7 @@ func runDependList(cmd *cobra.Command, args []string) error {
 	}
 	out := cmd.OutOrStdout()
 	for _, depID := range item.DependsOn {
-		fmt.Fprintln(out, depID)
+		_, _ = fmt.Fprintln(out, depID)
 	}
 	return nil
 }
@@ -1425,7 +1425,7 @@ func init() {
 // promptYN writes prompt to w and reads one line from r.
 // Returns true only if the line is "y" or "Y". Defaults to false (no).
 func promptYN(r io.Reader, w io.Writer, prompt string) bool {
-	fmt.Fprintf(w, "%s [y/N]: ", prompt)
+	_, _ = fmt.Fprintf(w, "%s [y/N]: ", prompt)
 	var line string
 	_, _ = fmt.Fscanln(r, &line)
 	return strings.EqualFold(strings.TrimSpace(line), "y")
@@ -2555,7 +2555,7 @@ func runSettingsShow(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), string(data))
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(data))
 	return nil
 }
 
@@ -2658,7 +2658,7 @@ func runVerify(cobraCmd *cobra.Command, _ []string) error {
 	if settings.Verify == "" {
 		return fmt.Errorf("no verify command configured; set 'verify' in .wn/settings.json or ~/.config/wn/settings.json")
 	}
-	fmt.Fprintf(cobraCmd.ErrOrStderr(), "running: %s\n", settings.Verify)
+	_, _ = fmt.Fprintf(cobraCmd.ErrOrStderr(), "running: %s\n", settings.Verify)
 	cmd := exec.Command("sh", "-c", settings.Verify)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

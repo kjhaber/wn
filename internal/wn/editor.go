@@ -38,15 +38,15 @@ func EditWithEditor(initial string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(f.Name())
-	defer f.Close()
+	defer func() { _ = os.Remove(f.Name()) }()
+	defer func() { _ = f.Close() }()
 	if _, err := f.WriteString(initial); err != nil {
 		return "", err
 	}
 	if err := f.Sync(); err != nil {
 		return "", err
 	}
-	f.Close()
+	_ = f.Close()
 	path, err := filepath.Abs(f.Name())
 	if err != nil {
 		return "", err

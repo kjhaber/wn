@@ -15,10 +15,5 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11
-
-      - name: Build and test
-        run: make check
+      - name: Run make all
+        run: make all

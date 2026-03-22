@@ -217,7 +217,7 @@ func auditLogAgent(w io.Writer, mainRoot, worktreePath, expandedCmd string) {
 	if len(cmdForLog) > 500 {
 		cmdForLog = cmdForLog[:497] + "..."
 	}
-	fmt.Fprintf(w, "%s exec (Dir=%s WN_ROOT=%s): %s\n", ts, worktreePath, mainRoot, cmdForLog)
+	_, _ = fmt.Fprintf(w, "%s exec (Dir=%s WN_ROOT=%s): %s\n", ts, worktreePath, mainRoot, cmdForLog)
 }
 
 // worktreeDirForBranch returns the directory name for a worktree given the main
@@ -389,7 +389,7 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	commitMsg := "wn " + item.ID + ": " + FirstLine(item.Description)
 	if err := CommitWorktreeChanges(worktreePath, commitMsg, opts.Audit); err != nil {
 		if opts.Audit != nil {
-			fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
+			_, _ = fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
 		}
 	}
 	// Post-run: if item is now blocked (e.g. agent created prompt deps), clear claim only.
@@ -403,7 +403,7 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	if !opts.LeaveWorktree {
 		if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {
 			if opts.Audit != nil {
-				fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
+				_, _ = fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
 			}
 		}
 	}

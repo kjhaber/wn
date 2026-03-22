@@ -137,16 +137,16 @@ func TestExport_Stdout(t *testing.T) {
 	err = Export(store, "")
 	os.Stdout = old
 	if err != nil {
-		w.Close()
+		_ = w.Close()
 		t.Fatalf("Export(store, \"\"): %v", err)
 	}
-	w.Close()
+	_ = w.Close()
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, r); err != nil {
-		r.Close()
+		_ = r.Close()
 		t.Fatalf("io.Copy: %v", err)
 	}
-	r.Close()
+	_ = r.Close()
 	var exp ExportData
 	if err := json.Unmarshal(buf.Bytes(), &exp); err != nil {
 		t.Fatalf("stdout output is not valid JSON: %v", err)

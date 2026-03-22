@@ -26,12 +26,12 @@ func TestPickInteractive_EmptyList(t *testing.T) {
 func TestPickInteractive_NumberedChoiceWhenWN_PICKER(t *testing.T) {
 	// WN_PICKER=numbered forces numbered path even if fzf is in PATH (e.g. when running tests via make)
 	orig := os.Getenv("WN_PICKER")
-	os.Setenv("WN_PICKER", "numbered")
+	_ = os.Setenv("WN_PICKER", "numbered")
 	t.Cleanup(func() {
 		if orig == "" {
-			os.Unsetenv("WN_PICKER")
+			_ = os.Unsetenv("WN_PICKER")
 		} else {
-			os.Setenv("WN_PICKER", orig)
+			_ = os.Setenv("WN_PICKER", orig)
 		}
 	})
 
@@ -46,7 +46,7 @@ func TestPickInteractive_NumberedChoiceWhenWN_PICKER(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	items := []*Item{
 		{ID: "only1", Description: "only item", Created: time.Now().UTC(), Updated: time.Now().UTC()},
@@ -63,8 +63,8 @@ func TestPickInteractive_NumberedChoiceWhenWN_PICKER(t *testing.T) {
 func TestPickInteractive_NumberedChoice(t *testing.T) {
 	// Force numbered path by making fzf unavailable
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -78,7 +78,7 @@ func TestPickInteractive_NumberedChoice(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	items := []*Item{
 		{ID: "only1", Description: "only item", Created: time.Now().UTC(), Updated: time.Now().UTC()},
@@ -126,7 +126,7 @@ func TestPickInteractive_SetPickerModeNumbered(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	items := []*Item{
 		{ID: "item1", Description: "first item", Created: time.Now().UTC(), Updated: time.Now().UTC()},
@@ -152,8 +152,8 @@ func TestPickMultiInteractive_EmptyList(t *testing.T) {
 
 func TestPickMultiInteractive_NumberedChoice(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -166,7 +166,7 @@ func TestPickMultiInteractive_NumberedChoice(t *testing.T) {
 	if _, err := w.WriteString("1 2\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	now := time.Now().UTC()
 	items := []*Item{
@@ -217,7 +217,7 @@ func TestPickStringInteractive_NumberedChoice(t *testing.T) {
 	if _, err := w.WriteString("2\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	lines := []string{"option one", "option two", "option three"}
 	idx, err := PickStringInteractive(lines)
@@ -243,7 +243,7 @@ func TestPickStringInteractive_Cancelled(t *testing.T) {
 	if _, err := w.WriteString("\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	lines := []string{"option one", "option two"}
 	idx, err := PickStringInteractive(lines)

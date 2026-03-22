@@ -80,7 +80,7 @@ func (s *fileStore) Put(item *Item) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := lockFile(f); err != nil {
 		return err
 	}
@@ -105,7 +105,7 @@ func (s *fileStore) UpdateItem(id string, fn func(*Item) (*Item, error)) error {
 		}
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := lockFile(f); err != nil {
 		return err
 	}
@@ -151,7 +151,7 @@ func (s *fileStore) Delete(id string) error {
 		}
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if err := lockFile(f); err != nil {
 		return err
 	}

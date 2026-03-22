@@ -57,7 +57,7 @@ func WithMetaLock(root string, fn func(Meta) (Meta, error)) error {
 	if err != nil {
 		return err
 	}
-	defer lf.Close()
+	defer func() { _ = lf.Close() }()
 	if err := lockFile(lf); err != nil {
 		return err
 	}

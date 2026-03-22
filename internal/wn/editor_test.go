@@ -37,8 +37,8 @@ func TestSplitEditorArgs(t *testing.T) {
 
 func TestEditWithEditor_Unset(t *testing.T) {
 	orig := os.Getenv("EDITOR")
-	os.Unsetenv("EDITOR")
-	t.Cleanup(func() { os.Setenv("EDITOR", orig) })
+	_ = os.Unsetenv("EDITOR")
+	t.Cleanup(func() { _ = os.Setenv("EDITOR", orig) })
 	_, err := EditWithEditor("hello")
 	if err == nil {
 		t.Fatal("expected error when EDITOR unset")

@@ -662,8 +662,8 @@ func TestPickWithID_NotFound(t *testing.T) {
 
 func TestPickWithDoneFlag(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -674,7 +674,7 @@ func TestPickWithDoneFlag(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -711,8 +711,8 @@ func TestPickWithDoneFlag(t *testing.T) {
 
 func TestPickWithAllFlag(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -723,7 +723,7 @@ func TestPickWithAllFlag(t *testing.T) {
 	if _, err := w.WriteString("2\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -767,8 +767,8 @@ func TestPickWithReviewReadyFlag(t *testing.T) {
 	for _, flag := range []string{"--rr", "--review-ready"} {
 		t.Run(flag, func(t *testing.T) {
 			origPath := os.Getenv("PATH")
-			os.Setenv("PATH", "")
-			t.Cleanup(func() { os.Setenv("PATH", origPath) })
+			_ = os.Setenv("PATH", "")
+			t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 			r, w, err := os.Pipe()
 			if err != nil {
 				t.Fatal(err)
@@ -779,7 +779,7 @@ func TestPickWithReviewReadyFlag(t *testing.T) {
 			if _, err := w.WriteString("1\n"); err != nil {
 				t.Fatal(err)
 			}
-			w.Close()
+			_ = w.Close()
 
 			dir := t.TempDir()
 			if err := wn.InitRoot(dir); err != nil {
@@ -818,8 +818,8 @@ func TestPickWithReviewReadyFlag(t *testing.T) {
 
 func TestPickDefaultIsUndone(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -830,7 +830,7 @@ func TestPickDefaultIsUndone(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -915,7 +915,7 @@ func TestPickWithPickerNumberedFlag(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -2193,8 +2193,8 @@ func TestListViewAtSyntax_noViews(t *testing.T) {
 func TestTagInteractive_Toggle(t *testing.T) {
 	resetTagFlags()
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -2206,7 +2206,7 @@ func TestTagInteractive_Toggle(t *testing.T) {
 	if _, err := w.WriteString("1 2\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -2264,8 +2264,8 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 	resetTagFlags()
 	// wn tag -i should list only undone items; done items must not appear in fzf/numbered list
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -2277,7 +2277,7 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -2506,8 +2506,8 @@ func TestTagList(t *testing.T) {
 
 func TestDependInteractive(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -2519,7 +2519,7 @@ func TestDependInteractive(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -2567,8 +2567,8 @@ func TestDependInteractive(t *testing.T) {
 
 func TestRmdependInteractive(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -2580,7 +2580,7 @@ func TestRmdependInteractive(t *testing.T) {
 	if _, err := w.WriteString("1\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
@@ -3073,8 +3073,8 @@ func TestRmMultipleIds(t *testing.T) {
 
 func TestRmInteractiveMultiSelect(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -3086,7 +3086,7 @@ func TestRmInteractiveMultiSelect(t *testing.T) {
 	if _, err := w.WriteString("1 2\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir, _ := setupWnRoot(t)
 	store, _ := wn.NewFileStore(dir)
@@ -3115,8 +3115,8 @@ func TestRmInteractiveMultiSelect(t *testing.T) {
 
 func TestRmInteractiveCancel(t *testing.T) {
 	origPath := os.Getenv("PATH")
-	os.Setenv("PATH", "")
-	t.Cleanup(func() { os.Setenv("PATH", origPath) })
+	_ = os.Setenv("PATH", "")
+	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
 
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -3128,7 +3128,7 @@ func TestRmInteractiveCancel(t *testing.T) {
 	if _, err := w.WriteString("\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	dir, itemID := setupWnRoot(t)
 	store, _ := wn.NewFileStore(dir)
@@ -5001,7 +5001,7 @@ func TestCleanupWorktreesCmd_confirmY(t *testing.T) {
 	if _, err := w.WriteString("y\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	resetCleanupWorktreesFlags()
 	captureStdout(t, func() {
@@ -5037,7 +5037,7 @@ func TestCleanupWorktreesCmd_confirmN(t *testing.T) {
 	if _, err := w.WriteString("n\n"); err != nil {
 		t.Fatal(err)
 	}
-	w.Close()
+	_ = w.Close()
 
 	resetCleanupWorktreesFlags()
 	captureStdout(t, func() {

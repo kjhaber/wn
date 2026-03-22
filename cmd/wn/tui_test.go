@@ -503,7 +503,7 @@ func TestHandleEditor_RespondMarksItemDoneWithNote(t *testing.T) {
 	tmpFile := f.Name()
 	_, _ = f.WriteString("Use approach B.")
 	_ = f.Close()
-	defer os.Remove(tmpFile)
+	defer func() { _ = os.Remove(tmpFile) }()
 
 	m := tuiModel{store: store, root: root, width: 80, height: 24}
 	result, _ := m.handleEditor(tuiEditorMsg{

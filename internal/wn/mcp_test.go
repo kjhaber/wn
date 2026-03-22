@@ -56,7 +56,7 @@ func setupMCPSession(t *testing.T) (context.Context, *mcp.ClientSession, func())
 		t.Fatalf("client.Connect: %v", err)
 	}
 	cleanup := func() {
-		clientSession.Close()
+		_ = clientSession.Close()
 		_ = serverSession.Wait()
 		_ = os.Chdir(cwd)
 	}
@@ -147,7 +147,7 @@ func TestMCP_wn_list_empty(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
 	if err != nil {
@@ -194,7 +194,7 @@ func TestMCP_wn_list_includes_review_ready(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
 	if err != nil {
@@ -268,7 +268,7 @@ func setupMCPSessionThreeItems(t *testing.T) (context.Context, *mcp.ClientSessio
 		t.Fatalf("client.Connect: %v", err)
 	}
 	cleanup := func() {
-		clientSession.Close()
+		_ = clientSession.Close()
 		_ = serverSession.Wait()
 		_ = os.Chdir(cwd)
 	}
@@ -786,7 +786,7 @@ func TestMCP_wn_next_empty(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "wn_next", Arguments: map[string]any{}})
 	if err != nil {
@@ -905,7 +905,7 @@ func TestMCP_wn_next_with_tag(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	// wn_next with tag "agent" should return bb2222 (only undone item with that tag)
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -962,7 +962,7 @@ func TestMCP_no_wn_root_returns_error(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{Name: "wn_list", Arguments: map[string]any{}})
 	if err != nil {
@@ -1016,7 +1016,7 @@ func TestMCP_wn_list_with_root(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.Connect: %v", err)
 	}
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "wn_list",
@@ -1071,7 +1071,7 @@ func TestMCP_fixed_root_guardrail(t *testing.T) {
 	defer func() { _ = serverSession.Wait() }()
 	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
 	clientSession, _ := client.Connect(ctx, clientTransport, nil)
-	defer clientSession.Close()
+	defer func() { _ = clientSession.Close() }()
 
 	// Request root=dirB but fixed root is dirA: should see A's item, not B's.
 	res, err := clientSession.CallTool(ctx, &mcp.CallToolParams{
@@ -1150,7 +1150,7 @@ func setupMCPSessionTwoItems(t *testing.T, id1, id2 string) (context.Context, *m
 		t.Fatalf("client.Connect: %v", err)
 	}
 	cleanup := func() {
-		clientSession.Close()
+		_ = clientSession.Close()
 		_ = serverSession.Wait()
 		_ = os.Chdir(cwd)
 	}
@@ -1588,13 +1588,13 @@ func TestMCP_wn_list_GitWorktree(t *testing.T) {
 
 	origWd, _ := os.Getwd()
 	origEnv := os.Getenv("WN_ROOT")
-	os.Unsetenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
 	t.Cleanup(func() {
 		_ = os.Chdir(origWd)
 		if origEnv == "" {
-			os.Unsetenv("WN_ROOT")
+			_ = os.Unsetenv("WN_ROOT")
 		} else {
-			os.Setenv("WN_ROOT", origEnv)
+			_ = os.Setenv("WN_ROOT", origEnv)
 		}
 	})
 
@@ -1621,7 +1621,7 @@ func TestMCP_wn_list_GitWorktree(t *testing.T) {
 		t.Fatalf("client.Connect: %v", err)
 	}
 	defer func() {
-		clientSession.Close()
+		_ = clientSession.Close()
 		_ = serverSession.Wait()
 	}()
 

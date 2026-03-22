@@ -593,7 +593,7 @@ func (m tuiModel) openEditor(action tuiEditorAction, id string) (tuiModel, tea.C
 }
 
 func (m tuiModel) handleEditor(msg tuiEditorMsg) (tuiModel, tea.Cmd) {
-	defer os.Remove(msg.tmpFile)
+	defer func() { _ = os.Remove(msg.tmpFile) }()
 	if msg.err != nil {
 		m.err = msg.err
 		return m, nil
@@ -909,7 +909,7 @@ func tuiItemDetail(item *wn.Item, blocked bool, store wn.Store, width int) strin
 			body := wrapLines(n.Body, noteWidth)
 			// Re-indent wrapped lines.
 			indentedBody := strings.ReplaceAll(body, "\n", "\n  ")
-			b.WriteString(fmt.Sprintf("  %-20s  %s\n  %s\n", n.Name, n.Created.Format(timeFmt), indentedBody))
+			_, _ = fmt.Fprintf(&b, "  %-20s  %s\n  %s\n", n.Name, n.Created.Format(timeFmt), indentedBody)
 		}
 	}
 
