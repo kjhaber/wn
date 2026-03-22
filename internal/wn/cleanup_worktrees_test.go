@@ -713,7 +713,7 @@ func TestCleanupWorktrees_squashMergeWithCommitNote(t *testing.T) {
 		Log: []LogEntry{{At: now, Kind: "created"}},
 		Notes: []Note{
 			{Name: NoteNameBranch, Body: "wn-squash-branch", Created: now},
-			{Name: "commit", Body: squashCommit, Created: now},
+			{Name: NoteNameCommit, Body: squashCommit, Created: now},
 		},
 	}
 	if err := store.Put(item); err != nil {
@@ -771,7 +771,7 @@ func TestCleanupWorktrees_orphanedBranchSquashMerge(t *testing.T) {
 		Log: []LogEntry{{At: now, Kind: "created"}},
 		Notes: []Note{
 			{Name: NoteNameBranch, Body: "wn-sqorphan-branch", Created: now},
-			{Name: "commit", Body: squashCommit, Created: now},
+			{Name: NoteNameCommit, Body: squashCommit, Created: now},
 		},
 	}
 	if err := store.Put(item); err != nil {

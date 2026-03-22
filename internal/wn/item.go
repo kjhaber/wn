@@ -55,9 +55,14 @@ const NoteNameResponse = "response"
 // Note names starting with "wn:" are reserved for internal use and validated against a known set.
 const NoteNameBranch = "wn:branch"
 
+// NoteNameCommit is the special note name for recording the merge commit hash for a work item.
+// Used to detect squash merges (where the branch tip is not an ancestor of the merge commit).
+const NoteNameCommit = "wn:commit"
+
 // specialNoteNames is the set of known wn: note names. Unknown wn: names are rejected.
 var specialNoteNames = map[string]bool{
 	NoteNameBranch: true,
+	NoteNameCommit: true,
 }
 
 // Note is an attachment on an item with a logical name (e.g. "pr-url", "issue-number").
@@ -92,7 +97,7 @@ func ValidateSpecialNote(name string) error {
 		return nil
 	}
 	if !specialNoteNames[name] {
-		return fmt.Errorf("unknown wn: note name %q (known: wn:branch)", name)
+		return fmt.Errorf("unknown wn: note name %q (known: wn:branch, wn:commit)", name)
 	}
 	return nil
 }

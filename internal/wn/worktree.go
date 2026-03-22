@@ -67,6 +67,20 @@ func CommitMergedInto(mainRoot, commitHash, intoRef string) (bool, error) {
 	return true, nil
 }
 
+// CommitExists returns true if the given commit hash exists in the repo at mainRoot.
+func CommitExists(mainRoot, hash string) (bool, error) {
+	cmd := exec.Command("git", "rev-parse", "--verify", hash+"^{commit}")
+	cmd.Dir = mainRoot
+	err := cmd.Run()
+	if err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse: %w", err)
+	}
+	return true, nil
+}
+
 // BranchExists returns true if the branch exists in the repo at mainRoot.
 func BranchExists(mainRoot, branchName string) (bool, error) {
 	cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branchName)

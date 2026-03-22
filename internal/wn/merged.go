@@ -102,10 +102,11 @@ func MarkMergedItems(store Store, repoRoot, intoRef string, dryRun bool) ([]Mark
 	return results, nil
 }
 
-// commitRefFromNotes attempts to extract a commit hash from well-known notes ("commit" or "commit-info").
+// commitRefFromNotes attempts to extract a commit hash from well-known notes.
+// Checks NoteNameCommit ("wn:commit") first, then falls back to legacy "commit" and "commit-info" notes.
 // It returns the first token of the note body when it looks like a hex SHA (7-40 chars), or "" otherwise.
 func commitRefFromNotes(it *Item) string {
-	for _, name := range []string{"commit", "commit-info"} {
+	for _, name := range []string{NoteNameCommit, "commit", "commit-info"} {
 		idx := it.NoteIndexByName(name)
 		if idx < 0 {
 			continue

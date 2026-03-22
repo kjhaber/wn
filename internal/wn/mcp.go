@@ -768,7 +768,8 @@ func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAdd
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
 	}
 	trimmed := strings.TrimSpace(in.Body)
-	if trimmed == "" && in.Name == NoteNameBranch {
+	switch {
+	case trimmed == "" && in.Name == NoteNameBranch:
 		cwd, err := os.Getwd()
 		if err != nil {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: %v", err)}}, IsError: true}, nil, nil
@@ -778,6 +779,16 @@ func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAdd
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: could not detect current git branch: %v", err)}}, IsError: true}, nil, nil
 		}
 		trimmed = branch
+	case trimmed == "" && in.Name == NoteNameCommit:
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "wn:commit requires a commit hash"}}, IsError: true}, nil, nil
+	case in.Name == NoteNameCommit:
+		exists, err := CommitExists(root, trimmed)
+		if err != nil {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:commit: %v", err)}}, IsError: true}, nil, nil
+		}
+		if !exists {
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:commit: commit %q not found in this repository", trimmed)}}, IsError: true}, nil, nil
+		}
 	}
 	now := time.Now().UTC()
 	err = store.UpdateItem(id, func(it *Item) (*Item, error) {

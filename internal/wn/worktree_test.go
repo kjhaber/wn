@@ -194,6 +194,29 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestCommitExists(t *testing.T) {
+	dir := t.TempDir()
+	setupGitRepo(t, dir)
+
+	head := strings.TrimSpace(execOut(t, dir, "git", "rev-parse", "HEAD"))
+
+	exists, err := CommitExists(dir, head)
+	if err != nil {
+		t.Fatalf("CommitExists(valid): %v", err)
+	}
+	if !exists {
+		t.Error("CommitExists(valid) = false, want true")
+	}
+
+	exists, err = CommitExists(dir, "0000000000000000000000000000000000000000")
+	if err != nil {
+		t.Fatalf("CommitExists(nonexistent): %v", err)
+	}
+	if exists {
+		t.Error("CommitExists(nonexistent) = true, want false")
+	}
+}
+
 func TestBranchMergedInto(t *testing.T) {
 	dir := t.TempDir()
 	setupGitRepo(t, dir)

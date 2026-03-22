@@ -3067,7 +3067,8 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 	}
 	body := noteAddMessage
 	if body == "" {
-		if name == wn.NoteNameBranch {
+		switch name {
+		case wn.NoteNameBranch:
 			cwd, err := os.Getwd()
 			if err != nil {
 				return fmt.Errorf("wn:branch: %w", err)
@@ -3077,7 +3078,9 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 				return fmt.Errorf("wn:branch: could not detect current git branch: %w", err)
 			}
 			body = branch
-		} else {
+		case wn.NoteNameCommit:
+			return fmt.Errorf("wn:commit requires a commit hash (use -m <hash>)")
+		default:
 			var err error
 			body, err = wn.EditWithEditor("")
 			if err != nil {
@@ -3091,6 +3094,15 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
+	}
+	if name == wn.NoteNameCommit {
+		exists, commitErr := wn.CommitExists(root, strings.TrimSpace(body))
+		if commitErr != nil {
+			return fmt.Errorf("wn:commit: %w", commitErr)
+		}
+		if !exists {
+			return fmt.Errorf("wn:commit: commit %q not found in this repository", strings.TrimSpace(body))
+		}
 	}
 	meta, err := wn.ReadMeta(root)
 	if err != nil {

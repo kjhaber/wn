@@ -24,8 +24,10 @@ func TestValidNoteName_AllowsWnPrefix(t *testing.T) {
 }
 
 func TestValidateSpecialNote_KnownName(t *testing.T) {
-	if err := ValidateSpecialNote("wn:branch"); err != nil {
-		t.Errorf("ValidateSpecialNote(wn:branch) = %v, want nil", err)
+	for _, name := range []string{"wn:branch", "wn:commit"} {
+		if err := ValidateSpecialNote(name); err != nil {
+			t.Errorf("ValidateSpecialNote(%q) = %v, want nil", name, err)
+		}
 	}
 }
 

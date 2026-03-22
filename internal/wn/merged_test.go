@@ -107,7 +107,7 @@ func TestMarkMergedItems_squashMergeWithCommitNote(t *testing.T) {
 		Log:         []LogEntry{{At: now, Kind: "created"}},
 		Notes: []Note{
 			{Name: NoteNameBranch, Body: "wn-ghi789-squash-me", Created: now},
-			{Name: "commit", Body: squashCommit, Created: now},
+			{Name: NoteNameCommit, Body: squashCommit, Created: now},
 		},
 	}
 	if err := store.Put(item); err != nil {
