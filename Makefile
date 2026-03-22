@@ -24,13 +24,18 @@ lint: $(GOLANGCI_LINT)
 
 # Run unit tests (WN_PICKER=numbered forces numbered list so tests don't block on fzf)
 # WN_SETTINGS_USER/USER_LOCAL are cleared so user's env doesn't leak into test isolation via WN_CONFIG_DIR.
+# GIT_AUTHOR_*/GIT_COMMITTER_* are set so tests that call "git commit" work without global git config (e.g. CI).
+TEST_ENV := WN_PICKER=numbered WN_SETTINGS_USER= WN_SETTINGS_USER_LOCAL= \
+	GIT_AUTHOR_NAME="Test" GIT_AUTHOR_EMAIL="test@example.com" \
+	GIT_COMMITTER_NAME="Test" GIT_COMMITTER_EMAIL="test@example.com"
+
 test:
-	@WN_PICKER=numbered WN_SETTINGS_USER= WN_SETTINGS_USER_LOCAL= go test ./...
+	@$(TEST_ENV) go test ./...
 
 # Run tests with coverage and print report
 cover:
 	@mkdir -p $(BUILD_DIR)
-	@WN_PICKER=numbered WN_SETTINGS_USER= WN_SETTINGS_USER_LOCAL= go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
+	@$(TEST_ENV) go test ./... -coverprofile=$(BUILD_DIR)/coverage.out
 	@go tool cover -func=$(BUILD_DIR)/coverage.out
 
 # Build the binary (inject version from nearest git tag, fallback to "dev")
