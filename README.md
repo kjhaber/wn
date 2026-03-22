@@ -48,6 +48,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
 | `wn tag list [--wid <id>]` | List tags on the work item (one per line). Omit `--wid` to use the current task. |
+| `wn summary` | Show a summary dashboard: aggregate counts by status and by tag. Useful for a quick project health check without scrolling through all items. |
 | `wn list [@view]` | List items (default: undone; dependency order). Status column: undone, blocked, claimed, review, prompt, done, closed, suspend. Use `--review-ready`/`--rr` to list only review items; `--done`, `--all`, `--tag x`, `--json` for machine-readable output; `--sort 'updated:desc,priority,tags'` to sort; `--limit N` and optional `--offset N` for a bounded window; `--group tags` or `--group status` to display items in labeled sections. Pass `@name` to apply a named view from `settings.json` (e.g. `wn list @agent`). |
 | `wn show [id]` | Show a work item (human-readable by default; `--json` for machine-readable; `--plain` for description text only, suitable for pasting into an agent). Omit id for current task. Control fields with `--fields title,body,status,deps,notes,log` or `--all`. |
 | `wn depend add --on <id> [--wid <id>]` | Add dependency (rejects cycles). Omit `--wid` for current task. Use `-i` to pick the depended-on item. |

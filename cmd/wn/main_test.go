@@ -5157,6 +5157,248 @@ func TestNoteAdd_WnBranchAutoDetect(t *testing.T) {
 	}
 }
 
+func TestSummaryEmpty(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"summary"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+	// Header line should appear even with no items.
+	if !strings.Contains(out, "status") {
+		t.Errorf("output should contain 'status' header; got:\n%s", out)
+	}
+	if !strings.Contains(out, "count") {
+		t.Errorf("output should contain 'count' header; got:\n%s", out)
+	}
+	// No tag section when there are no active items.
+	if strings.Contains(out, "tag") {
+		t.Errorf("output should not contain 'tag' section for empty store; got:\n%s", out)
+	}
+}
+
+func TestSummaryStatusCounts(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "aaa222", Description: "another undone task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb111", Description: "done task", Created: now, Updated: now, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc111", Description: "review task", Created: now, Updated: now, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"summary"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// Parse counts from the status section (before the blank line).
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	counts := map[string]int{}
+	for _, line := range lines {
+		if line == "" {
+			break
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 2 {
+			var n int
+			if _, err := fmt.Sscanf(fields[1], "%d", &n); err == nil {
+				counts[fields[0]] = n
+			}
+		}
+	}
+	if counts["undone"] != 2 {
+		t.Errorf("undone count = %d, want 2; output:\n%s", counts["undone"], out)
+	}
+	if counts["done"] != 1 {
+		t.Errorf("done count = %d, want 1; output:\n%s", counts["done"], out)
+	}
+	if counts["review"] != 1 {
+		t.Errorf("review count = %d, want 1; output:\n%s", counts["review"], out)
+	}
+}
+
+func TestSummaryTagCounts(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "task A1", Created: now, Updated: now, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "aaa222", Description: "task A2", Created: now, Updated: now, Tags: []string{"agent"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb111", Description: "task B review", Created: now, Updated: now, Tags: []string{"backend"}, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ddd111", Description: "done task", Created: now, Updated: now, Tags: []string{"agent"}, Done: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"summary"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// Tag section header should appear.
+	if !strings.Contains(out, "agent") {
+		t.Errorf("output should contain 'agent' tag; got:\n%s", out)
+	}
+	if !strings.Contains(out, "backend") {
+		t.Errorf("output should contain 'backend' tag; got:\n%s", out)
+	}
+
+	// Parse tag rows from after the blank line. Columns: tag undone blocked review.
+	tagSectionIdx := strings.Index(out, "\n\n")
+	if tagSectionIdx < 0 {
+		t.Fatalf("no blank-line separator between status and tag sections; output:\n%s", out)
+	}
+	tagSection := out[tagSectionIdx:]
+	lines := strings.Split(tagSection, "\n")
+	agentUndone := -1
+	backendReview := -1
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) >= 4 {
+			switch fields[0] {
+			case "agent":
+				_, _ = fmt.Sscanf(fields[1], "%d", &agentUndone)
+			case "backend":
+				_, _ = fmt.Sscanf(fields[3], "%d", &backendReview)
+			}
+		}
+	}
+	if agentUndone != 2 {
+		t.Errorf("agent undone count = %d, want 2; output:\n%s", agentUndone, out)
+	}
+	if backendReview != 1 {
+		t.Errorf("backend review count = %d, want 1; output:\n%s", backendReview, out)
+	}
+}
+
+func TestSummaryNoTagsRow(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "tagged task", Created: now, Updated: now, Tags: []string{"mytag"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb111", Description: "untagged task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"summary"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "(no tags)") {
+		t.Errorf("output should contain '(no tags)' row for untagged active items; got:\n%s", out)
+	}
+}
+
+func TestSummaryBlockedCount(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	for _, it := range []*wn.Item{
+		{ID: "aaa111", Description: "blocker", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb111", Description: "blocked task", Created: now, Updated: now, DependsOn: []string{"aaa111"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	} {
+		if err := store.Put(it); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"summary"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// Parse blocked count from status section (before the blank line).
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var blockedCount int
+	for _, line := range lines {
+		if line == "" {
+			break
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "blocked" {
+			_, _ = fmt.Sscanf(fields[1], "%d", &blockedCount)
+		}
+	}
+	if blockedCount != 1 {
+		t.Errorf("blocked count = %d, want 1; output:\n%s", blockedCount, out)
+	}
+}
+
 func TestShowMetadataSection(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	cwd, _ := os.Getwd()

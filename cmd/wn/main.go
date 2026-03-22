@@ -53,7 +53,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd, summaryCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -3324,6 +3324,120 @@ func runNoteRm(cmd *cobra.Command, args []string) error {
 		it.Updated = time.Now().UTC()
 		return it, nil
 	})
+}
+
+var summaryCmd = &cobra.Command{
+	Use:   "summary",
+	Short: "Show a summary dashboard: counts by status and tag",
+	Long: `Show aggregate counts of work items by status and by tag.
+
+Example output:
+  status      count
+  undone          12
+  blocked          3
+  review           2
+  done            47
+
+  tag              undone  blocked   review
+  agent                 5        1        1
+  backend               4        2        0
+  (no tags)             3        0        1
+
+Useful for a quick project health check without scrolling through all items.`,
+	Args: cobra.NoArgs,
+	RunE: runSummary,
+}
+
+func runSummary(_ *cobra.Command, _ []string) error {
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	allItems, err := store.List()
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	blockedSet := wn.BlockedSet(allItems)
+
+	// Count items by status.
+	statusCounts := make(map[string]int)
+	for _, it := range allItems {
+		status := wn.ItemListStatus(it, now, blockedSet[it.ID])
+		statusCounts[status]++
+	}
+	statusOrder := []string{"undone", "blocked", "claimed", "prompt", "review", "done", "closed", "suspend"}
+	fmt.Printf("  %-10s  %s\n", "status", "count")
+	for _, s := range statusOrder {
+		if n := statusCounts[s]; n > 0 {
+			fmt.Printf("  %-10s  %d\n", s, n)
+		}
+	}
+
+	// Tag breakdown for active statuses (undone, blocked, review).
+	type tagRow struct{ undone, blocked, review int }
+	tagMap := make(map[string]*tagRow)
+	var noTagRow tagRow
+	for _, it := range allItems {
+		status := wn.ItemListStatus(it, now, blockedSet[it.ID])
+		if status != "undone" && status != "blocked" && status != "review" {
+			continue
+		}
+		if len(it.Tags) == 0 {
+			switch status {
+			case "undone":
+				noTagRow.undone++
+			case "blocked":
+				noTagRow.blocked++
+			case "review":
+				noTagRow.review++
+			}
+			continue
+		}
+		for _, tag := range it.Tags {
+			if tagMap[tag] == nil {
+				tagMap[tag] = &tagRow{}
+			}
+			switch status {
+			case "undone":
+				tagMap[tag].undone++
+			case "blocked":
+				tagMap[tag].blocked++
+			case "review":
+				tagMap[tag].review++
+			}
+		}
+	}
+
+	hasActive := len(tagMap) > 0 || noTagRow.undone+noTagRow.blocked+noTagRow.review > 0
+	if !hasActive {
+		return nil
+	}
+
+	tags := make([]string, 0, len(tagMap))
+	tagColWidth := len("(no tags)")
+	for t := range tagMap {
+		tags = append(tags, t)
+		if len(t) > tagColWidth {
+			tagColWidth = len(t)
+		}
+	}
+	sort.Strings(tags)
+
+	fmt.Println()
+	fmt.Printf("  %-*s  %7s  %7s  %7s\n", tagColWidth, "tag", "undone", "blocked", "review")
+	for _, tag := range tags {
+		tr := tagMap[tag]
+		fmt.Printf("  %-*s  %7d  %7d  %7d\n", tagColWidth, tag, tr.undone, tr.blocked, tr.review)
+	}
+	if noTagRow.undone+noTagRow.blocked+noTagRow.review > 0 {
+		fmt.Printf("  %-*s  %7d  %7d  %7d\n", tagColWidth, "(no tags)", noTagRow.undone, noTagRow.blocked, noTagRow.review)
+	}
+	return nil
 }
 
 // formatTags returns tags joined with ", " and wrapped in square brackets, or "" if none.
