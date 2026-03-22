@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,6 +31,7 @@ var (
 	styleFilterActive = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)  // green badge
 	styleFilterReview = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)  // blue badge
 	styleFilterDone   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true) // gray badge
+	styleGroupHeader  = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true) // group section header
 )
 
 // statusFilter values
@@ -39,6 +41,21 @@ const (
 	tuiFilterReview = "review"
 	tuiFilterDone   = "done"
 )
+
+// tuiGroup constants define the display priority order (lower = shown first).
+const (
+	tuiGroupPrompt  = 0 // PromptReady — needs human response
+	tuiGroupReview  = 1 // ReviewReady — needs human review
+	tuiGroupClaimed = 2 // In progress / claimed
+	tuiGroupUndone  = 3 // Undone (available or blocked)
+	tuiGroupDone    = 4 // Done / suspended / closed
+)
+
+// tuiListRow is one rendered row in the list pane: either a group header or an item.
+type tuiListRow struct {
+	header  string // non-empty → group header row (item is nil)
+	itemIdx int    // index into m.items; -1 for header rows
+}
 
 type tuiEditorAction int
 
@@ -65,6 +82,7 @@ type tuiModel struct {
 	allItems   []*wn.Item
 	blockedSet map[string]bool
 	items      []*wn.Item
+	rows       []tuiListRow // flat list of group headers + item rows for rendering
 	cursor     int
 	listOffset int
 	currentID  string // ID of the active work item (from meta)
@@ -84,7 +102,13 @@ type tuiModel struct {
 }
 
 func newTUI(store wn.Store, root string, settings wn.Settings, currentID string) tuiModel {
-	return tuiModel{store: store, root: root, settings: settings, currentID: currentID}
+	return tuiModel{
+		store:        store,
+		root:         root,
+		settings:     settings,
+		currentID:    currentID,
+		statusFilter: tuiFilterActive,
+	}
 }
 
 func (m tuiModel) Init() tea.Cmd {
@@ -155,7 +179,69 @@ func (m *tuiModel) applyFilter() {
 		}
 		out = append(out, it)
 	}
+
+	// Sort by group priority (stable: preserves existing sort order within each group).
+	now := time.Now().UTC()
+	sort.SliceStable(out, func(i, j int) bool {
+		gi := tuiGroupKey(out[i], m.blockedSet[out[i].ID], now)
+		gj := tuiGroupKey(out[j], m.blockedSet[out[j].ID], now)
+		return gi < gj
+	})
 	m.items = out
+	m.buildRows()
+}
+
+// tuiGroupKey returns the display-priority group for an item (lower = shown first).
+func tuiGroupKey(it *wn.Item, blocked bool, now time.Time) int {
+	if it.Done {
+		return tuiGroupDone
+	}
+	if it.PromptReady {
+		return tuiGroupPrompt
+	}
+	if it.ReviewReady {
+		return tuiGroupReview
+	}
+	if wn.IsInProgress(it, now) {
+		return tuiGroupClaimed
+	}
+	return tuiGroupUndone // includes blocked items
+}
+
+// tuiGroupLabel returns the display label for a group.
+func tuiGroupLabel(g int) string {
+	switch g {
+	case tuiGroupPrompt:
+		return "Needs Response"
+	case tuiGroupReview:
+		return "Review Ready"
+	case tuiGroupClaimed:
+		return "In Progress"
+	case tuiGroupUndone:
+		return "Undone"
+	case tuiGroupDone:
+		return "Done"
+	default:
+		return ""
+	}
+}
+
+// buildRows rebuilds the flat display-row list (group headers + item rows) from m.items.
+func (m *tuiModel) buildRows() {
+	m.rows = nil
+	if len(m.items) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	lastGroup := -1
+	for i, it := range m.items {
+		g := tuiGroupKey(it, m.blockedSet[it.ID], now)
+		if g != lastGroup {
+			m.rows = append(m.rows, tuiListRow{header: tuiGroupLabel(g), itemIdx: -1})
+			lastGroup = g
+		}
+		m.rows = append(m.rows, tuiListRow{itemIdx: i})
+	}
 }
 
 func (m *tuiModel) clampCursor() {
@@ -171,12 +257,24 @@ func (m *tuiModel) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	bh := m.bodyHeight()
-	if m.cursor < m.listOffset {
-		m.listOffset = m.cursor
+	// Find the display row index for the current cursor item.
+	cursorRow := 0
+	for i, row := range m.rows {
+		if row.itemIdx == m.cursor {
+			cursorRow = i
+			break
+		}
 	}
-	if m.cursor >= m.listOffset+bh {
-		m.listOffset = m.cursor - bh + 1
+	bh := m.bodyHeight()
+	if cursorRow < m.listOffset {
+		m.listOffset = cursorRow
+		// Keep the preceding group header visible if the cursor is the first item in a group.
+		if m.listOffset > 0 && m.rows[m.listOffset-1].header != "" {
+			m.listOffset--
+		}
+	}
+	if cursorRow >= m.listOffset+bh {
+		m.listOffset = cursorRow - bh + 1
 	}
 	if m.listOffset < 0 {
 		m.listOffset = 0
@@ -391,7 +489,7 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "esc":
 		m.filterMode = false
 		m.filterText = ""
-		m.statusFilter = tuiFilterAll
+		m.statusFilter = tuiFilterActive
 		m.applyFilter()
 		m.clampCursor()
 		m.refreshViewport()
@@ -638,14 +736,23 @@ func (m tuiModel) View() string {
 func (m tuiModel) renderList(height int) []string {
 	lines := make([]string, height)
 	for i := range lines {
-		idx := m.listOffset + i
-		if idx >= len(m.items) {
+		rowIdx := m.listOffset + i
+		if rowIdx >= len(m.rows) {
 			lines[i] = lipgloss.NewStyle().Width(tuiLeftWidth).Render("")
 			continue
 		}
-		lines[i] = m.renderRow(m.items[idx], idx == m.cursor)
+		row := m.rows[rowIdx]
+		if row.header != "" {
+			lines[i] = m.renderGroupHeader(row.header)
+		} else {
+			lines[i] = m.renderRow(m.items[row.itemIdx], row.itemIdx == m.cursor)
+		}
 	}
 	return lines
+}
+
+func (m tuiModel) renderGroupHeader(label string) string {
+	return styleGroupHeader.Width(tuiLeftWidth).Render("── " + label + " ──")
 }
 
 func (m tuiModel) renderRow(it *wn.Item, selected bool) string {

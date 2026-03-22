@@ -392,6 +392,149 @@ func TestHandleEditor_RespondMarksItemDoneWithNote(t *testing.T) {
 	}
 }
 
+// --- default filter ---
+
+func TestNewTUI_DefaultFilterIsActive(t *testing.T) {
+	m := newTUI(nil, "", wn.Settings{}, "")
+	if m.statusFilter != tuiFilterActive {
+		t.Errorf("default statusFilter = %q, want %q", m.statusFilter, tuiFilterActive)
+	}
+}
+
+// --- tuiGroupKey ---
+
+func TestTUIGroupKey_Prompt(t *testing.T) {
+	it := &wn.Item{PromptReady: true}
+	if got := tuiGroupKey(it, false, time.Now()); got != tuiGroupPrompt {
+		t.Errorf("PromptReady item got group %d, want %d (tuiGroupPrompt)", got, tuiGroupPrompt)
+	}
+}
+
+func TestTUIGroupKey_Review(t *testing.T) {
+	it := &wn.Item{ReviewReady: true}
+	if got := tuiGroupKey(it, false, time.Now()); got != tuiGroupReview {
+		t.Errorf("ReviewReady item got group %d, want %d (tuiGroupReview)", got, tuiGroupReview)
+	}
+}
+
+func TestTUIGroupKey_InProgress(t *testing.T) {
+	now := time.Now().UTC()
+	it := &wn.Item{InProgressUntil: now.Add(time.Hour)}
+	if got := tuiGroupKey(it, false, now); got != tuiGroupClaimed {
+		t.Errorf("InProgress item got group %d, want %d (tuiGroupClaimed)", got, tuiGroupClaimed)
+	}
+}
+
+func TestTUIGroupKey_Undone(t *testing.T) {
+	it := &wn.Item{}
+	if got := tuiGroupKey(it, false, time.Now()); got != tuiGroupUndone {
+		t.Errorf("plain undone item got group %d, want %d (tuiGroupUndone)", got, tuiGroupUndone)
+	}
+}
+
+func TestTUIGroupKey_Blocked(t *testing.T) {
+	it := &wn.Item{}
+	if got := tuiGroupKey(it, true, time.Now()); got != tuiGroupUndone {
+		t.Errorf("blocked item got group %d, want %d (tuiGroupUndone)", got, tuiGroupUndone)
+	}
+}
+
+func TestTUIGroupKey_Done(t *testing.T) {
+	it := &wn.Item{Done: true, DoneStatus: wn.DoneStatusDone}
+	if got := tuiGroupKey(it, false, time.Now()); got != tuiGroupDone {
+		t.Errorf("done item got group %d, want %d (tuiGroupDone)", got, tuiGroupDone)
+	}
+}
+
+func TestTUIGroupKey_PromptBeatsReview(t *testing.T) {
+	// PromptReady and ReviewReady together → prompt wins (lower group number)
+	it := &wn.Item{PromptReady: true, ReviewReady: true}
+	if got := tuiGroupKey(it, false, time.Now()); got != tuiGroupPrompt {
+		t.Errorf("PromptReady+ReviewReady item got group %d, want %d (tuiGroupPrompt)", got, tuiGroupPrompt)
+	}
+}
+
+// --- group sort within applyFilter ---
+
+func TestApplyFilter_GroupSortOrder(t *testing.T) {
+	now := time.Now().UTC()
+	undone := &wn.Item{ID: "u", Description: "undone task"}
+	prompt := &wn.Item{ID: "p", Description: "prompt task", PromptReady: true}
+	review := &wn.Item{ID: "rv", Description: "review task", ReviewReady: true}
+	done := &wn.Item{ID: "d", Description: "done task", Done: true, DoneStatus: wn.DoneStatusDone}
+	claimed := &wn.Item{ID: "c", Description: "claimed task", InProgressUntil: now.Add(time.Hour)}
+
+	// Feed in reverse priority order; expect output in priority order.
+	m := tuiModel{
+		allItems:     []*wn.Item{done, undone, claimed, review, prompt},
+		statusFilter: tuiFilterAll,
+	}
+	m.applyFilter()
+
+	ids := tuiItemIDs(m.items)
+	want := []string{"p", "rv", "c", "u", "d"}
+	if len(ids) != len(want) {
+		t.Fatalf("expected %v, got %v", want, ids)
+	}
+	for i := range want {
+		if ids[i] != want[i] {
+			t.Errorf("position %d: got %q, want %q (full order: %v)", i, ids[i], want[i], ids)
+		}
+	}
+}
+
+// --- buildRows ---
+
+func TestBuildRows_HasGroupHeaders(t *testing.T) {
+	now := time.Now().UTC()
+	m := tuiModel{
+		items: []*wn.Item{
+			{ID: "p", PromptReady: true},
+			{ID: "u"},
+		},
+		allItems: []*wn.Item{
+			{ID: "p", PromptReady: true},
+			{ID: "u"},
+		},
+	}
+	m.buildRows()
+
+	if len(m.rows) < 4 {
+		t.Fatalf("expected at least 4 rows (2 headers + 2 items), got %d", len(m.rows))
+	}
+	// First row should be the prompt group header
+	if m.rows[0].header == "" {
+		t.Error("expected first row to be a group header")
+	}
+	// Second row should be item "p"
+	if m.rows[1].itemIdx != 0 {
+		t.Errorf("expected row 1 to be item[0] (p), got itemIdx=%d", m.rows[1].itemIdx)
+	}
+	_ = now // prevent unused import
+}
+
+func TestBuildRows_EmptyItems(t *testing.T) {
+	m := tuiModel{}
+	m.buildRows()
+	if len(m.rows) != 0 {
+		t.Errorf("expected empty rows for empty items, got %d", len(m.rows))
+	}
+}
+
+func TestBuildRows_SameGroupNoExtraHeader(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{
+			{ID: "a"},
+			{ID: "b"},
+		},
+	}
+	m.buildRows()
+	// 1 header + 2 items = 3 rows
+	if len(m.rows) != 3 {
+		t.Errorf("expected 3 rows (1 header + 2 items), got %d: %v", len(m.rows), m.rows)
+	}
+}
+
 func TestHandleKey_R_rejectsNonPromptItem(t *testing.T) {
 	root := t.TempDir()
 	if err := wn.InitRoot(root); err != nil {
