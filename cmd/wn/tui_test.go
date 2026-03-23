@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -434,28 +435,33 @@ func TestApplyFilter_NoMatch(t *testing.T) {
 // --- clampCursor ---
 
 func TestClampCursor_WithinBounds(t *testing.T) {
+	// cursor tracks row index; build rows first so clampCursor has bounds.
+	// 3 undone items → 1 header + 3 items = 4 rows; cursor=2 is item "b".
 	m := tuiModel{
 		items:  []*wn.Item{{ID: "a"}, {ID: "b"}, {ID: "c"}},
-		cursor: 1,
 		width:  80,
 		height: 24,
 	}
+	m.buildRows()
+	m.cursor = 2 // row 2 = item "b" (rows: header, a, b, c)
 	m.clampCursor()
-	if m.cursor != 1 {
-		t.Errorf("cursor should stay at 1, got %d", m.cursor)
+	if m.cursor != 2 {
+		t.Errorf("cursor should stay at 2, got %d", m.cursor)
 	}
 }
 
 func TestClampCursor_BeyondEnd(t *testing.T) {
+	// 1 undone item → 1 header + 1 item = 2 rows; cursor beyond end clamps to last row.
 	m := tuiModel{
 		items:  []*wn.Item{{ID: "a"}},
-		cursor: 5,
 		width:  80,
 		height: 24,
 	}
+	m.buildRows()
+	m.cursor = 10
 	m.clampCursor()
-	if m.cursor != 0 {
-		t.Errorf("cursor should clamp to 0, got %d", m.cursor)
+	if m.cursor != 1 { // last row (the item row)
+		t.Errorf("cursor should clamp to 1 (last row), got %d", m.cursor)
 	}
 }
 
@@ -567,11 +573,14 @@ func TestHandleKey_QuestionMark_TogglesHelp(t *testing.T) {
 
 func TestTUIHelpContent_ContainsAllShortcuts(t *testing.T) {
 	content := tuiHelpContent()
-	shortcuts := []string{"a", "e", "x", "u", "-", "D", "r", ">", "/", "#", "f", "q"}
+	shortcuts := []string{"a", "e", "x", "u", "-", "D", "r", ">", "/", "#", "f", "g", "q"}
 	for _, s := range shortcuts {
 		if !strings.Contains(content, "["+s+"]") {
 			t.Errorf("help content missing shortcut [%s]", s)
 		}
+	}
+	if !strings.Contains(content, "Space") {
+		t.Error("help content missing Space shortcut")
 	}
 }
 
@@ -769,8 +778,302 @@ func TestHandleKey_R_rejectsNonPromptItem(t *testing.T) {
 		allItems: []*wn.Item{item},
 		items:    []*wn.Item{item},
 	}
+	m.buildRows()
+	// rows: [header(Undone), item]; cursor on item row (index 1)
+	m.cursor = 1
 	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
 	if result.err == nil {
 		t.Error("expected error when pressing 'r' on non-prompt item")
+	}
+}
+
+// --- group-by mode ---
+
+func TestBuildRows_GroupModeNone_NoHeaders(t *testing.T) {
+	m := tuiModel{
+		items:     []*wn.Item{{ID: "a"}, {ID: "b"}},
+		groupMode: tuiGroupModeNone,
+	}
+	m.buildRows()
+	for _, row := range m.rows {
+		if row.header != "" {
+			t.Errorf("expected no header rows in 'none' group mode, got header %q", row.header)
+		}
+	}
+	if len(m.rows) != 2 {
+		t.Errorf("expected 2 item rows in 'none' mode, got %d", len(m.rows))
+	}
+}
+
+func TestBuildRows_GroupModeTags_HeadersPerTag(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{
+			{ID: "a", Tags: []string{"backend"}},
+			{ID: "b", Tags: []string{"frontend"}},
+			{ID: "c", Tags: []string{"backend", "auth"}}, // first tag = backend → same group as a
+		},
+		groupMode: tuiGroupModeTags,
+	}
+	m.buildRows()
+	headers := 0
+	for _, row := range m.rows {
+		if row.header != "" {
+			headers++
+		}
+	}
+	if headers != 2 {
+		t.Errorf("expected 2 tag group headers (backend, frontend), got %d", headers)
+	}
+}
+
+func TestBuildRows_GroupModeTags_NoTagsItem(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{
+			{ID: "a", Tags: []string{"backend"}},
+			{ID: "b"}, // no tags
+		},
+		groupMode: tuiGroupModeTags,
+	}
+	m.buildRows()
+	headers := 0
+	noTagsFound := false
+	for _, row := range m.rows {
+		if row.header != "" {
+			headers++
+			if strings.Contains(row.header, "no tags") {
+				noTagsFound = true
+			}
+		}
+	}
+	if headers != 2 {
+		t.Errorf("expected 2 headers (backend, no tags), got %d", headers)
+	}
+	if !noTagsFound {
+		t.Error("expected a '(no tags)' group header for untagged items")
+	}
+}
+
+// --- collapsible groups ---
+
+func TestBuildRows_HeaderContainsCount(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{{ID: "a"}, {ID: "b"}},
+	}
+	m.buildRows()
+	found := false
+	for _, row := range m.rows {
+		if row.header != "" && strings.Contains(row.header, "(2)") {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("group header should contain item count like '(2)'")
+	}
+}
+
+func TestBuildRows_CollapseIndicatorExpanded(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{{ID: "a"}},
+	}
+	m.buildRows()
+	for _, row := range m.rows {
+		if row.header != "" && !strings.Contains(row.header, "▼") {
+			t.Errorf("expanded group header should contain ▼, got %q", row.header)
+		}
+	}
+}
+
+func TestBuildRows_CollapseIndicatorCollapsed(t *testing.T) {
+	m := tuiModel{
+		items:           []*wn.Item{{ID: "a"}},
+		collapsedGroups: map[string]bool{"3": true}, // tuiGroupUndone = 3
+	}
+	m.buildRows()
+	allCollapsed := true
+	for _, row := range m.rows {
+		if row.header != "" && !strings.Contains(row.header, "▶") {
+			allCollapsed = false
+		}
+	}
+	if !allCollapsed {
+		t.Error("collapsed group header should contain ▶")
+	}
+}
+
+func TestBuildRows_CollapsedGroupHidesItems(t *testing.T) {
+	m := tuiModel{
+		items:           []*wn.Item{{ID: "a"}, {ID: "b"}},
+		collapsedGroups: map[string]bool{"3": true}, // tuiGroupUndone = 3 (both items)
+	}
+	m.buildRows()
+	itemRows := 0
+	for _, row := range m.rows {
+		if row.itemIdx >= 0 {
+			itemRows++
+		}
+	}
+	if itemRows != 0 {
+		t.Errorf("collapsed group should hide items, got %d item rows", itemRows)
+	}
+}
+
+func TestBuildRows_GroupKeySetOnHeader(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{{ID: "a"}},
+	}
+	m.buildRows()
+	for _, row := range m.rows {
+		if row.header != "" && row.groupKey == "" {
+			t.Error("header row should have a non-empty groupKey for collapse lookup")
+		}
+	}
+}
+
+// --- cursor model: selected() on header row ---
+
+func TestSelected_OnHeaderRow_ReturnsNil(t *testing.T) {
+	m := tuiModel{
+		items: []*wn.Item{{ID: "a"}},
+		rows: []tuiListRow{
+			{header: "▼ Undone (1)", groupKey: "3", itemIdx: -1},
+			{itemIdx: 0},
+		},
+		cursor: 0, // cursor is on the header row
+	}
+	if it := m.selected(); it != nil {
+		t.Errorf("selected() should return nil when cursor is on header row, got %v", it.ID)
+	}
+}
+
+func TestSelected_OnItemRow_ReturnsItem(t *testing.T) {
+	item := &wn.Item{ID: "a"}
+	m := tuiModel{
+		items: []*wn.Item{item},
+		rows: []tuiListRow{
+			{header: "▼ Undone (1)", groupKey: "3", itemIdx: -1},
+			{itemIdx: 0},
+		},
+		cursor: 1, // cursor is on the item row
+	}
+	if got := m.selected(); got == nil || got.ID != "a" {
+		t.Errorf("selected() should return item 'a' when cursor is on item row, got %v", got)
+	}
+}
+
+// --- space bar: collapse group ---
+
+func TestHandleKey_Space_OnHeader_TogglesCollapse(t *testing.T) {
+	m := tuiModel{
+		width:  80,
+		height: 24,
+		items:  []*wn.Item{{ID: "a"}},
+		rows: []tuiListRow{
+			{header: "▼ Undone (1)", groupKey: "3", itemIdx: -1},
+			{itemIdx: 0},
+		},
+		cursor: 0, // on header
+	}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	if !result.collapsedGroups["3"] {
+		t.Error("space on header row should collapse the group")
+	}
+}
+
+func TestHandleKey_Space_OnItem_CollapsesGroup(t *testing.T) {
+	m := tuiModel{
+		width:  80,
+		height: 24,
+		items:  []*wn.Item{{ID: "a"}},
+		rows: []tuiListRow{
+			{header: "▼ Undone (1)", groupKey: "3", itemIdx: -1},
+			{itemIdx: 0},
+		},
+		cursor: 1, // on item
+	}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	if !result.collapsedGroups["3"] {
+		t.Error("space on item row should collapse the item's group")
+	}
+	// After collapse, cursor should be on the header row.
+	if len(result.rows) == 0 || result.rows[result.cursor].header == "" {
+		t.Error("after collapsing, cursor should be on the header row")
+	}
+}
+
+// --- g key: cycle group mode ---
+
+func TestHandleKey_G_CyclesGroupMode_StatusToTags(t *testing.T) {
+	m := tuiModel{width: 80, height: 24, groupMode: tuiGroupModeStatus}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	if result.groupMode != tuiGroupModeTags {
+		t.Errorf("g from status mode should cycle to tags, got %q", result.groupMode)
+	}
+}
+
+func TestHandleKey_G_CyclesGroupMode_TagsToNone(t *testing.T) {
+	m := tuiModel{width: 80, height: 24, groupMode: tuiGroupModeTags}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	if result.groupMode != tuiGroupModeNone {
+		t.Errorf("g from tags mode should cycle to none, got %q", result.groupMode)
+	}
+}
+
+func TestHandleKey_G_CyclesGroupMode_NoneToStatus(t *testing.T) {
+	m := tuiModel{width: 80, height: 24, groupMode: tuiGroupModeNone}
+	result, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("g")})
+	if result.groupMode != tuiGroupModeStatus {
+		t.Errorf("g from none mode should cycle to status, got %q", result.groupMode)
+	}
+}
+
+// --- state persistence ---
+
+func TestSaveTUIState_CreatesFile(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	m := tuiModel{
+		statusFilter: tuiFilterActive,
+		groupMode:    tuiGroupModeStatus,
+	}
+	saveTUIState(root, m)
+	path := filepath.Join(root, ".wn", "tui-state.json")
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected state file at %s, got: %v", path, err)
+	}
+}
+
+func TestLoadTUIState_RestoresState(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	m := tuiModel{
+		statusFilter:    tuiFilterDone,
+		groupMode:       tuiGroupModeTags,
+		collapsedGroups: map[string]bool{"3": true},
+	}
+	saveTUIState(root, m)
+	state := loadTUIState(root)
+	if state.StatusFilter != tuiFilterDone {
+		t.Errorf("expected StatusFilter=%q, got %q", tuiFilterDone, state.StatusFilter)
+	}
+	if state.GroupMode != tuiGroupModeTags {
+		t.Errorf("expected GroupMode=%q, got %q", tuiGroupModeTags, state.GroupMode)
+	}
+	if len(state.CollapsedGroups) != 1 || state.CollapsedGroups[0] != "3" {
+		t.Errorf("expected CollapsedGroups=[\"3\"], got %v", state.CollapsedGroups)
+	}
+}
+
+func TestLoadTUIState_MissingFile_ReturnsDefaults(t *testing.T) {
+	root := t.TempDir()
+	state := loadTUIState(root)
+	if state.StatusFilter != tuiFilterActive {
+		t.Errorf("expected default StatusFilter=%q, got %q", tuiFilterActive, state.StatusFilter)
+	}
+	if state.GroupMode != tuiGroupModeStatus {
+		t.Errorf("expected default GroupMode=%q, got %q", tuiGroupModeStatus, state.GroupMode)
 	}
 }

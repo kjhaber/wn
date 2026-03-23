@@ -1,10 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +35,7 @@ var (
 	styleFilterReview = lipgloss.NewStyle().Foreground(lipgloss.Color("39")).Bold(true)  // blue badge
 	styleFilterDone   = lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Bold(true) // gray badge
 	styleGroupHeader  = lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(true) // group section header
+	styleGroupBadge   = lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true) // group mode badge
 )
 
 // statusFilter values
@@ -51,10 +55,68 @@ const (
 	tuiGroupDone    = 4 // Done / suspended / closed
 )
 
+// tuiGroupMode constants control how the list pane groups items.
+const (
+	tuiGroupModeStatus = "status" // group by item status (default)
+	tuiGroupModeTags   = "tags"   // group by primary tag
+	tuiGroupModeNone   = "none"   // flat list, no group headers
+)
+
 // tuiListRow is one rendered row in the list pane: either a group header or an item.
 type tuiListRow struct {
-	header  string // non-empty → group header row (item is nil)
-	itemIdx int    // index into m.items; -1 for header rows
+	header   string // non-empty → group header row (item is nil)
+	groupKey string // collapse/expand key; set for header rows
+	itemIdx  int    // index into m.items; -1 for header rows
+}
+
+// tuiState holds TUI display state that is persisted across sessions.
+type tuiState struct {
+	StatusFilter    string   `json:"statusFilter"`
+	GroupMode       string   `json:"groupMode"`
+	CollapsedGroups []string `json:"collapsedGroups"`
+}
+
+const tuiStateFile = "tui-state.json"
+
+// loadTUIState reads saved TUI state from .wn/tui-state.json.
+// Returns defaults if the file is missing or invalid.
+func loadTUIState(root string) tuiState {
+	path := filepath.Join(root, ".wn", tuiStateFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return tuiState{StatusFilter: tuiFilterActive, GroupMode: tuiGroupModeStatus}
+	}
+	var s tuiState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return tuiState{StatusFilter: tuiFilterActive, GroupMode: tuiGroupModeStatus}
+	}
+	if s.StatusFilter == "" {
+		s.StatusFilter = tuiFilterActive
+	}
+	if s.GroupMode == "" {
+		s.GroupMode = tuiGroupModeStatus
+	}
+	return s
+}
+
+// saveTUIState writes the current TUI state to .wn/tui-state.json.
+func saveTUIState(root string, m tuiModel) {
+	collapsed := make([]string, 0, len(m.collapsedGroups))
+	for k := range m.collapsedGroups {
+		collapsed = append(collapsed, k)
+	}
+	sort.Strings(collapsed)
+	s := tuiState{
+		StatusFilter:    m.statusFilter,
+		GroupMode:       m.groupMode,
+		CollapsedGroups: collapsed,
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	path := filepath.Join(root, ".wn", tuiStateFile)
+	_ = os.WriteFile(path, data, 0o644)
 }
 
 type tuiEditorAction int
@@ -104,6 +166,9 @@ type tuiModel struct {
 	filterText   string
 	statusFilter string // tuiFilterAll / tuiFilterActive / tuiFilterReview / tuiFilterDone
 
+	groupMode       string          // tuiGroupModeStatus / tuiGroupModeTags / tuiGroupModeNone
+	collapsedGroups map[string]bool // group keys that are currently collapsed
+
 	width  int
 	height int
 
@@ -113,13 +178,33 @@ type tuiModel struct {
 	err error
 }
 
-func newTUI(store wn.Store, root string, settings wn.Settings, currentID string) tuiModel {
+func newTUI(store wn.Store, root string, settings wn.Settings, currentID string, stateArgs ...tuiState) tuiModel {
+	groupMode := tuiGroupModeStatus
+	statusFilter := tuiFilterActive
+	var collapsedGroups map[string]bool
+	if len(stateArgs) > 0 {
+		state := stateArgs[0]
+		if state.GroupMode != "" {
+			groupMode = state.GroupMode
+		}
+		if state.StatusFilter != "" {
+			statusFilter = state.StatusFilter
+		}
+		if len(state.CollapsedGroups) > 0 {
+			collapsedGroups = make(map[string]bool)
+			for _, k := range state.CollapsedGroups {
+				collapsedGroups[k] = true
+			}
+		}
+	}
 	return tuiModel{
-		store:        store,
-		root:         root,
-		settings:     settings,
-		currentID:    currentID,
-		statusFilter: tuiFilterActive,
+		store:           store,
+		root:            root,
+		settings:        settings,
+		currentID:       currentID,
+		statusFilter:    statusFilter,
+		groupMode:       groupMode,
+		collapsedGroups: collapsedGroups,
 	}
 }
 
@@ -192,13 +277,32 @@ func (m *tuiModel) applyFilter() {
 		out = append(out, it)
 	}
 
-	// Sort by group priority (stable: preserves existing sort order within each group).
+	// Sort by group key based on group mode (stable: preserves existing order within each group).
 	now := time.Now().UTC()
-	sort.SliceStable(out, func(i, j int) bool {
-		gi := tuiGroupKey(out[i], m.blockedSet[out[i].ID], now)
-		gj := tuiGroupKey(out[j], m.blockedSet[out[j].ID], now)
-		return gi < gj
-	})
+	mode := m.groupMode
+	if mode == "" {
+		mode = tuiGroupModeStatus
+	}
+	switch mode {
+	case tuiGroupModeStatus:
+		sort.SliceStable(out, func(i, j int) bool {
+			gi := tuiGroupKey(out[i], m.blockedSet[out[i].ID], now)
+			gj := tuiGroupKey(out[j], m.blockedSet[out[j].ID], now)
+			return gi < gj
+		})
+	case tuiGroupModeTags:
+		sort.SliceStable(out, func(i, j int) bool {
+			ti, tj := "", ""
+			if len(out[i].Tags) > 0 {
+				ti = out[i].Tags[0]
+			}
+			if len(out[j].Tags) > 0 {
+				tj = out[j].Tags[0]
+			}
+			return ti < tj
+		})
+		// tuiGroupModeNone: preserve existing sort order
+	}
 	m.items = out
 	m.buildRows()
 }
@@ -244,20 +348,72 @@ func (m *tuiModel) buildRows() {
 	if len(m.items) == 0 {
 		return
 	}
-	now := time.Now().UTC()
-	lastGroup := -1
-	for i, it := range m.items {
-		g := tuiGroupKey(it, m.blockedSet[it.ID], now)
-		if g != lastGroup {
-			m.rows = append(m.rows, tuiListRow{header: tuiGroupLabel(g), itemIdx: -1})
-			lastGroup = g
+
+	mode := m.groupMode
+	if mode == "" {
+		mode = tuiGroupModeStatus
+	}
+
+	if mode == tuiGroupModeNone {
+		for i := range m.items {
+			m.rows = append(m.rows, tuiListRow{itemIdx: i})
 		}
-		m.rows = append(m.rows, tuiListRow{itemIdx: i})
+		return
+	}
+
+	// Build ordered sections.
+	type section struct {
+		key   string
+		label string
+		items []int
+	}
+	var sections []section
+	sectionIdx := map[string]int{}
+	now := time.Now().UTC()
+
+	for i, it := range m.items {
+		var key, label string
+		switch mode {
+		case tuiGroupModeStatus:
+			g := tuiGroupKey(it, m.blockedSet[it.ID], now)
+			key = strconv.Itoa(g)
+			label = tuiGroupLabel(g)
+		default: // tuiGroupModeTags
+			if len(it.Tags) == 0 {
+				key = ""
+				label = "(no tags)"
+			} else {
+				key = it.Tags[0]
+				label = "#" + it.Tags[0]
+			}
+		}
+		if idx, ok := sectionIdx[key]; ok {
+			sections[idx].items = append(sections[idx].items, i)
+		} else {
+			sectionIdx[key] = len(sections)
+			sections = append(sections, section{key: key, label: label, items: []int{i}})
+		}
+	}
+
+	for _, sec := range sections {
+		collapsed := m.collapsedGroups != nil && m.collapsedGroups[sec.key]
+		indicator := "▼"
+		if collapsed {
+			indicator = "▶"
+		}
+		header := fmt.Sprintf("%s %s (%d)", indicator, sec.label, len(sec.items))
+		m.rows = append(m.rows, tuiListRow{header: header, groupKey: sec.key, itemIdx: -1})
+		if !collapsed {
+			for _, idx := range sec.items {
+				m.rows = append(m.rows, tuiListRow{itemIdx: idx})
+			}
+		}
 	}
 }
 
+// clampCursor ensures m.cursor is within m.rows bounds and adjusts m.listOffset for scrolling.
 func (m *tuiModel) clampCursor() {
-	n := len(m.items)
+	n := len(m.rows)
 	if n == 0 {
 		m.cursor = 0
 		m.listOffset = 0
@@ -269,28 +425,83 @@ func (m *tuiModel) clampCursor() {
 	if m.cursor < 0 {
 		m.cursor = 0
 	}
-	// Find the display row index for the current cursor item.
-	cursorRow := 0
-	for i, row := range m.rows {
-		if row.itemIdx == m.cursor {
-			cursorRow = i
-			break
-		}
-	}
 	bh := m.bodyHeight()
-	if cursorRow < m.listOffset {
-		m.listOffset = cursorRow
-		// Keep the preceding group header visible if the cursor is the first item in a group.
+	if m.cursor < m.listOffset {
+		m.listOffset = m.cursor
+		// Keep the preceding group header visible if cursor is the first item in a group.
 		if m.listOffset > 0 && m.rows[m.listOffset-1].header != "" {
 			m.listOffset--
 		}
 	}
-	if cursorRow >= m.listOffset+bh {
-		m.listOffset = cursorRow - bh + 1
+	if m.cursor >= m.listOffset+bh {
+		m.listOffset = m.cursor - bh + 1
 	}
 	if m.listOffset < 0 {
 		m.listOffset = 0
 	}
+}
+
+// restoreCursor moves m.cursor to the row for the item with the given ID, or clamps if not found.
+func (m *tuiModel) restoreCursor(id string) {
+	if id != "" {
+		for i, row := range m.rows {
+			if row.itemIdx >= 0 && m.items[row.itemIdx].ID == id {
+				m.cursor = i
+				m.clampCursor()
+				return
+			}
+		}
+	}
+	m.clampCursor()
+}
+
+// toggleGroupCollapse toggles the collapsed state of the given group key and rebuilds rows.
+func (m *tuiModel) toggleGroupCollapse(key string) {
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = make(map[string]bool)
+	}
+	if m.collapsedGroups[key] {
+		delete(m.collapsedGroups, key)
+	} else {
+		m.collapsedGroups[key] = true
+	}
+	m.buildRows()
+}
+
+// collapseItemGroup collapses the group containing the currently selected item
+// and moves the cursor to that group's header row.
+func (m *tuiModel) collapseItemGroup() {
+	if m.cursor < 0 || m.cursor >= len(m.rows) {
+		return
+	}
+	row := m.rows[m.cursor]
+	if row.itemIdx < 0 {
+		return // already on a header row
+	}
+	// Walk back to find the preceding header row.
+	headerKey := ""
+	for i := m.cursor - 1; i >= 0; i-- {
+		if m.rows[i].header != "" {
+			headerKey = m.rows[i].groupKey
+			break
+		}
+	}
+	if headerKey == "" {
+		return
+	}
+	if m.collapsedGroups == nil {
+		m.collapsedGroups = make(map[string]bool)
+	}
+	m.collapsedGroups[headerKey] = true
+	m.buildRows()
+	// Move cursor to the header row for the collapsed group.
+	for i, r := range m.rows {
+		if r.groupKey == headerKey {
+			m.cursor = i
+			break
+		}
+	}
+	m.clampCursor()
 }
 
 func (m tuiModel) bodyHeight() int {
@@ -301,11 +512,16 @@ func (m tuiModel) bodyHeight() int {
 	return h
 }
 
+// selected returns the currently highlighted item, or nil if the cursor is on a header row.
 func (m tuiModel) selected() *wn.Item {
-	if len(m.items) == 0 || m.cursor < 0 || m.cursor >= len(m.items) {
+	if len(m.rows) == 0 || m.cursor < 0 || m.cursor >= len(m.rows) {
 		return nil
 	}
-	return m.items[m.cursor]
+	row := m.rows[m.cursor]
+	if row.itemIdx < 0 {
+		return nil // cursor is on a header row
+	}
+	return m.items[row.itemIdx]
 }
 
 func (m *tuiModel) refreshViewport() {
@@ -350,10 +566,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.cmdLoad(), tuiTickCmd())
 
 	case tuiLoadedMsg:
+		selectedID := ""
+		if it := m.selected(); it != nil {
+			selectedID = it.ID
+		}
 		m.allItems = []*wn.Item(msg)
 		m.blockedSet = wn.BlockedSet(m.allItems)
 		m.applyFilter()
-		m.clampCursor()
+		m.restoreCursor(selectedID)
 		m.refreshViewport()
 		return m, nil
 
@@ -402,7 +622,7 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		}
 
 	case "down", "j":
-		if m.cursor < len(m.items)-1 {
+		if m.cursor < len(m.rows)-1 {
 			m.cursor++
 			m.clampCursor()
 			m.refreshViewport()
@@ -414,6 +634,17 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 		return m, cmd
 
 	case "enter":
+		// On a header row: expand if collapsed, no-op if already expanded.
+		if len(m.rows) > 0 && m.cursor < len(m.rows) && m.rows[m.cursor].header != "" {
+			key := m.rows[m.cursor].groupKey
+			if m.collapsedGroups != nil && m.collapsedGroups[key] {
+				delete(m.collapsedGroups, key)
+				m.buildRows()
+				m.clampCursor()
+				m.refreshViewport()
+			}
+			break
+		}
 		it := m.selected()
 		if it != nil {
 			if err := wn.WithMetaLock(m.root, func(meta wn.Meta) (wn.Meta, error) {
@@ -426,6 +657,34 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 				m.msg = "current: " + it.ID
 			}
 		}
+
+	case " ":
+		if len(m.rows) > 0 && m.cursor < len(m.rows) {
+			row := m.rows[m.cursor]
+			if row.header != "" {
+				m.toggleGroupCollapse(row.groupKey)
+			} else {
+				m.collapseItemGroup()
+			}
+			m.refreshViewport()
+		}
+
+	case "g":
+		selectedID := ""
+		if it := m.selected(); it != nil {
+			selectedID = it.ID
+		}
+		switch m.groupMode {
+		case "", tuiGroupModeStatus:
+			m.groupMode = tuiGroupModeTags
+		case tuiGroupModeTags:
+			m.groupMode = tuiGroupModeNone
+		default:
+			m.groupMode = tuiGroupModeStatus
+		}
+		m.applyFilter()
+		m.restoreCursor(selectedID)
+		m.refreshViewport()
 
 	case "a":
 		return m.openEditor(tuiEditorAdd, "")
@@ -513,10 +772,13 @@ func (m tuiModel) handleKey(msg tea.KeyMsg) (tuiModel, tea.Cmd) {
 	case "esc":
 		m.filterMode = false
 		m.filterText = ""
-		m.statusFilter = tuiFilterAll
+		m.statusFilter = tuiFilterActive
+		m.groupMode = tuiGroupModeStatus
+		m.collapsedGroups = nil
 		m.showHelp = false
 		m.applyFilter()
-		m.clampCursor()
+		m.cursor = 0
+		m.listOffset = 0
 		m.refreshViewport()
 
 	case "r":
@@ -718,6 +980,13 @@ func (m tuiModel) View() string {
 	case tuiFilterDone:
 		leftHdr += " " + styleFilterDone.Render("[done]")
 	}
+	// Group mode badge (shown when not in default status mode)
+	switch m.groupMode {
+	case tuiGroupModeTags:
+		leftHdr += " " + styleGroupBadge.Render("[group:tags]")
+	case tuiGroupModeNone:
+		leftHdr += " " + styleGroupBadge.Render("[group:none]")
+	}
 	// Text filter badge
 	if m.filterText != "" || m.filterMode {
 		var badge string
@@ -767,17 +1036,21 @@ func (m tuiModel) renderList(height int) []string {
 			continue
 		}
 		row := m.rows[rowIdx]
+		cursorHere := rowIdx == m.cursor
 		if row.header != "" {
-			lines[i] = m.renderGroupHeader(row.header)
+			lines[i] = m.renderGroupHeader(row.header, cursorHere)
 		} else {
-			lines[i] = m.renderRow(m.items[row.itemIdx], row.itemIdx == m.cursor)
+			lines[i] = m.renderRow(m.items[row.itemIdx], cursorHere)
 		}
 	}
 	return lines
 }
 
-func (m tuiModel) renderGroupHeader(label string) string {
-	return styleGroupHeader.Width(tuiLeftWidth).Render("── " + label + " ──")
+func (m tuiModel) renderGroupHeader(label string, selected bool) string {
+	if selected {
+		return styleCursor.Width(tuiLeftWidth).Render(" " + label)
+	}
+	return styleGroupHeader.Width(tuiLeftWidth).Render(" " + label)
 }
 
 func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
@@ -853,8 +1126,8 @@ func (m tuiModel) renderHints() string {
 	}
 	type hint struct{ k, d string }
 	hints := []hint{
-		{"↵", "current"}, {"a", "add"}, {"e", "edit"}, {"x", "done"},
-		{"/", "search"}, {"f", "filter"}, {"q", "quit"}, {"?", "more"},
+		{"↵", "cur"}, {"a", "add"}, {"e", "edit"}, {"x", "done"},
+		{"/", "search"}, {"f", "filt"}, {"g", "grp"}, {"q", "quit"}, {"?", "more"},
 	}
 	var parts []string
 	for _, h := range hints {
@@ -875,9 +1148,12 @@ func tuiHelpContent() string {
 	b.WriteString("  [>]  launch in worktree\n")
 	b.WriteString("\nNavigation & Filter:\n")
 	b.WriteString("  [/]  search by text        [#]  search by tag\n")
-	b.WriteString("  [f]  cycle status filter   [Esc]  clear filters\n")
+	b.WriteString("  [f]  cycle status filter   [Esc]  reset to defaults\n")
 	b.WriteString("  [↑/k]  move up             [↓/j]  move down\n")
 	b.WriteString("  [PgUp/PgDn]  scroll detail pane\n")
+	b.WriteString("\nGrouping:\n")
+	b.WriteString("  [g]  cycle group mode (status → tags → none)\n")
+	b.WriteString("  [Space]  collapse/expand group\n")
 	b.WriteString("\n  [?]  toggle this help     [q]  quit\n")
 	return b.String()
 }
@@ -996,11 +1272,17 @@ func tuiSplitArgs(s string) []string {
 	return parts
 }
 
+var tuiResetState bool
+
 var tuiCmd = &cobra.Command{
 	Use:   "tui",
 	Short: "Interactive TUI for managing work items",
 	Args:  cobra.NoArgs,
 	RunE:  runTUI,
+}
+
+func init() {
+	tuiCmd.Flags().BoolVar(&tuiResetState, "reset-state", false, "Start with default TUI state (ignore saved state)")
 }
 
 func runTUI(cmd *cobra.Command, args []string) error {
@@ -1014,7 +1296,16 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	}
 	settings, _ := wn.ReadSettingsInRoot(root)
 	meta, _ := wn.ReadMeta(root)
-	m := newTUI(store, root, settings, meta.CurrentID)
-	_, err = tea.NewProgram(m, tea.WithAltScreen()).Run()
+	var state tuiState
+	if tuiResetState {
+		state = tuiState{StatusFilter: tuiFilterActive, GroupMode: tuiGroupModeStatus}
+	} else {
+		state = loadTUIState(root)
+	}
+	m := newTUI(store, root, settings, meta.CurrentID, state)
+	finalModel, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
+	if finalM, ok := finalModel.(tuiModel); ok {
+		saveTUIState(root, finalM)
+	}
 	return err
 }
