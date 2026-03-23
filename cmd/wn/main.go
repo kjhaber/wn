@@ -2678,14 +2678,23 @@ var exportOutput string
 var exportAll bool
 var exportUndone bool
 var exportDone bool
+var exportReviewReady bool
 var exportTag string
+var exportSort string
+var exportLimit int
+var exportOffset int
 
 func init() {
 	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Write to file (default: stdout)")
 	exportCmd.Flags().BoolVar(&exportAll, "all", false, "Export all items (default when no status filter)")
 	exportCmd.Flags().BoolVar(&exportUndone, "undone", false, "Export only undone items")
 	exportCmd.Flags().BoolVar(&exportDone, "done", false, "Export only done items")
-	exportCmd.Flags().StringVar(&exportTag, "tag", "", "Export only items with this tag")
+	exportCmd.Flags().BoolVar(&exportReviewReady, "review-ready", false, "Export only review-ready items")
+	exportCmd.Flags().BoolVar(&exportReviewReady, "rr", false, "Export only review-ready items")
+	exportCmd.Flags().StringVar(&exportTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+	exportCmd.Flags().StringVar(&exportSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
+	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "Return at most N items (0 = no limit)")
+	exportCmd.Flags().IntVar(&exportOffset, "offset", 0, "Skip first N items")
 }
 
 func runExport(cmd *cobra.Command, args []string) error {
@@ -2697,7 +2706,23 @@ func runExport(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	useCriteria := exportAll || exportUndone || exportDone || exportTag != ""
+	stateFlags := 0
+	if exportAll {
+		stateFlags++
+	}
+	if exportUndone {
+		stateFlags++
+	}
+	if exportDone {
+		stateFlags++
+	}
+	if exportReviewReady {
+		stateFlags++
+	}
+	if stateFlags > 1 {
+		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
+	}
+	useCriteria := stateFlags > 0 || exportTag != "" || exportSort != "" || exportLimit > 0 || exportOffset > 0
 	if !useCriteria {
 		return wn.Export(store, exportOutput)
 	}
@@ -2717,26 +2742,52 @@ func runExport(cmd *cobra.Command, args []string) error {
 				items = append(items, it)
 			}
 		}
+	} else if exportReviewReady {
+		items, err = wn.ReviewReadyItems(store)
+		if err != nil {
+			return err
+		}
 	} else {
-		// --all or only --tag
+		// --all, or only --tag/--sort/--limit/--offset with no state filter: load everything
 		items, err = store.List()
 		if err != nil {
 			return err
 		}
 	}
-	if exportTag != "" {
-		var filtered []*wn.Item
-		for _, it := range items {
-			for _, t := range it.Tags {
-				if t == exportTag {
-					filtered = append(filtered, it)
-					break
-				}
+	items = wn.FilterByTag(items, exportTag)
+	// Apply sort
+	var sortSpec []wn.SortOption
+	if exportSort != "" {
+		sortSpec, err = wn.ParseSortSpec(exportSort)
+		if err != nil {
+			return err
+		}
+	} else {
+		settings, _ := wn.ReadSettingsInRoot(root)
+		sortSpec = wn.SortSpecFromSettings(settings)
+	}
+	var ordered []*wn.Item
+	if len(sortSpec) > 0 {
+		ordered = wn.ApplySort(items, sortSpec)
+	} else {
+		var acyclic bool
+		ordered, acyclic = wn.TopoOrder(items)
+		if !acyclic && len(ordered) > 0 {
+			ordered = items
+		}
+	}
+	// Apply offset and limit
+	if exportOffset > 0 || exportLimit > 0 {
+		if exportOffset > len(ordered) {
+			ordered = nil
+		} else {
+			ordered = ordered[exportOffset:]
+			if exportLimit > 0 && len(ordered) > exportLimit {
+				ordered = ordered[:exportLimit]
 			}
 		}
-		items = filtered
 	}
-	return wn.ExportItems(items, exportOutput)
+	return wn.ExportItems(ordered, exportOutput)
 }
 
 var importCmd = &cobra.Command{

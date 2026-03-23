@@ -999,6 +999,7 @@ func TestExportWithCriteria(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
 
 	rootCmd.SetArgs([]string{"export", "--tag", "prio", "-o", outPath})
 	if err := rootCmd.Execute(); err != nil {
@@ -1026,6 +1027,253 @@ func itemIDs(items []*wn.Item) []string {
 		ids[i] = it.ID
 	}
 	return ids
+}
+
+// resetExportFlags clears export flags to avoid Cobra's flag persistence across Execute() calls.
+func resetExportFlags() {
+	exportOutput = ""
+	exportAll = false
+	exportUndone = false
+	exportDone = false
+	exportReviewReady = false
+	exportTag = ""
+	exportSort = ""
+	exportLimit = 0
+	exportOffset = 0
+}
+
+func TestExport_ReviewReady(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	items := []*wn.Item{
+		{ID: "aaa111", Description: "available", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "review-ready", Created: now, Updated: now, ReviewReady: true, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	}
+	for _, item := range items {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outPath := dir + "/out.json"
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
+
+	rootCmd.SetArgs([]string{"export", "--review-ready", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --review-ready: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var exp struct {
+		Items []*wn.Item `json:"items"`
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 1 || exp.Items[0].ID != "bbb222" {
+		t.Errorf("export --review-ready: got %v, want [bbb222]", itemIDs(exp.Items))
+	}
+}
+
+func TestExport_CompoundTag(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	items := []*wn.Item{
+		{ID: "aaa111", Description: "both tags", Created: now, Updated: now, Tags: []string{"a", "b"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "one tag", Created: now, Updated: now, Tags: []string{"a"}, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc333", Description: "no tags", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	}
+	for _, item := range items {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outPath := dir + "/out.json"
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
+
+	// AND filter: only items with both "a" and "b"
+	rootCmd.SetArgs([]string{"export", "--tag", "a,b", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --tag a,b: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var exp struct {
+		Items []*wn.Item `json:"items"`
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 1 || exp.Items[0].ID != "aaa111" {
+		t.Errorf("export --tag a,b: got %v, want [aaa111]", itemIDs(exp.Items))
+	}
+}
+
+func TestExport_Sort(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	items := []*wn.Item{
+		{ID: "aaa111", Description: "alpha first", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "alpha second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	}
+	for _, item := range items {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outPath := dir + "/out.json"
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
+
+	// Sort alphabetically descending — should put "alpha second" before "alpha first"
+	rootCmd.SetArgs([]string{"export", "--all", "--sort", "alpha:desc", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --sort alpha:desc: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var exp struct {
+		Items []*wn.Item `json:"items"`
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(exp.Items))
+	}
+	if exp.Items[0].ID != "bbb222" || exp.Items[1].ID != "aaa111" {
+		t.Errorf("export --sort alpha:desc: got order %v, want [bbb222, aaa111]", itemIDs(exp.Items))
+	}
+}
+
+func TestExport_LimitOffset(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	ord0, ord1, ord2 := 0, 1, 2
+	items := []*wn.Item{
+		{ID: "aaa111", Description: "first", Created: now, Updated: now, Order: &ord0, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "bbb222", Description: "second", Created: now, Updated: now, Order: &ord1, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+		{ID: "ccc333", Description: "third", Created: now, Updated: now, Order: &ord2, Log: []wn.LogEntry{{At: now, Kind: "created"}}},
+	}
+	for _, item := range items {
+		if err := store.Put(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outPath := dir + "/out.json"
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
+
+	// --limit 2: should return first 2 items
+	rootCmd.SetArgs([]string{"export", "--all", "--sort", "priority", "--limit", "2", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --limit 2: %v", err)
+	}
+	data, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var exp struct {
+		Items []*wn.Item `json:"items"`
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 2 {
+		t.Fatalf("export --limit 2: got %d items, want 2", len(exp.Items))
+	}
+	if exp.Items[0].ID != "aaa111" || exp.Items[1].ID != "bbb222" {
+		t.Errorf("export --limit 2: got %v, want [aaa111, bbb222]", itemIDs(exp.Items))
+	}
+
+	// --offset 1: should skip first item
+	resetExportFlags()
+	rootCmd.SetArgs([]string{"export", "--all", "--sort", "priority", "--offset", "1", "-o", outPath})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("export --offset 1: %v", err)
+	}
+	data, err = os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := json.Unmarshal(data, &exp); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(exp.Items) != 2 {
+		t.Fatalf("export --offset 1: got %d items, want 2", len(exp.Items))
+	}
+	if exp.Items[0].ID != "bbb222" || exp.Items[1].ID != "ccc333" {
+		t.Errorf("export --offset 1: got %v, want [bbb222, ccc333]", itemIDs(exp.Items))
+	}
+}
+
+func TestExport_MultipleStateFlags_Errors(t *testing.T) {
+	dir := t.TempDir()
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+	defer resetExportFlags()
+
+	rootCmd.SetArgs([]string{"export", "--undone", "--done"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("export --undone --done: expected error, got nil")
+	}
 }
 
 // resetImportFlags clears import flags so tests get consistent behavior.

@@ -79,7 +79,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn settings show` | Print the fully merged effective settings as JSON. |
 | `wn settings edit [--user\|--user-local\|--project\|--project-local]` | Interactively pick a settings file to open in `$EDITOR` (fzf or numbered). Use a flag to skip the picker and open a specific file directly. Missing files are created as `{}` before opening. |
 | `wn verify` | Run the shell command configured in `settings.verify` (e.g. `make all`, `npm test`). Useful for agents and humans to confirm the build passes. |
-| `wn export [-o file]` | Export all items to JSON (stdout if no `-o`). |
+| `wn export [-o file] [--undone\|--done\|--all\|--review-ready] [--tag expr] [--sort spec] [--limit N] [--offset N]` | Export items to JSON (stdout if no `-o`). Supports the same selection flags as `wn list`: filter by status, tag (compound `a,b`/`a\|b`), sort, and paginate. |
 | `wn import <file>` | Import items from JSON export. When store has items, use `--append` (add/merge) or `--replace` (replace all). |
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients). |
 | `wn help` / `wn completion` | Help and shell completion. |
