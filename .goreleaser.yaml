@@ -3,6 +3,10 @@ version: 2
 before:
   hooks:
     - go mod tidy
+    - mkdir -p build/completions
+    - sh -c 'go run ./cmd/wn completion zsh > build/completions/_wn'
+    - sh -c 'go run ./cmd/wn completion bash > build/completions/wn.bash'
+    - sh -c 'go run ./cmd/wn completion fish > build/completions/wn.fish'
 
 builds:
   - main: ./cmd/wn
@@ -22,6 +26,10 @@ archives:
   - formats:
       - tar.gz
     name_template: "wn_{{.Version}}_{{.Os}}_{{.Arch}}"
+    files:
+      - src: build/completions/*
+        dst: completions/
+        strip_parent: true
 
 brews:
   - name: wn
@@ -34,6 +42,9 @@ brews:
     license: MIT
     install: |
       bin.install "wn"
+      bash_completion.install "completions/wn.bash"
+      zsh_completion.install "completions/_wn"
+      fish_completion.install "completions/wn.fish"
     test: |
       system "#{bin}/wn", "--version"
 

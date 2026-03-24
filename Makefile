@@ -4,7 +4,7 @@ BUILD_DIR := build
 GOLANGCI_LINT_VERSION := v2.11.3
 GOLANGCI_LINT := $(BUILD_DIR)/golangci-lint
 
-.PHONY: fmt lint test cover build clean all
+.PHONY: fmt lint test cover build completions clean all
 
 # Default target runs all quality checks then builds
 all: fmt lint cover build
@@ -44,6 +44,13 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	@go build -ldflags "-X main.version=$(VERSION)" -o $(BUILD_DIR)/wn ./cmd/wn
 
-# Remove all build outputs
+# Generate shell completion scripts (zsh, bash, fish) into build/completions/
+completions: build
+	@mkdir -p $(BUILD_DIR)/completions
+	@$(BUILD_DIR)/wn completion zsh > $(BUILD_DIR)/completions/_wn
+	@$(BUILD_DIR)/wn completion bash > $(BUILD_DIR)/completions/wn.bash
+	@$(BUILD_DIR)/wn completion fish > $(BUILD_DIR)/completions/wn.fish
+
+# Remove all build outputs (keep .wn/ for work items)
 clean:
 	@rm -rf $(BUILD_DIR)

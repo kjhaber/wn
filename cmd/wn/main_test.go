@@ -5673,3 +5673,49 @@ func TestShowMetadataSection(t *testing.T) {
 		t.Errorf("metadata: section should come before notes: section")
 	}
 }
+
+// TestCompletionZsh verifies zsh shell completion output is non-empty and well-formed.
+// Uses cobra's direct generation API to avoid output-writer state issues from sequential Execute() calls.
+func TestCompletionZsh(t *testing.T) {
+	var buf bytes.Buffer
+	if err := rootCmd.GenZshCompletion(&buf); err != nil {
+		t.Fatalf("GenZshCompletion: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "#compdef") {
+		t.Errorf("zsh completion output should contain '#compdef', got:\n%.200s", out)
+	}
+	if !strings.Contains(out, "wn") {
+		t.Errorf("zsh completion output should mention 'wn', got:\n%.200s", out)
+	}
+}
+
+// TestCompletionBash verifies bash shell completion output is non-empty and well-formed.
+func TestCompletionBash(t *testing.T) {
+	var buf bytes.Buffer
+	if err := rootCmd.GenBashCompletionV2(&buf, true); err != nil {
+		t.Fatalf("GenBashCompletionV2: %v", err)
+	}
+	out := buf.String()
+	if len(out) == 0 {
+		t.Error("bash completion output should not be empty")
+	}
+	if !strings.Contains(out, "wn") {
+		t.Errorf("bash completion output should mention 'wn', got:\n%.200s", out)
+	}
+}
+
+// TestCompletionFish verifies fish shell completion output is non-empty and well-formed.
+func TestCompletionFish(t *testing.T) {
+	var buf bytes.Buffer
+	if err := rootCmd.GenFishCompletion(&buf, true); err != nil {
+		t.Fatalf("GenFishCompletion: %v", err)
+	}
+	out := buf.String()
+	if len(out) == 0 {
+		t.Error("fish completion output should not be empty")
+	}
+	if !strings.Contains(out, "wn") {
+		t.Errorf("fish completion output should mention 'wn', got:\n%.200s", out)
+	}
+}
