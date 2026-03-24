@@ -735,7 +735,7 @@ func TestTUIRefreshInterval_IsReasonable(t *testing.T) {
 	}
 }
 
-func TestUpdate_TickMsgReturnsCmd(t *testing.T) {
+func TestUpdate_WatchMsgReturnsCmd(t *testing.T) {
 	root := t.TempDir()
 	if err := wn.InitRoot(root); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -745,9 +745,9 @@ func TestUpdate_TickMsgReturnsCmd(t *testing.T) {
 		t.Fatalf("NewFileStore: %v", err)
 	}
 	m := tuiModel{store: store, root: root, width: 80, height: 24}
-	_, cmd := m.Update(tuiTickMsg(time.Now()))
+	_, cmd := m.Update(tuiWatchMsg{})
 	if cmd == nil {
-		t.Error("tuiTickMsg should return a non-nil cmd to schedule reload and next tick")
+		t.Error("tuiWatchMsg should return a non-nil cmd to schedule reload and next watch")
 	}
 }
 
@@ -1075,5 +1075,75 @@ func TestLoadTUIState_MissingFile_ReturnsDefaults(t *testing.T) {
 	}
 	if state.GroupMode != tuiGroupModeStatus {
 		t.Errorf("expected default GroupMode=%q, got %q", tuiGroupModeStatus, state.GroupMode)
+	}
+}
+
+// --- filesystem watcher ---
+
+func TestTUIStartWatcher_ValidDir_ReturnsChannel(t *testing.T) {
+	root := t.TempDir()
+	itemsDir := filepath.Join(root, ".wn", "items")
+	if err := os.MkdirAll(itemsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	ch := tuiStartWatcher(itemsDir)
+	if ch == nil {
+		t.Error("expected non-nil channel for valid directory")
+	}
+}
+
+func TestTUIStartWatcher_InvalidDir_ReturnsNil(t *testing.T) {
+	ch := tuiStartWatcher("/nonexistent/path/that/definitely/does/not/exist")
+	if ch != nil {
+		t.Error("expected nil channel for non-existent directory")
+	}
+}
+
+func TestTUIStartWatcher_DetectsFileCreation(t *testing.T) {
+	root := t.TempDir()
+	itemsDir := filepath.Join(root, ".wn", "items")
+	if err := os.MkdirAll(itemsDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	ch := tuiStartWatcher(itemsDir)
+	if ch == nil {
+		t.Skip("filesystem watching not available on this platform")
+	}
+
+	// Give the watcher goroutine time to start.
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.WriteFile(filepath.Join(itemsDir, "abc123.json"), []byte(`{}`), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	select {
+	case <-ch:
+		// success: watcher detected the change
+	case <-time.After(2 * time.Second):
+		t.Error("expected filesystem event within 2 seconds after file creation")
+	}
+}
+
+func TestTUIWatchCmd_NilChannel_ReturnsCmd(t *testing.T) {
+	cmd := tuiWatchCmd(nil)
+	if cmd == nil {
+		t.Error("tuiWatchCmd(nil) should return a non-nil fallback polling cmd")
+	}
+}
+
+func TestTUIUpdate_WatchMsgTriggersReload(t *testing.T) {
+	root := t.TempDir()
+	if err := wn.InitRoot(root); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	m := tuiModel{store: store, root: root, width: 80, height: 24}
+	_, cmd := m.Update(tuiWatchMsg{})
+	if cmd == nil {
+		t.Error("tuiWatchMsg should return a non-nil cmd to schedule reload and reschedule watch")
 	}
 }

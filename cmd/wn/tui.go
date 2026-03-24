@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/fsnotify/fsnotify"
 	"github.com/kjhaber/wn/internal/wn"
 	"github.com/spf13/cobra"
 )
@@ -129,11 +130,61 @@ const (
 
 const tuiRefreshInterval = 10 * time.Second
 
-type tuiTickMsg time.Time
+// tuiWatchMsg is sent when the items directory changes (or on each poll tick
+// when filesystem watching is unavailable).
+type tuiWatchMsg struct{}
 
-func tuiTickCmd() tea.Cmd {
-	return tea.Tick(tuiRefreshInterval, func(t time.Time) tea.Msg {
-		return tuiTickMsg(t)
+// tuiStartWatcher starts a filesystem watcher on itemsDir and returns a channel
+// that receives a signal whenever any file in that directory changes.  Events
+// are coalesced so at most one signal is buffered at a time.  Returns nil if
+// fsnotify cannot be initialised (e.g. the directory does not exist), in which
+// case the caller should fall back to periodic polling.
+func tuiStartWatcher(itemsDir string) <-chan struct{} {
+	fw, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil
+	}
+	if err := fw.Add(itemsDir); err != nil {
+		_ = fw.Close()
+		return nil
+	}
+	ch := make(chan struct{}, 1)
+	go func() {
+		defer func() { _ = fw.Close() }()
+		for {
+			select {
+			case _, ok := <-fw.Events:
+				if !ok {
+					return
+				}
+				// Coalesce: only buffer one pending signal.
+				select {
+				case ch <- struct{}{}:
+				default:
+				}
+			case _, ok := <-fw.Errors:
+				if !ok {
+					return
+				}
+				// ignore watcher errors; next event will retry
+			}
+		}
+	}()
+	return ch
+}
+
+// tuiWatchCmd returns a tea.Cmd that fires tuiWatchMsg when the items directory
+// changes.  If watchCh is non-nil it blocks until the watcher goroutine sends a
+// signal; otherwise it falls back to a periodic poll at tuiRefreshInterval.
+func tuiWatchCmd(watchCh <-chan struct{}) tea.Cmd {
+	if watchCh != nil {
+		return func() tea.Msg {
+			<-watchCh
+			return tuiWatchMsg{}
+		}
+	}
+	return tea.Tick(tuiRefreshInterval, func(time.Time) tea.Msg {
+		return tuiWatchMsg{}
 	})
 }
 
@@ -174,6 +225,8 @@ type tuiModel struct {
 
 	showHelp bool
 
+	watchCh <-chan struct{} // non-nil when fsnotify watcher is active; nil falls back to polling
+
 	msg string
 	err error
 }
@@ -197,6 +250,7 @@ func newTUI(store wn.Store, root string, settings wn.Settings, currentID string,
 			}
 		}
 	}
+	itemsDir := filepath.Join(root, ".wn", "items")
 	return tuiModel{
 		store:           store,
 		root:            root,
@@ -205,11 +259,12 @@ func newTUI(store wn.Store, root string, settings wn.Settings, currentID string,
 		statusFilter:    statusFilter,
 		groupMode:       groupMode,
 		collapsedGroups: collapsedGroups,
+		watchCh:         tuiStartWatcher(itemsDir),
 	}
 }
 
 func (m tuiModel) Init() tea.Cmd {
-	return tea.Batch(m.cmdLoad(), tuiTickCmd())
+	return tea.Batch(m.cmdLoad(), tuiWatchCmd(m.watchCh))
 }
 
 func (m tuiModel) cmdLoad() tea.Cmd {
@@ -562,8 +617,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshViewport()
 		return m, nil
 
-	case tuiTickMsg:
-		return m, tea.Batch(m.cmdLoad(), tuiTickCmd())
+	case tuiWatchMsg:
+		return m, tea.Batch(m.cmdLoad(), tuiWatchCmd(m.watchCh))
 
 	case tuiLoadedMsg:
 		selectedID := ""
