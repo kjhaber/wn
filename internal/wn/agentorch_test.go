@@ -224,14 +224,14 @@ func TestExpandCommandTemplate_escapesItemIDWorktreeBranch(t *testing.T) {
 
 func TestResolveBranchName(t *testing.T) {
 	item := &Item{ID: "abc123", Description: "Add feature"}
-	if got := resolveBranchName(item, ""); got != "wn-abc123-add-feature" {
+	if got := resolveBranchName(item, "", ""); got != "wn-abc123-add-feature" {
 		t.Errorf("resolveBranchName(no prefix) = %q, want wn-abc123-add-feature", got)
 	}
-	if got := resolveBranchName(item, "keith/"); got != "keith/wn-abc123-add-feature" {
+	if got := resolveBranchName(item, "keith/", ""); got != "keith/wn-abc123-add-feature" {
 		t.Errorf("resolveBranchName(keith/) = %q, want keith/wn-abc123-add-feature", got)
 	}
 	item.Notes = []Note{{Name: "branch", Body: "reuse-me"}}
-	if got := resolveBranchName(item, "keith/"); got != "reuse-me" {
+	if got := resolveBranchName(item, "keith/", ""); got != "reuse-me" {
 		t.Errorf("resolveBranchName with note (prefix ignored) = %q, want reuse-me", got)
 	}
 }
@@ -420,7 +420,7 @@ func TestSetupItemWorktree_createsWorktreeAndBranchNote(t *testing.T) {
 	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
 		t.Fatal(err)
 	}
-	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", nil)
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", "", nil)
 	if err != nil {
 		t.Fatalf("SetupItemWorktree: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestSetupItemWorktree_reusesExistingBranchNote(t *testing.T) {
 	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
 		t.Fatal(err)
 	}
-	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "prefix/", nil)
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "prefix/", "", nil)
 	if err != nil {
 		t.Fatalf("SetupItemWorktree: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestSetupItemWorktree_withBranchPrefix(t *testing.T) {
 	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
 		t.Fatal(err)
 	}
-	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "keith/", nil)
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "keith/", "", nil)
 	if err != nil {
 		t.Fatalf("SetupItemWorktree: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestResolveBranchName_UsesWnColonBranchNote(t *testing.T) {
 		Updated:     now,
 		Notes:       []Note{{Name: NoteNameBranch, Body: "wn-abc123-fix-the-thing", Created: now}},
 	}
-	got := resolveBranchName(item, "")
+	got := resolveBranchName(item, "", "")
 	if got != "wn-abc123-fix-the-thing" {
 		t.Errorf("resolveBranchName = %q, want wn-abc123-fix-the-thing", got)
 	}
@@ -637,7 +637,7 @@ func TestResolveBranchName_BackwardCompatOldBranchNote(t *testing.T) {
 		Updated:     now,
 		Notes:       []Note{{Name: "branch", Body: "wn-abc123-old-style", Created: now}},
 	}
-	got := resolveBranchName(item, "")
+	got := resolveBranchName(item, "", "")
 	if got != "wn-abc123-old-style" {
 		t.Errorf("resolveBranchName with old 'branch' note = %q, want wn-abc123-old-style", got)
 	}
@@ -667,6 +667,78 @@ func TestFindItemByBranch_WnColonNote(t *testing.T) {
 	if got == nil || got.ID != "abc123" {
 		t.Errorf("FindItemByBranch with wn:branch note = %v, want item abc123", got)
 	}
+}
+
+func TestResolveBranchName_WithTemplate(t *testing.T) {
+	item := &Item{ID: "abc123", Description: "Add feature"}
+	// Custom template: just the slug, no wn- prefix
+	if got := resolveBranchName(item, "", "{{.Slug}}"); got != "add-feature" {
+		t.Errorf("resolveBranchName with {{.Slug}} template = %q, want add-feature", got)
+	}
+	// Prefix applied outside the template
+	if got := resolveBranchName(item, "keith/", "{{.Slug}}"); got != "keith/add-feature" {
+		t.Errorf("resolveBranchName with prefix+template = %q, want keith/add-feature", got)
+	}
+	// Template including ID
+	if got := resolveBranchName(item, "", "feature/{{.ID}}/{{.Slug}}"); got != "feature/abc123/add-feature" {
+		t.Errorf("resolveBranchName with ID template = %q, want feature/abc123/add-feature", got)
+	}
+	// Empty template preserves default behaviour
+	if got := resolveBranchName(item, "", ""); got != "wn-abc123-add-feature" {
+		t.Errorf("resolveBranchName with empty template = %q, want wn-abc123-add-feature", got)
+	}
+}
+
+func TestFormatCommitMessage(t *testing.T) {
+	// Empty template → default "wn <id>: <firstLine>"
+	if got := FormatCommitMessage("", "abc123", "Add feature"); got != "wn abc123: Add feature" {
+		t.Errorf("FormatCommitMessage(empty) = %q, want wn abc123: Add feature", got)
+	}
+	// Custom template without wn reference
+	if got := FormatCommitMessage("feat: {{.FirstLine}}", "abc123", "Add feature"); got != "feat: Add feature" {
+		t.Errorf("FormatCommitMessage(custom) = %q, want feat: Add feature", got)
+	}
+	// Template using ID
+	if got := FormatCommitMessage("{{.ID}}: {{.FirstLine}}", "abc123", "Add feature"); got != "abc123: Add feature" {
+		t.Errorf("FormatCommitMessage(with ID) = %q, want abc123: Add feature", got)
+	}
+}
+
+func TestSetupItemWorktree_withBranchTemplate(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "abc123",
+		Description: "Add feature\nWith details",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := filepath.Join(repoDir, "worktrees")
+	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Template that omits wn prefix entirely
+	worktreePath, branchName, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", "{{.Slug}}", nil)
+	if err != nil {
+		t.Fatalf("SetupItemWorktree with template: %v", err)
+	}
+	if branchName != "add-feature" {
+		t.Errorf("branchName = %q, want add-feature", branchName)
+	}
+	if _, err := os.Stat(worktreePath); err != nil {
+		t.Errorf("worktree path %q should exist: %v", worktreePath, err)
+	}
+	var audit bytes.Buffer
+	_ = RemoveWorktree(repoDir, worktreePath, &audit)
 }
 
 func TestFindItemByBranch_OldNoteBackwardCompat(t *testing.T) {
@@ -717,7 +789,7 @@ func TestSetupItemWorktree_writesWnColonBranchNote(t *testing.T) {
 	if err := os.MkdirAll(worktreesBase, 0755); err != nil {
 		t.Fatal(err)
 	}
-	worktreePath, _, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", nil)
+	worktreePath, _, err := SetupItemWorktree(store, repoDir, item, worktreesBase, filepath.Base(repoDir), "", "", nil)
 	if err != nil {
 		t.Fatalf("SetupItemWorktree: %v", err)
 	}

@@ -2044,6 +2044,12 @@ func runDo(cmd *cobra.Command, args []string) error {
 	if ws.BranchPrefix != "" {
 		opts.BranchPrefix = ws.BranchPrefix
 	}
+	if ws.BranchTemplate != "" {
+		opts.BranchTemplate = ws.BranchTemplate
+	}
+	if as.CommitTemplate != "" {
+		opts.CommitTemplate = as.CommitTemplate
+	}
 	if ns.Tag != "" {
 		opts.Tag = ns.Tag
 	}
@@ -2308,6 +2314,9 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	if flagBranchPrefix != "" {
 		opts.BranchPrefix = flagBranchPrefix
 	}
+	if ws.BranchTemplate != "" {
+		opts.BranchTemplate = ws.BranchTemplate
+	}
 
 	ctx := context.Background()
 	if err := wn.RunAgentOrch(ctx, opts); err != nil {
@@ -2406,6 +2415,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	if flagBranchPrefix != "" {
 		branchPrefix = flagBranchPrefix
 	}
+	branchTemplate := ws.BranchTemplate
 	worktreesBase := ws.Base
 	if flagWorktreeBase != "" {
 		worktreesBase = flagWorktreeBase
@@ -2478,9 +2488,10 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	// If --branch is provided, pre-set the branch note so SetupItemWorktree uses it.
-	// Full name: [prefix]wn-<id>-<slug>
+	// The slug comes from the flag value; the full name is generated via the branch template.
 	if flagBranch != "" {
-		fullBranch := branchPrefix + "wn-" + item.ID + "-" + wn.BranchSlug(flagBranch)
+		slug := wn.BranchSlug(flagBranch)
+		fullBranch := branchPrefix + wn.ExpandBranchTemplate(branchTemplate, item.ID, slug)
 		now := time.Now().UTC()
 		if err = store.UpdateItem(item.ID, func(it *wn.Item) (*wn.Item, error) {
 			idx := it.NoteIndexByName("branch")
@@ -2500,7 +2511,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	worktreePath, branchName, err := wn.SetupItemWorktree(store, root, item, worktreesBase, mainDirname, branchPrefix, os.Stderr)
+	worktreePath, branchName, err := wn.SetupItemWorktree(store, root, item, worktreesBase, mainDirname, branchPrefix, branchTemplate, os.Stderr)
 	if err != nil {
 		return err
 	}

@@ -763,3 +763,48 @@ func TestMergeSettings_verifyEmptyProjectPreservesUser(t *testing.T) {
 		t.Errorf("Verify = %q, want make test (user preserved)", merged.Verify)
 	}
 }
+
+func TestMergeSettings_BranchTemplate(t *testing.T) {
+	user := Settings{Worktree: WorktreeSettings{BranchTemplate: "{{.Slug}}"}}
+	merged := MergeSettings(user, Settings{})
+	if merged.Worktree.BranchTemplate != "{{.Slug}}" {
+		t.Errorf("BranchTemplate = %q, want {{.Slug}} (user preserved)", merged.Worktree.BranchTemplate)
+	}
+	project := Settings{Worktree: WorktreeSettings{BranchTemplate: "{{.ID}}-{{.Slug}}"}}
+	merged = MergeSettings(user, project)
+	if merged.Worktree.BranchTemplate != "{{.ID}}-{{.Slug}}" {
+		t.Errorf("BranchTemplate = %q, want {{.ID}}-{{.Slug}} (project overrides)", merged.Worktree.BranchTemplate)
+	}
+}
+
+func TestMergeSettings_CommitTemplate(t *testing.T) {
+	user := Settings{Agent: AgentSettings{CommitTemplate: "feat: {{.FirstLine}}"}}
+	merged := MergeSettings(user, Settings{})
+	if merged.Agent.CommitTemplate != "feat: {{.FirstLine}}" {
+		t.Errorf("CommitTemplate = %q, want feat: {{.FirstLine}} (user preserved)", merged.Agent.CommitTemplate)
+	}
+	project := Settings{Agent: AgentSettings{CommitTemplate: "fix: {{.FirstLine}}"}}
+	merged = MergeSettings(user, project)
+	if merged.Agent.CommitTemplate != "fix: {{.FirstLine}}" {
+		t.Errorf("CommitTemplate = %q, want fix: {{.FirstLine}} (project overrides)", merged.Agent.CommitTemplate)
+	}
+}
+
+func TestReadSettings_BranchTemplate(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	body := `{"worktree":{"branch_template":"{{.Slug}}"},"agent":{"commit_template":"feat: {{.FirstLine}}"}}`
+	if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readSettingsFromPath(path)
+	if err != nil {
+		t.Fatalf("readSettingsFromPath: %v", err)
+	}
+	if got.Worktree.BranchTemplate != "{{.Slug}}" {
+		t.Errorf("BranchTemplate = %q, want {{.Slug}}", got.Worktree.BranchTemplate)
+	}
+	if got.Agent.CommitTemplate != "feat: {{.FirstLine}}" {
+		t.Errorf("CommitTemplate = %q, want feat: {{.FirstLine}}", got.Agent.CommitTemplate)
+	}
+}

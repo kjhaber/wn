@@ -96,19 +96,21 @@ type NextSettings struct {
 // WorktreeSettings controls worktree creation.
 // Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
 type WorktreeSettings struct {
-	Base          string `json:"base,omitempty"`           // base directory for worktrees, e.g. "../worktrees"
-	BranchPrefix  string `json:"branch_prefix,omitempty"`  // prefix for generated branch names, e.g. "keith/"
-	DefaultBranch string `json:"default_branch,omitempty"` // override default branch detection, e.g. "main"
-	Claim         string `json:"claim,omitempty"`          // how long to claim an item, e.g. "2h"
+	Base           string `json:"base,omitempty"`            // base directory for worktrees, e.g. "../worktrees"
+	BranchPrefix   string `json:"branch_prefix,omitempty"`   // prefix for generated branch names, e.g. "keith/"
+	BranchTemplate string `json:"branch_template,omitempty"` // Go template for branch base name; vars: {{.ID}}, {{.Slug}}; default: "wn-{{.ID}}-{{.Slug}}"
+	DefaultBranch  string `json:"default_branch,omitempty"`  // override default branch detection, e.g. "main"
+	Claim          string `json:"claim,omitempty"`           // how long to claim an item, e.g. "2h"
 }
 
 // AgentSettings controls agent execution (wn do, wn launch).
 // Durations are strings parseable by time.ParseDuration (e.g. "2h", "30m").
 type AgentSettings struct {
-	Default       string `json:"default,omitempty"`        // default runner name for wn do (sync)
-	DefaultLaunch string `json:"default_launch,omitempty"` // default runner name for wn launch (async)
-	Delay         string `json:"delay,omitempty"`          // delay between runs in loop mode, e.g. "5m"
-	Poll          string `json:"poll,omitempty"`           // poll interval when queue empty, e.g. "60s"
+	Default        string `json:"default,omitempty"`         // default runner name for wn do (sync)
+	DefaultLaunch  string `json:"default_launch,omitempty"`  // default runner name for wn launch (async)
+	Delay          string `json:"delay,omitempty"`           // delay between runs in loop mode, e.g. "5m"
+	Poll           string `json:"poll,omitempty"`            // poll interval when queue empty, e.g. "60s"
+	CommitTemplate string `json:"commit_template,omitempty"` // Go template for auto-commit messages; vars: {{.ID}}, {{.FirstLine}}; default: "wn {{.ID}}: {{.FirstLine}}"
 }
 
 // ShowSettings holds user-level defaults for the show command and bare 'wn [id]'.
@@ -231,6 +233,9 @@ func mergeWorktree(user, project WorktreeSettings) WorktreeSettings {
 	if project.BranchPrefix != "" {
 		out.BranchPrefix = project.BranchPrefix
 	}
+	if project.BranchTemplate != "" {
+		out.BranchTemplate = project.BranchTemplate
+	}
 	if project.DefaultBranch != "" {
 		out.DefaultBranch = project.DefaultBranch
 	}
@@ -253,6 +258,9 @@ func mergeAgent(user, project AgentSettings) AgentSettings {
 	}
 	if project.Poll != "" {
 		out.Poll = project.Poll
+	}
+	if project.CommitTemplate != "" {
+		out.CommitTemplate = project.CommitTemplate
 	}
 	return out
 }

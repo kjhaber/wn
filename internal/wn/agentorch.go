@@ -100,23 +100,25 @@ func ClaimItem(store Store, root string, itemID string, claimFor time.Duration, 
 
 // AgentOrchOpts configures the agent orchestrator loop.
 type AgentOrchOpts struct {
-	Root          string        // project root (contains .wn)
-	ClaimFor      time.Duration // claim duration per item
-	ClaimBy       string        // optional worker id
-	Delay         time.Duration // delay between runs (after each item)
-	Poll          time.Duration // poll interval when queue empty
-	MaxTasks      int           // max tasks to process before exiting (0 = indefinite)
-	WorkID        string        // if non-empty, run only this item then exit (use with --work-id or --current)
-	AgentCmd      string        // command template, e.g. `cursor agent --print "{{.Prompt}}"`
-	PromptTpl     string        // prompt template, e.g. "{{.Description}}"
-	WorktreesBase string        // base path for worktrees
-	LeaveWorktree bool          // if true, leave worktree after run; else remove
-	DefaultBranch string        // override default branch (empty = detect)
-	BranchPrefix  string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
-	Tag           string        // if non-empty, only consider items that have this tag
-	FailIfEmpty   bool          // if true, return error immediately when queue is empty instead of polling
-	Async         bool          // if true, dispatch cmd without waiting; skip commit/release (for wn launch)
-	Audit         io.Writer     // timestamped command log (can be nil)
+	Root           string        // project root (contains .wn)
+	ClaimFor       time.Duration // claim duration per item
+	ClaimBy        string        // optional worker id
+	Delay          time.Duration // delay between runs (after each item)
+	Poll           time.Duration // poll interval when queue empty
+	MaxTasks       int           // max tasks to process before exiting (0 = indefinite)
+	WorkID         string        // if non-empty, run only this item then exit (use with --work-id or --current)
+	AgentCmd       string        // command template, e.g. `cursor agent --print "{{.Prompt}}"`
+	PromptTpl      string        // prompt template, e.g. "{{.Description}}"
+	WorktreesBase  string        // base path for worktrees
+	LeaveWorktree  bool          // if true, leave worktree after run; else remove
+	DefaultBranch  string        // override default branch (empty = detect)
+	BranchPrefix   string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
+	BranchTemplate string        // Go template for branch base name; vars: {{.ID}}, {{.Slug}}; default: "wn-{{.ID}}-{{.Slug}}"
+	CommitTemplate string        // Go template for auto-commit messages; vars: {{.ID}}, {{.FirstLine}}; default: "wn {{.ID}}: {{.FirstLine}}"
+	Tag            string        // if non-empty, only consider items that have this tag
+	FailIfEmpty    bool          // if true, return error immediately when queue is empty instead of polling
+	Async          bool          // if true, dispatch cmd without waiting; skip commit/release (for wn launch)
+	Audit          io.Writer     // timestamped command log (can be nil)
 }
 
 // PromptData is passed to the prompt template.
@@ -229,20 +231,76 @@ func worktreeDirForBranch(mainDirname, branchName string) string {
 }
 
 // resolveBranchName returns the branch name for the item: note NoteNameBranch ("wn:branch") if set,
-// falling back to the legacy "branch" note for backward compatibility, else prefix+wn-<id>-<slug>.
+// falling back to the legacy "branch" note for backward compatibility, else prefix+generated-name.
 // branchPrefix is applied only when generating a new name (e.g. "keith/" -> "keith/wn-abc123-add-feature").
-func resolveBranchName(item *Item, branchPrefix string) string {
+// branchTemplate is an optional Go template for the base name; vars: {{.ID}}, {{.Slug}}.
+// When empty, the default is "wn-<id>-<slug>" (backward compatible).
+func resolveBranchName(item *Item, branchPrefix, branchTemplate string) string {
 	for _, noteName := range []string{NoteNameBranch, "branch"} {
 		if idx := item.NoteIndexByName(noteName); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
 			return strings.TrimSpace(item.Notes[idx].Body)
 		}
 	}
 	slug := BranchSlug(item.Description)
-	base := "wn-" + item.ID
-	if slug != "" {
-		base = base + "-" + slug
-	}
+	base := ExpandBranchTemplate(branchTemplate, item.ID, slug)
 	return branchPrefix + base
+}
+
+// ExpandBranchTemplate generates the branch base name from a template and item vars.
+// When tpl is empty, uses the default "wn-<id>-<slug>" format.
+// Template vars: {{.ID}}, {{.Slug}}.
+func ExpandBranchTemplate(tpl, id, slug string) string {
+	if tpl == "" {
+		base := "wn-" + id
+		if slug != "" {
+			base = base + "-" + slug
+		}
+		return base
+	}
+	data := struct {
+		ID   string
+		Slug string
+	}{id, slug}
+	tm, err := template.New("branch").Parse(tpl)
+	if err != nil {
+		// Fall back to default on bad template
+		base := "wn-" + id
+		if slug != "" {
+			base = base + "-" + slug
+		}
+		return base
+	}
+	var buf bytes.Buffer
+	if err := tm.Execute(&buf, data); err != nil {
+		base := "wn-" + id
+		if slug != "" {
+			base = base + "-" + slug
+		}
+		return base
+	}
+	return buf.String()
+}
+
+// FormatCommitMessage formats a commit message from a template (or default if empty).
+// Template vars: {{.ID}}, {{.FirstLine}}.
+// Default (empty template): "wn <id>: <firstLine>".
+func FormatCommitMessage(tpl, id, firstLine string) string {
+	if tpl == "" {
+		return "wn " + id + ": " + firstLine
+	}
+	data := struct {
+		ID        string
+		FirstLine string
+	}{id, firstLine}
+	tm, err := template.New("commit").Parse(tpl)
+	if err != nil {
+		return "wn " + id + ": " + firstLine
+	}
+	var buf bytes.Buffer
+	if err := tm.Execute(&buf, data); err != nil {
+		return "wn " + id + ": " + firstLine
+	}
+	return buf.String()
 }
 
 // addItemNote adds or updates a note by name on the item via the store.
@@ -311,8 +369,10 @@ func FindItemByBranch(store Store, branch string) (*Item, error) {
 // SetupItemWorktree creates the branch and worktree for item, records the branch note,
 // and returns the resolved worktree path and branch name. On error the item claim is NOT
 // released; caller is responsible for cleanup.
-func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, mainDirname, branchPrefix string, audit io.Writer) (worktreePath, branchName string, err error) {
-	branchName = resolveBranchName(item, branchPrefix)
+// branchTemplate is an optional Go template for the branch base name (vars: {{.ID}}, {{.Slug}});
+// empty uses the default "wn-<id>-<slug>" format.
+func SetupItemWorktree(store Store, root string, item *Item, worktreesBase, mainDirname, branchPrefix, branchTemplate string, audit io.Writer) (worktreePath, branchName string, err error) {
+	branchName = resolveBranchName(item, branchPrefix, branchTemplate)
 	reuseBranch := func() bool {
 		for _, n := range []string{NoteNameBranch, "branch"} {
 			if idx := item.NoteIndexByName(n); idx >= 0 && strings.TrimSpace(item.Notes[idx].Body) != "" {
@@ -354,7 +414,7 @@ func itemSessionID(item *Item) string {
 
 // runOneItem runs the full flow for one item: worktree, note, subagent, commit, release, optional remove worktree.
 func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktreesBase, mainDirname, promptTpl, agentCmd string) error {
-	worktreePath, branchName, err := SetupItemWorktree(store, opts.Root, item, worktreesBase, mainDirname, opts.BranchPrefix, opts.Audit)
+	worktreePath, branchName, err := SetupItemWorktree(store, opts.Root, item, worktreesBase, mainDirname, opts.BranchPrefix, opts.BranchTemplate, opts.Audit)
 	if err != nil {
 		_ = releaseItemClaim(store, item.ID)
 		return err
@@ -386,7 +446,7 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	_ = cmd.Run() // ignore exit code; we release claim either way
-	commitMsg := "wn " + item.ID + ": " + FirstLine(item.Description)
+	commitMsg := FormatCommitMessage(opts.CommitTemplate, item.ID, FirstLine(item.Description))
 	if err := CommitWorktreeChanges(worktreePath, commitMsg, opts.Audit); err != nil {
 		if opts.Audit != nil {
 			_, _ = fmt.Fprintf(opts.Audit, "%s commit worktree changes failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
