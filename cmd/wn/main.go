@@ -386,7 +386,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 var rmCmd = &cobra.Command{
 	Use:   "rm [id ...]",
 	Short: "Remove a work item",
-	Long:  "If no id is given, shows an interactive list (fzf or numbered) with multi-select to remove several items at once. Pass one or more ids to remove those directly.",
+	Long:  "If no id is given, removes the current task. Pass one or more ids to remove those directly.",
 	Args:  cobra.ArbitraryArgs,
 	RunE:  runRm,
 }
@@ -403,22 +403,14 @@ func runRm(cmd *cobra.Command, args []string) error {
 
 	var idsToRemove []string
 	if len(args) == 0 {
-		items, err := store.List()
+		meta, err := wn.ReadMeta(root)
 		if err != nil {
 			return err
 		}
-		if len(items) == 0 {
-			fmt.Println("No tasks.")
-			return nil
+		if meta.CurrentID == "" {
+			return fmt.Errorf("no current task; specify an id to remove")
 		}
-		items = wn.ApplySort(items, interactiveSortSpec(root))
-		idsToRemove, err = wn.PickMultiInteractive(items)
-		if err != nil {
-			return err
-		}
-		if len(idsToRemove) == 0 {
-			return nil
-		}
+		idsToRemove = []string{meta.CurrentID}
 	} else {
 		idsToRemove = args
 	}

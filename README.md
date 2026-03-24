@@ -43,7 +43,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn` | Show current task (or suggest `wn pick` / `wn next`) |
 | `wn init` | Create `.wn/` in the current directory |
 | `wn add -m "..."` | Add a work item (use `-t tag` for tags; omit `-m` to use `$EDITOR`) |
-| `wn rm [id ...]` | Remove work item(s). Omit id to show an interactive list (fzf or numbered) with multi-select; pass one or more ids to remove those directly. |
+| `wn rm [id ...]` | Remove work item(s). Omit id to remove the current task; pass one or more ids to remove those directly. |
 | `wn edit <id>` | Edit description in `$EDITOR` |
 | `wn tag add <tag-name> [--wid <id>]` | Add a tag. Omit `--wid` to use the current task. Use `-i` to pick items with fzf and toggle the tag on each. |
 | `wn tag rm <tag-name> [--wid <id>]` | Remove a tag. Omit `--wid` to use the current task. |
@@ -359,7 +359,7 @@ Agents sometimes need input before they can continue—a clarifying question, a 
 List order and fzf pick order are controlled by:
 
 - **`wn list --sort '...'`** — Comma-separated sort keys; each key may be suffixed with `:asc` or `:desc`. Keys: `created`, `updated`, `priority` (backlog order), `alpha` (description), `tags`. Example: `wn list --sort 'updated:desc,priority,tags'`.
-- **`sort` in settings** — Applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag add -i`, `wn depend -i`, and `wn rm`.
+- **`sort` in settings** — Applies to `wn list` when `--sort` is not given, and to fzf/numbered lists for `wn pick`, `wn tag add -i`, and `wn depend -i`.
 
 When no sort preference is set, `wn list` uses dependency order (topological) for undone items.
 
@@ -374,7 +374,6 @@ When no sort preference is set, `wn list` uses dependency order (topological) fo
 
 If `fzf` is in your `PATH`:
 - **`wn pick`** uses it for fuzzy selection of the current task.
-- **`wn rm`** with no id uses fzf with multi-select (Tab to select, Enter to confirm).
 - **`wn tag add -i <tag>`** uses fzf with multi-select; selected items have the tag toggled.
 - **`wn depend add -i`** uses fzf to pick the depended-on item.
 - **`wn depend rm -i`** uses fzf to pick which dependency to remove.

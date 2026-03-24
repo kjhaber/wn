@@ -3319,29 +3319,16 @@ func TestRmMultipleIds(t *testing.T) {
 	}
 }
 
-func TestRmInteractiveMultiSelect(t *testing.T) {
-	origPath := os.Getenv("PATH")
-	_ = os.Setenv("PATH", "")
-	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	origStdin := os.Stdin
-	os.Stdin = r
-	t.Cleanup(func() { os.Stdin = origStdin })
-	if _, err := w.WriteString("1 2\n"); err != nil {
-		t.Fatal(err)
-	}
-	_ = w.Close()
-
-	dir, _ := setupWnRoot(t)
+func TestRmNoArgsRemovesCurrentItem(t *testing.T) {
+	dir, itemID := setupWnRoot(t)
 	store, _ := wn.NewFileStore(dir)
 	now := time.Now().UTC()
 	if err := store.Put(&wn.Item{ID: "bb2222", Description: "second", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: itemID}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
@@ -3350,36 +3337,29 @@ func TestRmInteractiveMultiSelect(t *testing.T) {
 
 	rootCmd.SetArgs([]string{"rm"})
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("rm (interactive): %v", err)
+		t.Fatalf("rm (no args): %v", err)
 	}
-	// Items 1 and 2 in the list (abc123, bb2222) should be removed
-	if _, err := store.Get("abc123"); err == nil {
-		t.Error("item abc123 should be removed")
+	// Current item should be removed
+	if _, err := store.Get(itemID); err == nil {
+		t.Error("current item should be removed")
 	}
-	if _, err := store.Get("bb2222"); err == nil {
-		t.Error("item bb2222 should be removed")
+	// Other items should remain
+	if _, err := store.Get("bb2222"); err != nil {
+		t.Errorf("item bb2222 should still exist: %v", err)
+	}
+	// CurrentID should be cleared
+	meta, _ := wn.ReadMeta(dir)
+	if meta.CurrentID != "" {
+		t.Errorf("CurrentID should be cleared; got %q", meta.CurrentID)
 	}
 }
 
-func TestRmInteractiveCancel(t *testing.T) {
-	origPath := os.Getenv("PATH")
-	_ = os.Setenv("PATH", "")
-	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
-
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	origStdin := os.Stdin
-	os.Stdin = r
-	t.Cleanup(func() { os.Stdin = origStdin })
-	if _, err := w.WriteString("\n"); err != nil {
-		t.Fatal(err)
-	}
-	_ = w.Close()
-
+func TestRmNoArgsErrorsWhenNoCurrent(t *testing.T) {
 	dir, itemID := setupWnRoot(t)
 	store, _ := wn.NewFileStore(dir)
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: ""}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
@@ -3387,11 +3367,12 @@ func TestRmInteractiveCancel(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	rootCmd.SetArgs([]string{"rm"})
-	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("rm (cancel): %v", err)
+	if err := rootCmd.Execute(); err == nil {
+		t.Error("expected error when no current item, got nil")
 	}
+	// Item should be untouched
 	if _, err := store.Get(itemID); err != nil {
-		t.Error("item should still exist after cancel")
+		t.Errorf("item should still exist: %v", err)
 	}
 }
 
