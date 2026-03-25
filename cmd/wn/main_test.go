@@ -6045,3 +6045,78 @@ func TestCompletionFish(t *testing.T) {
 		t.Errorf("fish completion output should mention 'wn', got:\n%.200s", out)
 	}
 }
+
+func setupGitRepoMain(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", args, out)
+		}
+	}
+	run("git", "init")
+	run("git", "config", "user.email", "test@example.com")
+	run("git", "config", "user.name", "Test")
+	run("git", "commit", "--allow-empty", "-m", "init")
+}
+
+// TestWnRootCmd_NormalRepo verifies that 'wn root' prints the git repo root from a normal checkout.
+func TestWnRootCmd_NormalRepo(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepoMain(t, repoDir)
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(repoDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"root"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	got := strings.TrimSpace(out)
+	normGot, _ := filepath.EvalSymlinks(got)
+	normWant, _ := filepath.EvalSymlinks(repoDir)
+	if normGot != normWant {
+		t.Errorf("wn root = %q (norm %q), want %q (norm %q)", got, normGot, repoDir, normWant)
+	}
+}
+
+// TestWnRootCmd_Worktree verifies that 'wn root' prints the main repo root from a linked worktree.
+func TestWnRootCmd_Worktree(t *testing.T) {
+	mainRepo := t.TempDir()
+	setupGitRepoMain(t, mainRepo)
+
+	worktreeDir := t.TempDir()
+	cmd := exec.Command("git", "worktree", "add", worktreeDir, "-b", "wn-root-cmd-test")
+	cmd.Dir = mainRepo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %s", out)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"root"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	got := strings.TrimSpace(out)
+	normGot, _ := filepath.EvalSymlinks(got)
+	normWant, _ := filepath.EvalSymlinks(mainRepo)
+	if normGot != normWant {
+		t.Errorf("wn root from worktree = %q (norm %q), want main %q (norm %q)", got, normGot, mainRepo, normWant)
+	}
+}

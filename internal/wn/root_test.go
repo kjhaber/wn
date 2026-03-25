@@ -246,6 +246,90 @@ func TestFindRoot_GitWorktree(t *testing.T) {
 	}
 }
 
+func TestGitRepoRoot_NormalRepo(t *testing.T) {
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(mainRepo); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	root, err := GitRepoRoot()
+	if err != nil {
+		t.Fatalf("GitRepoRoot() err = %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("GitRepoRoot() = %q (norm %q), want %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
+func TestGitRepoRoot_Subdirectory(t *testing.T) {
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	sub := filepath.Join(mainRepo, "src", "pkg")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatal(err)
+	}
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(sub); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	root, err := GitRepoRoot()
+	if err != nil {
+		t.Fatalf("GitRepoRoot() from subdir err = %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("GitRepoRoot() from subdir = %q (norm %q), want %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
+func TestGitRepoRoot_Worktree(t *testing.T) {
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-gitreporoot-test")
+
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	root, err := GitRepoRoot()
+	if err != nil {
+		t.Fatalf("GitRepoRoot() from worktree err = %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("GitRepoRoot() from worktree = %q (norm %q), want main %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
+func TestGitRepoRoot_NotGit(t *testing.T) {
+	tmp := t.TempDir()
+	origWd, _ := os.Getwd()
+	if err := os.Chdir(tmp); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origWd) })
+
+	_, err := GitRepoRoot()
+	if err == nil {
+		t.Error("GitRepoRoot() expected error when not in git repo")
+	}
+}
+
 func TestFindRoot_GitWorktree_NoWn(t *testing.T) {
 	// FindRoot() from a worktree of a repo without .wn should return ErrNoRoot.
 	mainRepo := t.TempDir()

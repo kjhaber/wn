@@ -53,7 +53,7 @@ func init() {
 	rootCmd.Version = version
 	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
 	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd, summaryCmd)
+	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd, summaryCmd, repoRootCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
@@ -2670,6 +2670,24 @@ func runVerify(cobraCmd *cobra.Command, _ []string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = cobraCmd.ErrOrStderr()
 	return cmd.Run()
+}
+
+var repoRootCmd = &cobra.Command{
+	Use:          "root",
+	Short:        "Print the main git repository root (worktree-aware)",
+	Long:         "Prints the absolute path to the main git repository root. In a linked worktree, this resolves to the main repo root rather than the worktree directory. Useful in scripts and hooks that need to operate on the main repo from a feature worktree.",
+	Args:         cobra.NoArgs,
+	RunE:         runRepoRoot,
+	SilenceUsage: true,
+}
+
+func runRepoRoot(_ *cobra.Command, _ []string) error {
+	root, err := wn.GitRepoRoot()
+	if err != nil {
+		return err
+	}
+	fmt.Println(root)
+	return nil
 }
 
 var exportCmd = &cobra.Command{

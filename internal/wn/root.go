@@ -2,6 +2,7 @@ package wn
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +83,29 @@ func FindRootFromDir(dir string) (string, error) {
 		return "", err
 	}
 	return findRootFrom(abs)
+}
+
+// GitRepoRoot returns the absolute path to the main git repository root,
+// correctly resolving linked git worktrees. In a linked worktree,
+// git rev-parse --git-common-dir returns the main .git directory; stripping
+// the trailing /.git gives the main repo root. In a normal checkout, it
+// returns the root of the current repository.
+func GitRepoRoot() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+	cmd.Dir = cwd
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("not a git repository")
+	}
+	gitCommonDir := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(gitCommonDir) {
+		gitCommonDir = filepath.Join(cwd, gitCommonDir)
+	}
+	return filepath.Dir(gitCommonDir), nil
 }
 
 func findRootFrom(dir string) (string, error) {
