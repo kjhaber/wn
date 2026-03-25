@@ -81,6 +81,10 @@ func NewMCPServer() *mcp.Server {
 		Description: "Remove a dependency from a work item. If id is omitted, uses current task.",
 	}, handleWnRmdepend)
 	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_note_search",
+		Description: "Search all work items for those having a note with the given name, optionally filtered by exact value. Returns a JSON array of {id, description} objects. Use first:true to return only the oldest match (by created time) or latest:true for the most recently updated — useful when deduplicating (e.g. looking up the item for a branch: name=wn:branch value=<branch> first=true).",
+	}, handleWnNoteSearch)
+	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_note_add",
 		Description: "Add or update a note on a work item by name. Note name: alphanumeric, slash, underscore, hyphen, 1–32 chars (e.g. pr-url, issue-number); or wn:<name> for special notes (e.g. wn:branch). Body is optional — omit to store an empty note, or for wn:branch to auto-detect the current git branch. If id is omitted, uses current task.",
 	}, handleWnNoteAdd)
@@ -739,6 +743,73 @@ func handleWnRmdepend(ctx context.Context, req *mcp.CallToolRequest, in wnRmdepe
 	}
 	text := fmt.Sprintf("removed dependency %s from %s", in.On, id)
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnNoteSearchIn struct {
+	Name   string `json:"name" jsonschema:"Note name to search for"`
+	Value  string `json:"value,omitempty" jsonschema:"Optional exact note body to match"`
+	First  bool   `json:"first,omitempty" jsonschema:"Return only the oldest matching item (by created time)"`
+	Latest bool   `json:"latest,omitempty" jsonschema:"Return only the most recently updated matching item"`
+	Root   string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+type noteSearchOut struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+}
+
+func handleWnNoteSearch(ctx context.Context, req *mcp.CallToolRequest, in wnNoteSearchIn) (*mcp.CallToolResult, any, error) {
+	if in.First && in.Latest {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "first and latest are mutually exclusive"}}, IsError: true}, nil, nil
+	}
+	store, _, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	items, err := store.List()
+	if err != nil {
+		return nil, nil, err
+	}
+	var matches []*Item
+	for _, it := range items {
+		idx := it.NoteIndexByName(in.Name)
+		if idx < 0 {
+			continue
+		}
+		if in.Value != "" && it.Notes[idx].Body != in.Value {
+			continue
+		}
+		matches = append(matches, it)
+	}
+	if len(matches) == 0 {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("no items found with note %q", in.Name)}}, IsError: true}, nil, nil
+	}
+	if in.First {
+		oldest := matches[0]
+		for _, it := range matches[1:] {
+			if it.Created.Before(oldest.Created) {
+				oldest = it
+			}
+		}
+		matches = []*Item{oldest}
+	} else if in.Latest {
+		newest := matches[0]
+		for _, it := range matches[1:] {
+			if it.Updated.After(newest.Updated) {
+				newest = it
+			}
+		}
+		matches = []*Item{newest}
+	}
+	out := make([]noteSearchOut, len(matches))
+	for i, it := range matches {
+		out[i] = noteSearchOut{ID: it.ID, Description: FirstLine(it.Description)}
+	}
+	raw, err := json.Marshal(&out)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 }
 
 type wnNoteAddIn struct {

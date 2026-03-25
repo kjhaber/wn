@@ -1304,6 +1304,186 @@ func TestMCP_wn_note_add_edit_rm(t *testing.T) {
 	}
 }
 
+func TestMCP_wn_note_search_ByName(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	// Add a note on the existing item abc123
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_add",
+		Arguments: map[string]any{"id": "abc123", "name": "pr-url", "body": "https://example.com/1"},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("wn_note_add: err=%v text=%s", err, textContent(res))
+	}
+
+	// Search by name — should return abc123
+	res, err = cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_search",
+		Arguments: map[string]any{"name": "pr-url"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_search: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_search: %s", textContent(res))
+	}
+	var items []struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &items); err != nil {
+		t.Fatalf("wn_note_search JSON: %v\nraw: %s", err, textContent(res))
+	}
+	if len(items) != 1 || items[0].ID != "abc123" {
+		t.Errorf("wn_note_search by name: want [{abc123 ...}], got %v", items)
+	}
+}
+
+func TestMCP_wn_note_search_ByNameAndValue(t *testing.T) {
+	ctx, cs, dir, cleanup := setupMCPSessionTwoItems(t, "item1", "item2")
+	defer cleanup()
+
+	// Add same note name with different values to both items
+	for _, tc := range []struct{ id, val string }{{"item1", "branch-a"}, {"item2", "branch-b"}} {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+			Name:      "wn_note_add",
+			Arguments: map[string]any{"id": tc.id, "name": "branch", "body": tc.val, "root": dir},
+		})
+		if err != nil || res.IsError {
+			t.Fatalf("wn_note_add %s: err=%v text=%s", tc.id, err, textContent(res))
+		}
+	}
+
+	// Search by name+value — should return only item1
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_search",
+		Arguments: map[string]any{"name": "branch", "value": "branch-a", "root": dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_search: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_search: %s", textContent(res))
+	}
+	var items []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &items); err != nil {
+		t.Fatalf("wn_note_search JSON: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "item1" {
+		t.Errorf("wn_note_search by name+value: want [{item1}], got %v", items)
+	}
+}
+
+func TestMCP_wn_note_search_NoMatches(t *testing.T) {
+	ctx, cs, cleanup := setupMCPSession(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_search",
+		Arguments: map[string]any{"name": "nonexistent"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_search: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("wn_note_search with no matches should return IsError; got %s", textContent(res))
+	}
+}
+
+func TestMCP_wn_note_search_First(t *testing.T) {
+	ctx, cs, dir, cleanup := setupMCPSessionTwoItems(t, "older1", "newer2")
+	defer cleanup()
+
+	// Set created times differently by writing items directly
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	t1 := time.Now().UTC().Add(-2 * time.Hour)
+	t2 := time.Now().UTC()
+	for _, tc := range []struct {
+		id string
+		ts time.Time
+	}{{"older1", t1}, {"newer2", t2}} {
+		if err := store.UpdateItem(tc.id, func(it *Item) (*Item, error) {
+			it.Created = tc.ts
+			it.Updated = tc.ts
+			it.Notes = []Note{{Name: "shared", Created: tc.ts, Body: "val"}}
+			return it, nil
+		}); err != nil {
+			t.Fatalf("UpdateItem %s: %v", tc.id, err)
+		}
+	}
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_search",
+		Arguments: map[string]any{"name": "shared", "first": true, "root": dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_search --first: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_search --first: %s", textContent(res))
+	}
+	var items []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &items); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "older1" {
+		t.Errorf("--first: want [{older1}], got %v", items)
+	}
+}
+
+func TestMCP_wn_note_search_Latest(t *testing.T) {
+	ctx, cs, dir, cleanup := setupMCPSessionTwoItems(t, "older1", "newer2")
+	defer cleanup()
+
+	store, err := NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	t1 := time.Now().UTC().Add(-2 * time.Hour)
+	t2 := time.Now().UTC()
+	for _, tc := range []struct {
+		id string
+		ts time.Time
+	}{{"older1", t1}, {"newer2", t2}} {
+		if err := store.UpdateItem(tc.id, func(it *Item) (*Item, error) {
+			it.Created = tc.ts
+			it.Updated = tc.ts
+			it.Notes = []Note{{Name: "shared", Created: tc.ts, Body: "val"}}
+			return it, nil
+		}); err != nil {
+			t.Fatalf("UpdateItem %s: %v", tc.id, err)
+		}
+	}
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_note_search",
+		Arguments: map[string]any{"name": "shared", "latest": true, "root": dir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool wn_note_search --latest: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_note_search --latest: %s", textContent(res))
+	}
+	var items []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(textContent(res)), &items); err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != "newer2" {
+		t.Errorf("--latest: want [{newer2}], got %v", items)
+	}
+}
+
 func TestMCP_wn_duplicate(t *testing.T) {
 	ctx, cs, cleanup := setupMCPSession(t)
 	defer cleanup()

@@ -3494,6 +3494,332 @@ func TestNoteListEmpty(t *testing.T) {
 	}
 }
 
+func resetNoteSearchFlags() {
+	noteSearchFirst = false
+	noteSearchLatest = false
+	noteSearchIDOnly = false
+}
+
+func TestNoteSearch_ByName(t *testing.T) {
+	dir, item1ID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Create a second item
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item2 := &wn.Item{
+		ID:          "def456",
+		Description: "second item",
+		Created:     now,
+		Updated:     now,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+
+	// Add note "pr-url" to item1 only
+	rootCmd.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/1"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	// Search by name: should find item1
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "pr-url"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search: %v", err)
+		}
+	})
+	if !strings.Contains(out, item1ID) {
+		t.Errorf("note search pr-url should include item1 %q; got %q", item1ID, out)
+	}
+	if strings.Contains(out, "def456") {
+		t.Errorf("note search pr-url should not include item2 def456; got %q", out)
+	}
+}
+
+func TestNoteSearch_ByNameAndValue(t *testing.T) {
+	dir, item1ID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Create a second item
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item2 := &wn.Item{
+		ID:          "def456",
+		Description: "second item",
+		Created:     now,
+		Updated:     now,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+
+	// Add same note name with different values to both items
+	rootCmd.SetArgs([]string{"note", "add", "branch", item1ID, "-m", "feature-a"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add item1: %v", err)
+	}
+	rootCmd.SetArgs([]string{"note", "add", "branch", "def456", "-m", "feature-b"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add item2: %v", err)
+	}
+
+	// Search by name+value: should find only item1
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "branch", "feature-a"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search: %v", err)
+		}
+	})
+	if !strings.Contains(out, item1ID) {
+		t.Errorf("note search branch feature-a should include item1 %q; got %q", item1ID, out)
+	}
+	if strings.Contains(out, "def456") {
+		t.Errorf("note search branch feature-a should not include item2; got %q", out)
+	}
+}
+
+func TestNoteSearch_NoMatches(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetNoteSearchFlags()
+	err := func() error {
+		rootCmd.SetArgs([]string{"note", "search", "nonexistent-note"})
+		return rootCmd.Execute()
+	}()
+	if err == nil {
+		t.Fatal("note search with no matches should return error")
+	}
+}
+
+func TestNoteSearch_FirstFlag(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	// Create two items with same note name
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	t1 := time.Now().UTC().Add(-2 * time.Hour)
+	t2 := time.Now().UTC()
+	item1 := &wn.Item{
+		ID:          "older1",
+		Description: "older item",
+		Created:     t1,
+		Updated:     t1,
+		Log:         []wn.LogEntry{{At: t1, Kind: "created"}},
+		Notes:       []wn.Note{{Name: "shared-note", Created: t1, Body: "val"}},
+	}
+	item2 := &wn.Item{
+		ID:          "newer2",
+		Description: "newer item",
+		Created:     t2,
+		Updated:     t2,
+		Log:         []wn.LogEntry{{At: t2, Kind: "created"}},
+		Notes:       []wn.Note{{Name: "shared-note", Created: t2, Body: "val"}},
+	}
+	if err := store.Put(item1); err != nil {
+		t.Fatalf("Put item1: %v", err)
+	}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+
+	// --first should return only the oldest item
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "shared-note", "--first"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search --first: %v", err)
+		}
+	})
+	if !strings.Contains(out, "older1") {
+		t.Errorf("--first should include older item; got %q", out)
+	}
+	if strings.Contains(out, "newer2") {
+		t.Errorf("--first should not include newer item; got %q", out)
+	}
+}
+
+func TestNoteSearch_LatestFlag(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	t1 := time.Now().UTC().Add(-2 * time.Hour)
+	t2 := time.Now().UTC()
+	item1 := &wn.Item{
+		ID:          "older1",
+		Description: "older item",
+		Created:     t1,
+		Updated:     t1,
+		Log:         []wn.LogEntry{{At: t1, Kind: "created"}},
+		Notes:       []wn.Note{{Name: "shared-note", Created: t1, Body: "val"}},
+	}
+	item2 := &wn.Item{
+		ID:          "newer2",
+		Description: "newer item",
+		Created:     t2,
+		Updated:     t2,
+		Log:         []wn.LogEntry{{At: t2, Kind: "created"}},
+		Notes:       []wn.Note{{Name: "shared-note", Created: t2, Body: "val"}},
+	}
+	if err := store.Put(item1); err != nil {
+		t.Fatalf("Put item1: %v", err)
+	}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+
+	// --latest should return only the most recently updated item
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "shared-note", "--latest"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search --latest: %v", err)
+		}
+	})
+	if !strings.Contains(out, "newer2") {
+		t.Errorf("--latest should include newer item; got %q", out)
+	}
+	if strings.Contains(out, "older1") {
+		t.Errorf("--latest should not include older item; got %q", out)
+	}
+}
+
+func TestNoteSearch_FirstAndLatestMutuallyExclusive(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	resetNoteSearchFlags()
+	err := func() error {
+		rootCmd.SetArgs([]string{"note", "search", "some-note", "--first", "--latest"})
+		return rootCmd.Execute()
+	}()
+	if err == nil {
+		t.Fatal("note search with both --first and --latest should return error")
+	}
+}
+
+func TestNoteSearch_IDOnly(t *testing.T) {
+	dir, item1ID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	rootCmd.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/pr/1"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add: %v", err)
+	}
+
+	// --id-only should print just the id, no description
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "pr-url", "--id-only"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search --id-only: %v", err)
+		}
+	})
+	if strings.TrimSpace(out) != item1ID {
+		t.Errorf("--id-only should print only the item id %q; got %q", item1ID, out)
+	}
+}
+
+func TestNoteSearch_IDOnly_MultipleMatches(t *testing.T) {
+	dir, item1ID := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	item2 := &wn.Item{
+		ID:          "def456",
+		Description: "second item",
+		Created:     now,
+		Updated:     now,
+		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+
+	rootCmd.SetArgs([]string{"note", "add", "shared", item1ID, "-m", "val"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add item1: %v", err)
+	}
+	rootCmd.SetArgs([]string{"note", "add", "shared", "def456", "-m", "val"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("note add item2: %v", err)
+	}
+
+	// --id-only with multiple matches should print one id per line
+	resetNoteSearchFlags()
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"note", "search", "shared", "--id-only"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("note search --id-only: %v", err)
+		}
+	})
+	lines := strings.Fields(out)
+	if len(lines) != 2 {
+		t.Errorf("--id-only with two matches should print 2 lines; got %q", out)
+	}
+	ids := map[string]bool{item1ID: true, "def456": true}
+	for _, l := range lines {
+		if !ids[l] {
+			t.Errorf("unexpected id in output: %q", l)
+		}
+	}
+}
+
 func TestReviewReadySetsState(t *testing.T) {
 	for _, cmdName := range []string{"review-ready", "rr"} {
 		t.Run(cmdName, func(t *testing.T) {

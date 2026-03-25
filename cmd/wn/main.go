@@ -3094,8 +3094,8 @@ func listSortSpec(root string) []wn.SortOption {
 
 var noteCmd = &cobra.Command{
 	Use:   "note",
-	Short: "Add, list, edit, remove, or show notes (attachments) on a work item",
-	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note show [id] <name>', 'wn note edit [id] <name> -m \"...\"', and 'wn note rm [id] <name>'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
+	Short: "Add, list, edit, remove, show, or search notes (attachments) on a work item",
+	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note show [id] <name>', 'wn note edit [id] <name> -m \"...\"', 'wn note rm [id] <name>', and 'wn note search <name> [value]'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
 }
 
 var noteAddCmd = &cobra.Command{
@@ -3108,7 +3108,102 @@ var noteAddMessage string
 
 func init() {
 	noteAddCmd.Flags().StringVarP(&noteAddMessage, "message", "m", "", "Note text (or open $EDITOR if omitted)")
-	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteShowCmd, noteEditCmd, noteRmCmd)
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteShowCmd, noteEditCmd, noteRmCmd, noteSearchCmd)
+}
+
+var noteSearchCmd = &cobra.Command{
+	Use:   "search <name> [value]",
+	Short: "Search all work items for those having a note with the given name (and optionally value)",
+	Long: `Search all work items for those that have a note named <name>.
+If <value> is given, only items where the note body exactly matches <value> are returned.
+
+Each matching item is printed as: <id>  <first line of description>
+
+Flags:
+  --first   Return only the oldest matching item (by created time).
+  --latest  Return only the most recently updated matching item.
+`,
+	Args: cobra.RangeArgs(1, 2),
+	RunE: runNoteSearch,
+}
+var noteSearchFirst bool
+var noteSearchLatest bool
+var noteSearchIDOnly bool
+
+func init() {
+	noteSearchCmd.Flags().BoolVar(&noteSearchFirst, "first", false, "Return only the oldest matching item (by created time)")
+	noteSearchCmd.Flags().BoolVar(&noteSearchLatest, "latest", false, "Return only the most recently updated matching item")
+	noteSearchCmd.Flags().BoolVar(&noteSearchIDOnly, "id-only", false, "Print only the item ID(s), one per line")
+}
+
+func runNoteSearch(cmd *cobra.Command, args []string) error {
+	if noteSearchFirst && noteSearchLatest {
+		return fmt.Errorf("--first and --latest are mutually exclusive")
+	}
+	name := args[0]
+	value := ""
+	if len(args) > 1 {
+		value = args[1]
+	}
+	root, err := wn.FindRootForCLI()
+	if err != nil {
+		return err
+	}
+	store, err := wn.NewFileStore(root)
+	if err != nil {
+		return err
+	}
+	items, err := store.List()
+	if err != nil {
+		return err
+	}
+
+	var matches []*wn.Item
+	for _, it := range items {
+		idx := it.NoteIndexByName(name)
+		if idx < 0 {
+			continue
+		}
+		if value != "" && it.Notes[idx].Body != value {
+			continue
+		}
+		matches = append(matches, it)
+	}
+
+	if len(matches) == 0 {
+		return fmt.Errorf("no items found with note %q", name)
+	}
+
+	if noteSearchFirst {
+		oldest := matches[0]
+		for _, it := range matches[1:] {
+			if it.Created.Before(oldest.Created) {
+				oldest = it
+			}
+		}
+		matches = []*wn.Item{oldest}
+	} else if noteSearchLatest {
+		newest := matches[0]
+		for _, it := range matches[1:] {
+			if it.Updated.After(newest.Updated) {
+				newest = it
+			}
+		}
+		matches = []*wn.Item{newest}
+	}
+
+	for _, it := range matches {
+		if noteSearchIDOnly {
+			fmt.Println(it.ID)
+			continue
+		}
+		firstLine := it.Description
+		if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+			firstLine = firstLine[:idx]
+		}
+		fmt.Printf("%s  %s\n", it.ID, firstLine)
+	}
+	return nil
 }
 
 func runNoteAdd(cmd *cobra.Command, args []string) error {
