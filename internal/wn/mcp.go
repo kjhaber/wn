@@ -108,6 +108,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_respond",
 		Description: "Respond to a prompt item: marks it done and stores the answer as a 'response' note, unblocking the parent item. id defaults to current task if omitted.",
 	}, handleWnRespond)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_merge",
+		Description: "Squash-merge a feature branch into the current HEAD of the main repo, record the commit hash as a wn:commit note, and mark the associated work item done. The work item is found via its wn:branch note. Worktree-aware: git operations run in the main repo root. Use dry_run to preview without making changes.",
+	}, handleWnMerge)
 
 	return server
 }
@@ -1104,5 +1108,36 @@ func handleWnRespond(ctx context.Context, req *mcp.CallToolRequest, in wnRespond
 		return nil, nil, err
 	}
 	text := fmt.Sprintf("responded to %s; prompt marked done", id)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+}
+
+type wnMergeIn struct {
+	Branch  string `json:"branch" jsonschema:"Feature branch name to squash-merge"`
+	Message string `json:"message" jsonschema:"Commit message for the squash merge commit"`
+	DryRun  bool   `json:"dry_run,omitempty" jsonschema:"If true, report what would happen without making changes"`
+	Root    string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnMerge(ctx context.Context, req *mcp.CallToolRequest, in wnMergeIn) (*mcp.CallToolResult, any, error) {
+	if strings.TrimSpace(in.Branch) == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: branch is required"}}, IsError: true}, nil, nil
+	}
+	if strings.TrimSpace(in.Message) == "" {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: message is required"}}, IsError: true}, nil, nil
+	}
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := SquashMerge(store, root, in.Branch, in.Message, in.DryRun)
+	if err != nil {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+	}
+	var text string
+	if in.DryRun {
+		text = fmt.Sprintf("would squash-merge %s (item %s) into current HEAD", result.Branch, result.ItemID)
+	} else {
+		text = fmt.Sprintf("merged %s → %s (item %s marked done)", result.Branch, result.CommitHash[:7], result.ItemID)
+	}
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
