@@ -4815,6 +4815,154 @@ func TestLaunchNextEmptyQueue(t *testing.T) {
 	}
 }
 
+// TestLaunchNext_currentUndoneItemUsed verifies that "wn launch --next" uses the current item
+// when it is undone, rather than picking the next item from the queue.
+// item2 is given higher queue priority (Order=1) than item1 (Order=nil/default=99),
+// so ClaimNextItem would pick item2 without the fix — but the fix should re-use item1.
+func TestLaunchNext_currentUndoneItemUsed(t *testing.T) {
+	dir, item1ID := setupGitWnRoot(t) // item1 = abc123
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	order1 := 1 // higher queue priority than item1 (DefaultOrder=99)
+	item2 := &wn.Item{ID: "def456", Description: "other task", Created: now, Updated: now, Order: &order1, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+	// Set item1 as current
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: item1ID}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	worktreesBase := filepath.Join(dir, "worktrees")
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+
+	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn launch --next: %v", err)
+	}
+
+	// item1 (current, undone) should be claimed — not item2 (which has higher queue priority)
+	item1, _ := store.Get(item1ID)
+	if item1.InProgressUntil.IsZero() {
+		t.Error("current item1 should be claimed when wn launch --next is run with undone current item")
+	}
+	// item2 should NOT be claimed despite its higher queue priority
+	item2updated, _ := store.Get("def456")
+	if !item2updated.InProgressUntil.IsZero() {
+		t.Error("item2 should not be claimed when current item1 is undone")
+	}
+}
+
+// TestLaunchNext_currentReviewReadyPicksFromQueue verifies that "wn launch --next" picks
+// from the queue when the current item is already review-ready (agent work is done).
+func TestLaunchNext_currentReviewReadyPicksFromQueue(t *testing.T) {
+	dir, item1ID := setupGitWnRoot(t) // item1 = abc123
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	// Mark item1 as review-ready
+	now := time.Now().UTC()
+	if err := store.UpdateItem(item1ID, func(it *wn.Item) (*wn.Item, error) {
+		it.ReviewReady = true
+		it.Updated = now
+		return it, nil
+	}); err != nil {
+		t.Fatalf("UpdateItem: %v", err)
+	}
+	// Add item2 as undone
+	item2 := &wn.Item{ID: "def456", Description: "other task", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+	// Set item1 as current
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: item1ID}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	worktreesBase := filepath.Join(dir, "worktrees")
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+
+	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn launch --next: %v", err)
+	}
+
+	// item2 should be claimed (item1 is review-ready so skip it)
+	item2updated, _ := store.Get("def456")
+	if item2updated.InProgressUntil.IsZero() {
+		t.Error("item2 should be claimed when current item1 is review-ready")
+	}
+}
+
+// TestDoNext_currentUndoneItemUsed verifies that "wn do --next" uses the current item
+// when it is undone, rather than picking the next item from the queue.
+// item2 is given higher queue priority (Order=1) than item1 (Order=nil/default=99),
+// so ClaimNextItem would pick item2 without the fix — but the fix should re-use item1.
+func TestDoNext_currentUndoneItemUsed(t *testing.T) {
+	dir, item1ID := setupGitWnRoot(t) // item1 = abc123
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	order1 := 1 // higher queue priority than item1 (DefaultOrder=99)
+	item2 := &wn.Item{ID: "def456", Description: "other task", Created: now, Updated: now, Order: &order1, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(item2); err != nil {
+		t.Fatalf("Put item2: %v", err)
+	}
+	// Set item1 as current
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: item1ID}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	worktreesBase := filepath.Join(dir, "worktrees")
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+
+	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"do", "--next", "--worktree-base", worktreesBase})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("wn do --next: %v", err)
+	}
+
+	// item1 (current, undone) should be review-ready after the run — not item2 (higher queue priority)
+	item1, _ := store.Get(item1ID)
+	if !item1.ReviewReady {
+		t.Error("current item1 should be review-ready after wn do --next with undone current item")
+	}
+	// item2 should NOT be review-ready despite its higher queue priority
+	item2updated, _ := store.Get("def456")
+	if item2updated.ReviewReady {
+		t.Error("item2 should not be processed when current item1 is undone")
+	}
+}
+
 func TestPickDash_selectsPreviousItem(t *testing.T) {
 	dir, _ := setupWnRoot(t)
 	// Add a second item

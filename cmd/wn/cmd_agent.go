@@ -226,6 +226,23 @@ func runDo(cmd *cobra.Command, args []string) error {
 	// Determine mode and work item before resolving runner.
 	switch {
 	case isNext:
+		// If the current item is still undone (not done or review-ready), re-use it rather
+		// than picking a new item from the queue. This supports running "wn do --next"
+		// repeatedly while using "wn pick" to advance to the next item.
+		meta, err := wn.ReadMeta(root)
+		if err != nil {
+			return err
+		}
+		if meta.CurrentID != "" {
+			curStore, err := wn.NewFileStore(root)
+			if err != nil {
+				return err
+			}
+			if it, getErr := curStore.Get(meta.CurrentID); getErr == nil && !it.Done && !it.ReviewReady {
+				opts.WorkID = meta.CurrentID
+				break
+			}
+		}
 		// --next: claim next from queue, run once, fail if empty
 		opts.FailIfEmpty = true
 		opts.MaxTasks = 1
@@ -362,6 +379,23 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	var orchMaxTasks int
 	switch {
 	case isNext:
+		// If the current item is still undone (not done or review-ready), re-use it rather
+		// than picking a new item from the queue. This supports running "wn launch --next"
+		// repeatedly while using "wn pick" to advance to the next item.
+		meta, err := wn.ReadMeta(root)
+		if err != nil {
+			return err
+		}
+		if meta.CurrentID != "" {
+			curStore, err := wn.NewFileStore(root)
+			if err != nil {
+				return err
+			}
+			if it, getErr := curStore.Get(meta.CurrentID); getErr == nil && !it.Done && !it.ReviewReady {
+				orchWorkID = meta.CurrentID
+				break
+			}
+		}
 		orchFailIfEmpty = true
 		orchMaxTasks = 1
 	case isLoop:
