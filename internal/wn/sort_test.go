@@ -113,6 +113,25 @@ func TestTopoOrder_OrderAboveDefault(t *testing.T) {
 	}
 }
 
+// TestTopoOrder_DoneDepsOutsideInputSatisfied verifies that dependencies that are
+// not in the input list (e.g. already done) are treated as satisfied, not blocking.
+// This is the core of the "wn launch --next no items in queue" bug: when all undone
+// items depend on done items, TopoOrder must still return them as ready.
+func TestTopoOrder_DoneDepsOutsideInputSatisfied(t *testing.T) {
+	now := time.Now().UTC()
+	// "b" depends on "a", but "a" is done and not included in the input.
+	items := []*Item{
+		{ID: "b", DependsOn: []string{"a"}, Created: now, Updated: now},
+	}
+	ordered, acyclic := TopoOrder(items)
+	if !acyclic {
+		t.Fatal("expected acyclic: dep on done item should not cause cycle")
+	}
+	if len(ordered) != 1 || ordered[0].ID != "b" {
+		t.Errorf("expected [b], got %v", ordered)
+	}
+}
+
 func TestValidOrder(t *testing.T) {
 	for _, n := range []int{0, 1, 99, 255} {
 		if !ValidOrder(n) {

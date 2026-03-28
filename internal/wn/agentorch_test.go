@@ -398,6 +398,54 @@ func TestClaimNextItem_tagFilter(t *testing.T) {
 	}
 }
 
+// TestClaimNextItem_depsOnDoneItem verifies that an undone item whose only dependency
+// is a done item is still available to be claimed (the done dep is satisfied).
+// Regression test for: "wn launch --next no items in queue" when all undone items
+// have dependencies on done items.
+func TestClaimNextItem_depsOnDoneItem(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	// "done-dep" is already done.
+	doneDep := &Item{
+		ID:          "done-dep",
+		Description: "done prereq",
+		Created:     now,
+		Updated:     now,
+		Done:        true,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(doneDep); err != nil {
+		t.Fatal(err)
+	}
+	// "ready" depends on "done-dep" which is already done — should be claimable.
+	ready := &Item{
+		ID:          "ready",
+		Description: "depends on done item",
+		Created:     now,
+		Updated:     now,
+		DependsOn:   []string{"done-dep"},
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(ready); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ClaimNextItem(store, root, 30*time.Minute, "", "")
+	if err != nil {
+		t.Fatalf("ClaimNextItem: %v", err)
+	}
+	if got == nil {
+		t.Fatal("ClaimNextItem returned nil — item with done dep should be claimable")
+	}
+	if got.ID != "ready" {
+		t.Errorf("ClaimNextItem returned %q, want ready", got.ID)
+	}
+}
+
 func TestSetupItemWorktree_createsWorktreeAndBranchNote(t *testing.T) {
 	repoDir := t.TempDir()
 	setupGitRepo(t, repoDir)

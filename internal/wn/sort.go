@@ -42,7 +42,7 @@ func TopoOrder(items []*Item) ([]*Item, bool) {
 			}
 			ok := true
 			for _, dep := range it.DependsOn {
-				if !added[dep] {
+				if _, inSet := byID[dep]; inSet && !added[dep] {
 					ok = false
 					break
 				}
