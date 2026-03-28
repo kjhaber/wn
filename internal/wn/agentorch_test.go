@@ -2,6 +2,7 @@ package wn
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -853,4 +854,51 @@ func TestSetupItemWorktree_writesWnColonBranchNote(t *testing.T) {
 	}
 	var audit bytes.Buffer
 	_ = RemoveWorktree(repoDir, worktreePath, &audit)
+}
+
+// TestRunAgentOrch_blockedItemError verifies that RunAgentOrch returns an error
+// when the target work item (WorkID) is blocked by an unresolved dependency.
+func TestRunAgentOrch_blockedItemError(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	dep := &Item{
+		ID:          "dep1",
+		Description: "unfinished dependency",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	blocked := &Item{
+		ID:          "task1",
+		Description: "add widget feature",
+		DependsOn:   []string{"dep1"},
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(dep); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(blocked); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := AgentOrchOpts{
+		Root:          root,
+		AgentCmd:      "echo hello",
+		DefaultBranch: "main",
+		ClaimFor:      30 * time.Minute,
+		WorkID:        "task1",
+	}
+	err = RunAgentOrch(context.Background(), opts)
+	if err == nil {
+		t.Fatal("RunAgentOrch on blocked item should return an error")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("want error containing 'blocked'; got: %v", err)
+	}
 }

@@ -508,6 +508,13 @@ func RunAgentOrch(ctx context.Context, opts AgentOrchOpts) error {
 		if item.Done {
 			return fmt.Errorf("work item %s is already done", opts.WorkID)
 		}
+		allItems, err := store.List()
+		if err != nil {
+			return err
+		}
+		if BlockedSet(allItems)[item.ID] {
+			return fmt.Errorf("work item %s is blocked", opts.WorkID)
+		}
 		if err := ClaimItem(store, opts.Root, item.ID, opts.ClaimFor, opts.ClaimBy); err != nil {
 			return err
 		}

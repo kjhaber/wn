@@ -4499,6 +4499,180 @@ func TestDoUnified_nWithoutLoopError(t *testing.T) {
 	}
 }
 
+// TestDoWithBlockedItem verifies that "wn do <id>" fails when the item is blocked.
+func TestDoWithBlockedItem(t *testing.T) {
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	dep := &wn.Item{ID: "dep1", Description: "dep", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	blocked := &wn.Item{ID: "task1", Description: "add widget feature", DependsOn: []string{"dep1"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(dep); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(blocked); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"do", "task1"})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("wn do <blocked-id> should fail")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("want error containing 'blocked'; got: %v", err)
+	}
+}
+
+// TestDoCurrentItemBlocked verifies that "wn do" (no arg) fails when the current item is blocked.
+func TestDoCurrentItemBlocked(t *testing.T) {
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	dep := &wn.Item{ID: "dep1", Description: "dep", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	blocked := &wn.Item{ID: "task1", Description: "add widget feature", DependsOn: []string{"dep1"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(dep); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "task1"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetDoFlags()
+	}()
+	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"do"})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("wn do with blocked current item should fail")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("want error containing 'blocked'; got: %v", err)
+	}
+}
+
+// TestLaunchWithBlockedItem verifies that "wn launch <id>" fails when the item is blocked.
+func TestLaunchWithBlockedItem(t *testing.T) {
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	dep := &wn.Item{ID: "dep1", Description: "dep", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	blocked := &wn.Item{ID: "task1", Description: "add widget feature", DependsOn: []string{"dep1"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(dep); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(blocked); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"launch", "task1"})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("wn launch <blocked-id> should fail")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("want error containing 'blocked'; got: %v", err)
+	}
+}
+
+// TestLaunchCurrentItemBlocked verifies that "wn launch" (no arg) fails when the current item is blocked.
+func TestLaunchCurrentItemBlocked(t *testing.T) {
+	dir := t.TempDir()
+	execIn(t, dir, "git", "init")
+	writeFile(t, filepath.Join(dir, "readme"), "x")
+	execIn(t, dir, "git", "add", "readme")
+	execIn(t, dir, "git", "commit", "-m", "init")
+	if err := wn.InitRoot(dir); err != nil {
+		t.Fatalf("InitRoot: %v", err)
+	}
+	store, err := wn.NewFileStore(dir)
+	if err != nil {
+		t.Fatalf("NewFileStore: %v", err)
+	}
+	now := time.Now().UTC()
+	dep := &wn.Item{ID: "dep1", Description: "dep", Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	blocked := &wn.Item{ID: "task1", Description: "add widget feature", DependsOn: []string{"dep1"}, Created: now, Updated: now, Log: []wn.LogEntry{{At: now, Kind: "created"}}}
+	if err := store.Put(dep); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Put(blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := wn.WriteMeta(dir, wn.Meta{CurrentID: "task1"}); err != nil {
+		t.Fatalf("WriteMeta: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		resetLaunchFlags()
+	}()
+	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
+	rootCmd.SetArgs([]string{"launch"})
+	err = rootCmd.Execute()
+	if err == nil {
+		t.Fatal("wn launch with blocked current item should fail")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Errorf("want error containing 'blocked'; got: %v", err)
+	}
+}
+
 func TestLaunchWithoutArgNoCurrent(t *testing.T) {
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
