@@ -144,6 +144,48 @@ func getStoreWithRoot(ctx context.Context, projectRoot string) (Store, string, e
 	return store, root, nil
 }
 
+// errResult builds an IsError MCP tool result with the given message.
+func errResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: msg}},
+		IsError: true,
+	}
+}
+
+// withStore resolves the store (and root) for the given project root and calls fn.
+// Returns an internal error if the store cannot be opened; otherwise returns fn's result.
+func withStore(ctx context.Context, root string, fn func(Store, string) (*mcp.CallToolResult, error)) (*mcp.CallToolResult, any, error) {
+	store, r, err := getStoreWithRoot(ctx, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	result, err := fn(store, r)
+	return result, nil, err
+}
+
+// withItem resolves store+item for the given root+requestID and calls fn.
+// Returns an error result if the ID cannot be resolved or the item is not found.
+func withItem(ctx context.Context, root, requestID string, fn func(Store, *Item) (*mcp.CallToolResult, error)) (*mcp.CallToolResult, any, error) {
+	store, r, err := getStoreWithRoot(ctx, root)
+	if err != nil {
+		return nil, nil, err
+	}
+	meta, err := ReadMeta(r)
+	if err != nil {
+		return nil, nil, err
+	}
+	id, err := ResolveItemID(meta.CurrentID, requestID)
+	if err != nil {
+		return errResult("no id provided and no current task"), nil, nil
+	}
+	item, err := store.Get(id)
+	if err != nil {
+		return errResult(err.Error()), nil, nil
+	}
+	result, err := fn(store, item)
+	return result, nil, err
+}
+
 type wnAddIn struct {
 	Description string   `json:"description" jsonschema:"Full description of the work item"`
 	Tags        []string `json:"tags,omitempty" jsonschema:"Optional tags"`
@@ -157,7 +199,7 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 		return nil, nil, err
 	}
 	if in.Description == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: description is required"}}, IsError: true}, nil, nil
+		return errResult("error: description is required"), nil, nil
 	}
 	id, err := GenerateID(store)
 	if err != nil {
@@ -172,14 +214,14 @@ func handleWnAdd(ctx context.Context, req *mcp.CallToolRequest, in wnAddIn) (*mc
 		}
 		for _, depID := range deps {
 			if _, err := store.Get(depID); err != nil {
-				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("depends_on: item %s not found", depID)}}, IsError: true}, nil, nil
+				return errResult(fmt.Sprintf("depends_on: item %s not found", depID)), nil, nil
 			}
 		}
 		newItemWithDeps := &Item{ID: id, DependsOn: deps}
 		itemsWithNew := append(existing, newItemWithDeps)
 		for _, depID := range deps {
 			if WouldCreateCycle(itemsWithNew, id, depID) {
-				return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("circular dependency detected, could not add item depending on %s", depID)}}, IsError: true}, nil, nil
+				return errResult(fmt.Sprintf("circular dependency detected, could not add item depending on %s", depID)), nil, nil
 			}
 		}
 	}
@@ -318,25 +360,21 @@ type wnDoneIn struct {
 }
 
 func handleWnDone(ctx context.Context, req *mcp.CallToolRequest, in wnDoneIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	now := time.Now().UTC()
-	err = store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
-		it.Done = true
-		it.DoneMessage = in.Message
-		it.DoneStatus = DoneStatusDone
-		it.ReviewReady = false
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: in.Message})
-		return it, nil
+	return withStore(ctx, in.Root, func(store Store, _ string) (*mcp.CallToolResult, error) {
+		now := time.Now().UTC()
+		if err := store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
+			it.Done = true
+			it.DoneMessage = in.Message
+			it.DoneStatus = DoneStatusDone
+			it.ReviewReady = false
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: in.Message})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("marked %s done", in.ID)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("marked %s done", in.ID)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnUndoneIn struct {
@@ -345,25 +383,21 @@ type wnUndoneIn struct {
 }
 
 func handleWnUndone(ctx context.Context, req *mcp.CallToolRequest, in wnUndoneIn) (*mcp.CallToolResult, any, error) {
-	store, _, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	now := time.Now().UTC()
-	err = store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
-		it.Done = false
-		it.DoneMessage = ""
-		it.DoneStatus = ""
-		it.ReviewReady = false
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "undone"})
-		return it, nil
+	return withStore(ctx, in.Root, func(store Store, _ string) (*mcp.CallToolResult, error) {
+		now := time.Now().UTC()
+		if err := store.UpdateItem(in.ID, func(it *Item) (*Item, error) {
+			it.Done = false
+			it.DoneMessage = ""
+			it.DoneStatus = ""
+			it.ReviewReady = false
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "undone"})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("marked %s undone", in.ID)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("marked %s undone", in.ID)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnDescIn struct {
@@ -372,24 +406,9 @@ type wnDescIn struct {
 }
 
 func handleWnDesc(ctx context.Context, req *mcp.CallToolRequest, in wnDescIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	item, err := store.Get(id)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	body := PromptBody(item.Description)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: body}}}, nil, nil
+	return withItem(ctx, in.Root, in.ID, func(_ Store, item *Item) (*mcp.CallToolResult, error) {
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: PromptBody(item.Description)}}}, nil
+	})
 }
 
 // showOutput is the JSON shape for wn_show; all slice fields have no omitempty so agents always see tags, log, notes, depends_on.
@@ -416,24 +435,8 @@ type wnShowIn struct {
 	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
 }
 
-func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	item, err := store.Get(id)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	// Use showOutput so tags, log, notes, depends_on are always present in JSON for agents
+// itemToShowOutput converts an Item to showOutput, ensuring slice fields are non-nil for JSON agents.
+func itemToShowOutput(item *Item) showOutput {
 	out := showOutput{
 		ID:              item.ID,
 		Description:     item.Description,
@@ -463,11 +466,18 @@ func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*
 	if out.DependsOn == nil {
 		out.DependsOn = []string{}
 	}
-	raw, err := json.MarshalIndent(&out, "", "  ")
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+	return out
+}
+
+func handleWnShow(ctx context.Context, req *mcp.CallToolRequest, in wnShowIn) (*mcp.CallToolResult, any, error) {
+	return withItem(ctx, in.Root, in.ID, func(_ Store, item *Item) (*mcp.CallToolResult, error) {
+		out := itemToShowOutput(item)
+		raw, err := json.MarshalIndent(&out, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil
+	})
 }
 
 type wnItemIn struct {
@@ -478,50 +488,16 @@ type wnItemIn struct {
 // handleWnItem returns full item JSON by id. Id is required (no current-task fallback), for use by subagents that only have an item id.
 func handleWnItem(ctx context.Context, req *mcp.CallToolRequest, in wnItemIn) (*mcp.CallToolResult, any, error) {
 	if in.ID == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "id is required"}}, IsError: true}, nil, nil
+		return errResult("id is required"), nil, nil
 	}
-	store, _, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	item, err := store.Get(in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	out := showOutput{
-		ID:              item.ID,
-		Description:     item.Description,
-		Created:         item.Created,
-		Updated:         item.Updated,
-		Done:            item.Done,
-		DoneMessage:     item.DoneMessage,
-		ReviewReady:     item.ReviewReady,
-		PromptReady:     item.PromptReady,
-		InProgressUntil: item.InProgressUntil,
-		InProgressBy:    item.InProgressBy,
-		Tags:            item.Tags,
-		DependsOn:       item.DependsOn,
-		Order:           item.Order,
-		Log:             item.Log,
-		Notes:           item.Notes,
-	}
-	if out.Tags == nil {
-		out.Tags = []string{}
-	}
-	if out.Log == nil {
-		out.Log = []LogEntry{}
-	}
-	if out.Notes == nil {
-		out.Notes = []Note{}
-	}
-	if out.DependsOn == nil {
-		out.DependsOn = []string{}
-	}
-	raw, err := json.MarshalIndent(&out, "", "  ")
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+	return withItem(ctx, in.Root, in.ID, func(_ Store, item *Item) (*mcp.CallToolResult, error) {
+		out := itemToShowOutput(item)
+		raw, err := json.MarshalIndent(&out, "", "  ")
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil
+	})
 }
 
 type wnClaimIn struct {
@@ -539,39 +515,35 @@ func handleWnClaim(ctx context.Context, req *mcp.CallToolRequest, in wnClaimIn) 
 		var err error
 		d, err = time.ParseDuration(in.For)
 		if err != nil || d <= 0 {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive duration for 'for'"}}, IsError: true}, nil, nil
+			return errResult("invalid or non-positive duration for 'for'"), nil, nil
 		}
 	}
 	forMsg := in.For
 	if forMsg == "" {
 		forMsg = d.String()
 	}
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	now := time.Now().UTC()
-	until := now.Add(d)
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		it.InProgressUntil = until
-		it.InProgressBy = in.By
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: forMsg})
-		return it, nil
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
+		}
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		now := time.Now().UTC()
+		until := now.Add(d)
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			it.InProgressUntil = until
+			it.InProgressBy = in.By
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "in_progress", Msg: forMsg})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("claimed %s for %s", id, forMsg)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("claimed %s for %s", id, forMsg)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnReleaseIn struct {
@@ -580,32 +552,28 @@ type wnReleaseIn struct {
 }
 
 func handleWnRelease(ctx context.Context, req *mcp.CallToolRequest, in wnReleaseIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	now := time.Now().UTC()
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		it.InProgressUntil = time.Time{}
-		it.InProgressBy = ""
-		it.ReviewReady = true
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "released"})
-		return it, nil
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
+		}
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		now := time.Now().UTC()
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			it.InProgressUntil = time.Time{}
+			it.InProgressBy = ""
+			it.ReviewReady = true
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "released"})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("released %s", id)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("released %s", id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnNextIn struct {
@@ -639,7 +607,7 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 	if in.ClaimFor != "" {
 		d, err := time.ParseDuration(in.ClaimFor)
 		if err != nil || d <= 0 {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "invalid or non-positive claim_for duration"}}, IsError: true}, nil, nil
+			return errResult("invalid or non-positive claim_for duration"), nil, nil
 		}
 		now := time.Now().UTC()
 		until := now.Add(d)
@@ -651,7 +619,7 @@ func handleWnNext(ctx context.Context, req *mcp.CallToolRequest, in wnNextIn) (*
 			return it, nil
 		})
 		if err != nil {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
+			return errResult(err.Error()), nil, nil
 		}
 		nextOut := map[string]any{"id": next.ID, "description": FirstLine(next.Description), "claimed": true, "claim_for": in.ClaimFor}
 		raw, _ := json.Marshal(nextOut)
@@ -669,44 +637,40 @@ type wnDependIn struct {
 }
 
 func handleWnDepend(ctx context.Context, req *mcp.CallToolRequest, in wnDependIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.On == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (dependency id) is required"}}, IsError: true}, nil, nil
-	}
-	items, err := store.List()
-	if err != nil {
-		return nil, nil, err
-	}
-	if WouldCreateCycle(items, id, in.On) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("circular dependency detected, could not mark %s dependent on %s", id, in.On)}}, IsError: true}, nil, nil
-	}
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		for _, d := range it.DependsOn {
-			if d == in.On {
-				return it, nil
-			}
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
 		}
-		it.DependsOn = append(it.DependsOn, in.On)
-		it.Updated = time.Now().UTC()
-		it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_added", Msg: in.On})
-		return it, nil
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		if in.On == "" {
+			return errResult("on (dependency id) is required"), nil
+		}
+		items, err := store.List()
+		if err != nil {
+			return nil, err
+		}
+		if WouldCreateCycle(items, id, in.On) {
+			return errResult(fmt.Sprintf("circular dependency detected, could not mark %s dependent on %s", id, in.On)), nil
+		}
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			for _, d := range it.DependsOn {
+				if d == in.On {
+					return it, nil
+				}
+			}
+			it.DependsOn = append(it.DependsOn, in.On)
+			it.Updated = time.Now().UTC()
+			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_added", Msg: in.On})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("%s now depends on %s", id, in.On)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("%s now depends on %s", id, in.On)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnRmdependIn struct {
@@ -716,38 +680,34 @@ type wnRmdependIn struct {
 }
 
 func handleWnRmdepend(ctx context.Context, req *mcp.CallToolRequest, in wnRmdependIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.On == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (dependency id to remove) is required"}}, IsError: true}, nil, nil
-	}
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		var newDeps []string
-		for _, d := range it.DependsOn {
-			if d != in.On {
-				newDeps = append(newDeps, d)
-			}
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
 		}
-		it.DependsOn = newDeps
-		it.Updated = time.Now().UTC()
-		it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_removed", Msg: in.On})
-		return it, nil
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		if in.On == "" {
+			return errResult("on (dependency id to remove) is required"), nil
+		}
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			var newDeps []string
+			for _, d := range it.DependsOn {
+				if d != in.On {
+					newDeps = append(newDeps, d)
+				}
+			}
+			it.DependsOn = newDeps
+			it.Updated = time.Now().UTC()
+			it.Log = append(it.Log, LogEntry{At: it.Updated, Kind: "depend_removed", Msg: in.On})
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("removed dependency %s from %s", in.On, id)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("removed dependency %s from %s", in.On, id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnNoteSearchIn struct {
@@ -765,56 +725,54 @@ type noteSearchOut struct {
 
 func handleWnNoteSearch(ctx context.Context, req *mcp.CallToolRequest, in wnNoteSearchIn) (*mcp.CallToolResult, any, error) {
 	if in.First && in.Latest {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "first and latest are mutually exclusive"}}, IsError: true}, nil, nil
+		return errResult("first and latest are mutually exclusive"), nil, nil
 	}
-	store, _, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	items, err := store.List()
-	if err != nil {
-		return nil, nil, err
-	}
-	var matches []*Item
-	for _, it := range items {
-		idx := it.NoteIndexByName(in.Name)
-		if idx < 0 {
-			continue
+	return withStore(ctx, in.Root, func(store Store, _ string) (*mcp.CallToolResult, error) {
+		items, err := store.List()
+		if err != nil {
+			return nil, err
 		}
-		if in.Value != "" && it.Notes[idx].Body != in.Value {
-			continue
-		}
-		matches = append(matches, it)
-	}
-	if len(matches) == 0 {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("no items found with note %q", in.Name)}}, IsError: true}, nil, nil
-	}
-	if in.First {
-		oldest := matches[0]
-		for _, it := range matches[1:] {
-			if it.Created.Before(oldest.Created) {
-				oldest = it
+		var matches []*Item
+		for _, it := range items {
+			idx := it.NoteIndexByName(in.Name)
+			if idx < 0 {
+				continue
 			}
-		}
-		matches = []*Item{oldest}
-	} else if in.Latest {
-		newest := matches[0]
-		for _, it := range matches[1:] {
-			if it.Updated.After(newest.Updated) {
-				newest = it
+			if in.Value != "" && it.Notes[idx].Body != in.Value {
+				continue
 			}
+			matches = append(matches, it)
 		}
-		matches = []*Item{newest}
-	}
-	out := make([]noteSearchOut, len(matches))
-	for i, it := range matches {
-		out[i] = noteSearchOut{ID: it.ID, Description: FirstLine(it.Description)}
-	}
-	raw, err := json.Marshal(&out)
-	if err != nil {
-		return nil, nil, err
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
+		if len(matches) == 0 {
+			return errResult(fmt.Sprintf("no items found with note %q", in.Name)), nil
+		}
+		if in.First {
+			oldest := matches[0]
+			for _, it := range matches[1:] {
+				if it.Created.Before(oldest.Created) {
+					oldest = it
+				}
+			}
+			matches = []*Item{oldest}
+		} else if in.Latest {
+			newest := matches[0]
+			for _, it := range matches[1:] {
+				if it.Updated.After(newest.Updated) {
+					newest = it
+				}
+			}
+			matches = []*Item{newest}
+		}
+		out := make([]noteSearchOut, len(matches))
+		for i, it := range matches {
+			out[i] = noteSearchOut{ID: it.ID, Description: FirstLine(it.Description)}
+		}
+		raw, err := json.Marshal(&out)
+		if err != nil {
+			return nil, err
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil
+	})
 }
 
 type wnNoteAddIn struct {
@@ -825,66 +783,62 @@ type wnNoteAddIn struct {
 }
 
 func handleWnNoteAdd(ctx context.Context, req *mcp.CallToolRequest, in wnNoteAddIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if !ValidNoteName(in.Name) {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes)", in.Name)}}, IsError: true}, nil, nil
-	}
-	if err := ValidateSpecialNote(in.Name); err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	trimmed := strings.TrimSpace(in.Body)
-	switch {
-	case trimmed == "" && in.Name == NoteNameBranch:
-		cwd, err := os.Getwd()
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
 		if err != nil {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: %v", err)}}, IsError: true}, nil, nil
+			return nil, err
 		}
-		branch, err := CurrentBranchInDir(cwd)
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
 		if err != nil {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:branch: could not detect current git branch: %v", err)}}, IsError: true}, nil, nil
+			return errResult("no id provided and no current task"), nil
 		}
-		trimmed = branch
-	case trimmed == "" && in.Name == NoteNameCommit:
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "wn:commit requires a commit hash"}}, IsError: true}, nil, nil
-	case in.Name == NoteNameCommit:
-		exists, err := CommitExists(root, trimmed)
-		if err != nil {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:commit: %v", err)}}, IsError: true}, nil, nil
+		if !ValidNoteName(in.Name) {
+			return errResult(fmt.Sprintf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes)", in.Name)), nil
 		}
-		if !exists {
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("wn:commit: commit %q not found in this repository", trimmed)}}, IsError: true}, nil, nil
+		if err := ValidateSpecialNote(in.Name); err != nil {
+			return errResult(err.Error()), nil
 		}
-	}
-	now := time.Now().UTC()
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		if it.Notes == nil {
-			it.Notes = []Note{}
+		trimmed := strings.TrimSpace(in.Body)
+		switch {
+		case trimmed == "" && in.Name == NoteNameBranch:
+			cwd, err := os.Getwd()
+			if err != nil {
+				return errResult(fmt.Sprintf("wn:branch: %v", err)), nil
+			}
+			branch, err := CurrentBranchInDir(cwd)
+			if err != nil {
+				return errResult(fmt.Sprintf("wn:branch: could not detect current git branch: %v", err)), nil
+			}
+			trimmed = branch
+		case trimmed == "" && in.Name == NoteNameCommit:
+			return errResult("wn:commit requires a commit hash"), nil
+		case in.Name == NoteNameCommit:
+			exists, err := CommitExists(root, trimmed)
+			if err != nil {
+				return errResult(fmt.Sprintf("wn:commit: %v", err)), nil
+			}
+			if !exists {
+				return errResult(fmt.Sprintf("wn:commit: commit %q not found in this repository", trimmed)), nil
+			}
 		}
-		idx := it.NoteIndexByName(in.Name)
-		if idx >= 0 {
-			it.Notes[idx].Body = trimmed
-		} else {
-			it.Notes = append(it.Notes, Note{Name: in.Name, Created: now, Body: trimmed})
+		now := time.Now().UTC()
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			if it.Notes == nil {
+				it.Notes = []Note{}
+			}
+			idx := it.NoteIndexByName(in.Name)
+			if idx >= 0 {
+				it.Notes[idx].Body = trimmed
+			} else {
+				it.Notes = append(it.Notes, Note{Name: in.Name, Created: now, Body: trimmed})
+			}
+			it.Updated = now
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
 		}
-		it.Updated = now
-		return it, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("note %q added/updated on %s", in.Name, id)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("note %q added/updated on %s", in.Name, id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnNoteEditIn struct {
@@ -895,39 +849,35 @@ type wnNoteEditIn struct {
 }
 
 func handleWnNoteEdit(ctx context.Context, req *mcp.CallToolRequest, in wnNoteEditIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.Name == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "name is required"}}, IsError: true}, nil, nil
-	}
-	trimmed := strings.TrimSpace(in.Body)
-	if trimmed == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "body is required and cannot be empty"}}, IsError: true}, nil, nil
-	}
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		idx := it.NoteIndexByName(in.Name)
-		if idx < 0 {
-			return nil, fmt.Errorf("no note named %q", in.Name)
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
 		}
-		it.Notes[idx].Body = trimmed
-		it.Updated = time.Now().UTC()
-		return it, nil
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		if in.Name == "" {
+			return errResult("name is required"), nil
+		}
+		trimmed := strings.TrimSpace(in.Body)
+		if trimmed == "" {
+			return errResult("body is required and cannot be empty"), nil
+		}
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			idx := it.NoteIndexByName(in.Name)
+			if idx < 0 {
+				return nil, fmt.Errorf("no note named %q", in.Name)
+			}
+			it.Notes[idx].Body = trimmed
+			it.Updated = time.Now().UTC()
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("note %q updated on %s", in.Name, id)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("note %q updated on %s", in.Name, id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnNoteRmIn struct {
@@ -937,35 +887,31 @@ type wnNoteRmIn struct {
 }
 
 func handleWnNoteRm(ctx context.Context, req *mcp.CallToolRequest, in wnNoteRmIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.Name == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "name is required"}}, IsError: true}, nil, nil
-	}
-	err = store.UpdateItem(id, func(it *Item) (*Item, error) {
-		idx := it.NoteIndexByName(in.Name)
-		if idx < 0 {
-			return nil, fmt.Errorf("no note named %q", in.Name)
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
 		}
-		it.Notes = append(it.Notes[:idx], it.Notes[idx+1:]...)
-		it.Updated = time.Now().UTC()
-		return it, nil
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		if in.Name == "" {
+			return errResult("name is required"), nil
+		}
+		if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
+			idx := it.NoteIndexByName(in.Name)
+			if idx < 0 {
+				return nil, fmt.Errorf("no note named %q", in.Name)
+			}
+			it.Notes = append(it.Notes[:idx], it.Notes[idx+1:]...)
+			it.Updated = time.Now().UTC()
+			return it, nil
+		}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("note %q removed from %s", in.Name, id)}}}, nil
 	})
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("note %q removed from %s", in.Name, id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
 }
 
 type wnDuplicateIn struct {
@@ -975,26 +921,23 @@ type wnDuplicateIn struct {
 }
 
 func handleWnDuplicate(ctx context.Context, req *mcp.CallToolRequest, in wnDuplicateIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if in.On == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "on (original item id) is required"}}, IsError: true}, nil, nil
-	}
-	if err := SetStatus(store, id, StatusClosed, StatusOpts{DuplicateOf: in.On}); err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	text := fmt.Sprintf("marked %s as duplicate of %s", id, in.On)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
+		}
+		id, err := ResolveItemID(meta.CurrentID, in.ID)
+		if err != nil {
+			return errResult("no id provided and no current task"), nil
+		}
+		if in.On == "" {
+			return errResult("on (original item id) is required"), nil
+		}
+		if err := SetStatus(store, id, StatusClosed, StatusOpts{DuplicateOf: in.On}); err != nil {
+			return errResult(err.Error()), nil
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("marked %s as duplicate of %s", id, in.On)}}}, nil
+	})
 }
 
 type wnPromptIn struct {
@@ -1004,61 +947,59 @@ type wnPromptIn struct {
 }
 
 func handleWnPrompt(ctx context.Context, req *mcp.CallToolRequest, in wnPromptIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
 	if strings.TrimSpace(in.Question) == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "question is required"}}, IsError: true}, nil, nil
+		return errResult("question is required"), nil, nil
 	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	parentID, err := ResolveItemID(meta.CurrentID, in.ParentID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no parent_id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	if _, err := store.Get(parentID); err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("parent item %s not found", parentID)}}, IsError: true}, nil, nil
-	}
-	promptID, err := GenerateID(store)
-	if err != nil {
-		return nil, nil, err
-	}
-	now := time.Now().UTC()
-	promptItem := &Item{
-		ID:          promptID,
-		Description: strings.TrimSpace(in.Question),
-		Created:     now,
-		Updated:     now,
-		PromptReady: true,
-		Log:         []LogEntry{{At: now, Kind: "created"}, {At: now, Kind: "prompt_ready"}},
-	}
-	if err := store.Put(promptItem); err != nil {
-		return nil, nil, err
-	}
-	// Add prompt item as dependency of parent
-	allItems, err := store.List()
-	if err != nil {
-		_ = store.Delete(promptID)
-		return nil, nil, err
-	}
-	if WouldCreateCycle(allItems, parentID, promptID) {
-		_ = store.Delete(promptID)
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "circular dependency would result"}}, IsError: true}, nil, nil
-	}
-	if err := store.UpdateItem(parentID, func(it *Item) (*Item, error) {
-		it.DependsOn = append(it.DependsOn, promptID)
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "depend_added", Msg: promptID})
-		return it, nil
-	}); err != nil {
-		return nil, nil, err
-	}
-	out := map[string]string{"id": promptID}
-	raw, _ := json.Marshal(out)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, out, nil
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		meta, err := ReadMeta(root)
+		if err != nil {
+			return nil, err
+		}
+		parentID, err := ResolveItemID(meta.CurrentID, in.ParentID)
+		if err != nil {
+			return errResult("no parent_id provided and no current task"), nil
+		}
+		if _, err := store.Get(parentID); err != nil {
+			return errResult(fmt.Sprintf("parent item %s not found", parentID)), nil
+		}
+		promptID, err := GenerateID(store)
+		if err != nil {
+			return nil, err
+		}
+		now := time.Now().UTC()
+		promptItem := &Item{
+			ID:          promptID,
+			Description: strings.TrimSpace(in.Question),
+			Created:     now,
+			Updated:     now,
+			PromptReady: true,
+			Log:         []LogEntry{{At: now, Kind: "created"}, {At: now, Kind: "prompt_ready"}},
+		}
+		if err := store.Put(promptItem); err != nil {
+			return nil, err
+		}
+		// Add prompt item as dependency of parent
+		allItems, err := store.List()
+		if err != nil {
+			_ = store.Delete(promptID)
+			return nil, err
+		}
+		if WouldCreateCycle(allItems, parentID, promptID) {
+			_ = store.Delete(promptID)
+			return errResult("circular dependency would result"), nil
+		}
+		if err := store.UpdateItem(parentID, func(it *Item) (*Item, error) {
+			it.DependsOn = append(it.DependsOn, promptID)
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "depend_added", Msg: promptID})
+			return it, nil
+		}); err != nil {
+			return nil, err
+		}
+		out := map[string]string{"id": promptID}
+		raw, _ := json.Marshal(out)
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil
+	})
 }
 
 type wnRespondIn struct {
@@ -1068,48 +1009,33 @@ type wnRespondIn struct {
 }
 
 func handleWnRespond(ctx context.Context, req *mcp.CallToolRequest, in wnRespondIn) (*mcp.CallToolResult, any, error) {
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	meta, err := ReadMeta(root)
-	if err != nil {
-		return nil, nil, err
-	}
-	id, err := ResolveItemID(meta.CurrentID, in.ID)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "no id provided and no current task"}}, IsError: true}, nil, nil
-	}
-	item, err := store.Get(id)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	if !item.PromptReady {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("item %s is not in prompt state", id)}}, IsError: true}, nil, nil
-	}
-	now := time.Now().UTC()
-	answer := strings.TrimSpace(in.Answer)
-	if err := store.UpdateItem(id, func(it *Item) (*Item, error) {
-		it.Done = true
-		it.DoneStatus = DoneStatusDone
-		it.PromptReady = false
-		it.Updated = now
-		it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: answer})
-		if it.Notes == nil {
-			it.Notes = []Note{}
+	return withItem(ctx, in.Root, in.ID, func(store Store, item *Item) (*mcp.CallToolResult, error) {
+		if !item.PromptReady {
+			return errResult(fmt.Sprintf("item %s is not in prompt state", item.ID)), nil
 		}
-		idx := it.NoteIndexByName(NoteNameResponse)
-		if idx >= 0 {
-			it.Notes[idx].Body = answer
-		} else {
-			it.Notes = append(it.Notes, Note{Name: NoteNameResponse, Created: now, Body: answer})
+		now := time.Now().UTC()
+		answer := strings.TrimSpace(in.Answer)
+		if err := store.UpdateItem(item.ID, func(it *Item) (*Item, error) {
+			it.Done = true
+			it.DoneStatus = DoneStatusDone
+			it.PromptReady = false
+			it.Updated = now
+			it.Log = append(it.Log, LogEntry{At: now, Kind: "done", Msg: answer})
+			if it.Notes == nil {
+				it.Notes = []Note{}
+			}
+			idx := it.NoteIndexByName(NoteNameResponse)
+			if idx >= 0 {
+				it.Notes[idx].Body = answer
+			} else {
+				it.Notes = append(it.Notes, Note{Name: NoteNameResponse, Created: now, Body: answer})
+			}
+			return it, nil
+		}); err != nil {
+			return nil, err
 		}
-		return it, nil
-	}); err != nil {
-		return nil, nil, err
-	}
-	text := fmt.Sprintf("responded to %s; prompt marked done", id)
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("responded to %s; prompt marked done", item.ID)}}}, nil
+	})
 }
 
 type wnMergeIn struct {
@@ -1121,24 +1047,22 @@ type wnMergeIn struct {
 
 func handleWnMerge(ctx context.Context, req *mcp.CallToolRequest, in wnMergeIn) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(in.Branch) == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: branch is required"}}, IsError: true}, nil, nil
+		return errResult("error: branch is required"), nil, nil
 	}
 	if strings.TrimSpace(in.Message) == "" {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: "error: message is required"}}, IsError: true}, nil, nil
+		return errResult("error: message is required"), nil, nil
 	}
-	store, root, err := getStoreWithRoot(ctx, in.Root)
-	if err != nil {
-		return nil, nil, err
-	}
-	result, err := SquashMerge(store, root, in.Branch, in.Message, in.DryRun)
-	if err != nil {
-		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}, IsError: true}, nil, nil
-	}
-	var text string
-	if in.DryRun {
-		text = fmt.Sprintf("would squash-merge %s (item %s) into current HEAD", result.Branch, result.ItemID)
-	} else {
-		text = fmt.Sprintf("merged %s → %s (item %s marked done)", result.Branch, result.CommitHash[:7], result.ItemID)
-	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil, nil
+	return withStore(ctx, in.Root, func(store Store, root string) (*mcp.CallToolResult, error) {
+		result, err := SquashMerge(store, root, in.Branch, in.Message, in.DryRun)
+		if err != nil {
+			return errResult(err.Error()), nil
+		}
+		var text string
+		if in.DryRun {
+			text = fmt.Sprintf("would squash-merge %s (item %s) into current HEAD", result.Branch, result.ItemID)
+		} else {
+			text = fmt.Sprintf("merged %s → %s (item %s marked done)", result.Branch, result.CommitHash[:7], result.ItemID)
+		}
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
+	})
 }
