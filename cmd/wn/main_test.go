@@ -5610,6 +5610,43 @@ func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	}
 }
 
+func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
+	mainRoot, _ := setupWnRoot(t)
+	writeVerifySettings(t, mainRoot, "pwd")
+
+	// cd into a subdirectory so cwd != mainRoot
+	subdir := filepath.Join(mainRoot, "subdir")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatalf("MkdirAll subdir: %v", err)
+	}
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(subdir); err != nil {
+		t.Fatalf("Chdir subdir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(cwd)
+		verifyAtRoot = false
+	}()
+
+	configDir := t.TempDir()
+	t.Setenv("WN_CONFIG_DIR", configDir)
+
+	out := captureStdout(t, func() {
+		rootCmd.SetArgs([]string{"verify", "--root"})
+		if err := rootCmd.Execute(); err != nil {
+			t.Errorf("Execute: %v", err)
+		}
+	})
+
+	// pwd should print mainRoot, not subdir
+	if !strings.Contains(out, mainRoot) {
+		t.Errorf("verify --root output = %q, want to contain main root %q", out, mainRoot)
+	}
+	if strings.Contains(out, subdir) {
+		t.Errorf("verify --root output = %q, should not contain subdir %q", out, subdir)
+	}
+}
+
 func resetSettingsEditFlags() {
 	settingsEditUser = false
 	settingsEditUserLocal = false

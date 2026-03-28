@@ -353,6 +353,8 @@ func runSettingsEdit(_ *cobra.Command, _ []string) error {
 	return openSettingsFile(candidates[idx].path)
 }
 
+var verifyAtRoot bool
+
 var verifyCmd = &cobra.Command{
 	Use:          "verify",
 	Short:        "Run the configured verify command (e.g. make all, npm test)",
@@ -361,8 +363,20 @@ var verifyCmd = &cobra.Command{
 	SilenceUsage: true,
 }
 
+func init() {
+	verifyCmd.Flags().BoolVar(&verifyAtRoot, "root", false, "Change to the project root directory before running verify")
+}
+
 func runVerify(cobraCmd *cobra.Command, _ []string) error {
 	root, _ := wn.FindRootForCLI()
+	if verifyAtRoot {
+		if root == "" {
+			return wn.ErrNoRoot
+		}
+		if err := os.Chdir(root); err != nil {
+			return err
+		}
+	}
 	settings, err := wn.ReadSettingsInRoot(root)
 	if err != nil {
 		return err
