@@ -256,11 +256,12 @@ func handleWnList(ctx context.Context, req *mcp.CallToolRequest, in wnListIn) (*
 		return nil, nil, err
 	}
 	blockedSet := BlockedSet(allItems)
-	items, err := ListableUndoneItems(store)
+	tags, tagsMatchAll := ParseTagExpr(in.Tag)
+	f := false
+	items, err := QueryItems(store, ItemQuery{Done: &f, Tags: tags, TagsMatchAll: tagsMatchAll})
 	if err != nil {
 		return nil, nil, err
 	}
-	items = FilterByTag(items, in.Tag)
 	var ordered []*Item
 	settings, _ := ReadSettingsInRoot(root)
 	if spec := SortSpecFromSettings(settings); len(spec) > 0 {

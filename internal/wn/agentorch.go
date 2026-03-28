@@ -42,11 +42,12 @@ func BranchSlug(description string) string {
 // If tag is non-empty, only items that have that tag are considered. claimBy is optional (e.g. worker id).
 // Returns the claimed item, or nil if the queue is empty.
 func ClaimNextItem(store Store, root string, claimFor time.Duration, claimBy string, tag string) (*Item, error) {
-	undone, err := UndoneItems(store)
+	tags, tagsMatchAll := ParseTagExpr(tag)
+	f := false
+	undone, err := QueryItems(store, ItemQuery{Done: &f, ReviewReady: &f, Tags: tags, TagsMatchAll: tagsMatchAll})
 	if err != nil {
 		return nil, err
 	}
-	undone = FilterByTag(undone, tag)
 	ordered, acyclic := TopoOrder(undone)
 	if !acyclic || len(ordered) == 0 {
 		return nil, nil

@@ -85,58 +85,16 @@ func IsAvailableUndone(it *Item, now time.Time) bool {
 }
 
 // UndoneItems returns all items that are undone and available for agent (next/claim).
-// Excludes review-ready and in-progress; clears expired in-progress lazily.
+// Excludes review-ready, prompt-ready, and in-progress; clears expired in-progress lazily.
 func UndoneItems(store Store) ([]*Item, error) {
-	now := time.Now().UTC()
-	items, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	var result []*Item
-	for _, it := range items {
-		if it.Done {
-			continue
-		}
-		if !it.InProgressUntil.IsZero() && now.After(it.InProgressUntil) {
-			// Expired: clear in-progress and include in result (unless review-ready)
-			if err := store.UpdateItem(it.ID, func(item *Item) (*Item, error) {
-				item.InProgressUntil = time.Time{}
-				item.InProgressBy = ""
-				item.Updated = now
-				item.Log = append(item.Log, LogEntry{At: now, Kind: "in_progress_expired"})
-				return item, nil
-			}); err != nil {
-				return nil, err
-			}
-			curr, err := store.Get(it.ID)
-			if err != nil {
-				return nil, err
-			}
-			if !curr.ReviewReady && !curr.PromptReady {
-				result = append(result, curr)
-			}
-			continue
-		}
-		if IsAvailableUndone(it, now) {
-			result = append(result, it)
-		}
-	}
-	return result, nil
+	f := false
+	return QueryItems(store, ItemQuery{Done: &f, ReviewReady: &f})
 }
 
 // ReviewReadyItems returns all items that are undone and review-ready (excluded from next/claim).
 func ReviewReadyItems(store Store) ([]*Item, error) {
-	items, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	var result []*Item
-	for _, it := range items {
-		if !it.Done && it.ReviewReady {
-			result = append(result, it)
-		}
-	}
-	return result, nil
+	f, t := false, true
+	return QueryItems(store, ItemQuery{Done: &f, ReviewReady: &t})
 }
 
 // FilterByTag returns items matching the tag expression. If tag is empty, returns items unchanged.
@@ -201,38 +159,9 @@ func NextUndoneItem(store Store, tag string) (*Item, error) {
 }
 
 // ListableUndoneItems returns all undone items (including review-ready) for list/export.
-// Clears expired in-progress lazily. Used by wn list (default/--undone), export --undone, and MCP wn_list. For pick/next/claim use UndoneItems (available only); for list --review-ready use ReviewReadyItems.
+// Clears expired in-progress lazily. Used by wn list (default/--undone), export --undone, and MCP wn_list.
+// For pick/next/claim use UndoneItems (available only); for list --review-ready use ReviewReadyItems.
 func ListableUndoneItems(store Store) ([]*Item, error) {
-	now := time.Now().UTC()
-	items, err := store.List()
-	if err != nil {
-		return nil, err
-	}
-	var result []*Item
-	for _, it := range items {
-		if it.Done {
-			continue
-		}
-		if !it.InProgressUntil.IsZero() && now.After(it.InProgressUntil) {
-			if err := store.UpdateItem(it.ID, func(item *Item) (*Item, error) {
-				item.InProgressUntil = time.Time{}
-				item.InProgressBy = ""
-				item.Updated = now
-				item.Log = append(item.Log, LogEntry{At: now, Kind: "in_progress_expired"})
-				return item, nil
-			}); err != nil {
-				return nil, err
-			}
-			curr, err := store.Get(it.ID)
-			if err != nil {
-				return nil, err
-			}
-			result = append(result, curr)
-			continue
-		}
-		if it.InProgressUntil.IsZero() {
-			result = append(result, it)
-		}
-	}
-	return result, nil
+	f := false
+	return QueryItems(store, ItemQuery{Done: &f})
 }
