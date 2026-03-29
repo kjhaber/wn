@@ -12,59 +12,6 @@ import (
 	"github.com/kjhaber/wn/internal/wn"
 )
 
-// resetPickFlags clears pick filter flags to avoid Cobra's flag persistence across
-// Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
-// each test that invokes "pick" with different flags.
-// resetShowFlags clears show flags to avoid Cobra's flag persistence across Execute() calls.
-func resetShowFlags() {
-	showJson = false
-	showPlain = false
-	showAll = false
-	showFields = ""
-}
-
-func resetPickFlags() {
-	pickUndone = false
-	pickDone = false
-	pickAll = false
-	pickReviewReady = false
-}
-
-// resetTagFlags clears tag flags to avoid Cobra's flag persistence across
-// Execute() calls. Call before each test that invokes "tag" with different flags.
-func resetTagFlags() {
-	tagWid = ""
-	tagAddInteractive = false
-}
-
-// resetListFlags clears list flags to avoid Cobra's flag persistence across
-// Execute() calls (see https://github.com/spf13/cobra/issues/2079). Call before
-// each test that invokes "list" with different flags.
-func resetListFlags() {
-	listUndone = false
-	listDone = false
-	listAll = false
-	listReviewReady = false
-	listTag = ""
-	listSort = ""
-	listLimit = 0
-	listOffset = 0
-	listJson = false
-	listGroup = ""
-}
-
-// resetDependFlags clears depend subcommand flags to avoid Cobra's flag persistence
-// across Execute() calls. Call before each test that invokes "depend" with different flags.
-func resetDependFlags() {
-	dependAddOn = ""
-	dependAddWid = ""
-	dependAddInteractive = false
-	dependRmOn = ""
-	dependRmWid = ""
-	dependRmInteractive = false
-	dependListWid = ""
-}
-
 // listStatusWidth and listIDWidth must match runList formatting for alignment tests.
 const listStatusWidth = 7
 const listIDWidth = 6

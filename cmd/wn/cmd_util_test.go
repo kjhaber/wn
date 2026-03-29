@@ -22,8 +22,9 @@ func TestRmWithExplicitId(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rm", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"rm", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("rm %s: %v", itemID, err)
 	}
 	store, err := wn.NewFileStore(dir)
@@ -53,8 +54,9 @@ func TestRmMultipleIds(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rm", "abc123", "bb2222", "cc3333"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"rm", "abc123", "bb2222", "cc3333"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("rm multiple: %v", err)
 	}
 	for _, id := range []string{"abc123", "bb2222", "cc3333"} {
@@ -80,8 +82,9 @@ func TestRmNoArgsRemovesCurrentItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rm"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"rm"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("rm (no args): %v", err)
 	}
 	// Current item should be removed
@@ -111,8 +114,9 @@ func TestRmNoArgsErrorsWhenNoCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rm"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"rm"})
+	if err := root.Execute(); err == nil {
 		t.Error("expected error when no current item, got nil")
 	}
 	// Item should be untouched
@@ -129,8 +133,9 @@ func TestRmClearsCurrentWhenDeleted(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"rm", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"rm", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("rm: %v", err)
 	}
 	meta, _ := wn.ReadMeta(dir)
@@ -146,11 +151,11 @@ func TestArchiveCmd_RemovesItemFromStore(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"archive", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"archive", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -180,11 +185,11 @@ func TestArchiveCmd_WritesArchiveFile(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"archive", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"archive", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -202,16 +207,15 @@ func TestArchiveCmd_CustomLocation(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
 	customDir := filepath.Join(t.TempDir(), "custom-archive")
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"archive", "--location", customDir, itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"archive", "--location", customDir, itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
-	resetArchiveFlags()
 
 	archivePath := filepath.Join(customDir, itemID+".json")
 	if _, err := os.Stat(archivePath); err != nil {
@@ -226,11 +230,11 @@ func TestArchiveCmd_ClearsCurrentID(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"archive", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"archive", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -251,10 +255,10 @@ func TestArchiveCmd_NotFound(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
-	rootCmd.SetArgs([]string{"archive", "nonexistent"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"archive", "nonexistent"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("expected error archiving nonexistent item")
 	}
@@ -267,7 +271,6 @@ func TestArchiveCmd_includesPromptDepsInArchive(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetArchiveFlags()
 
 	store, _ := wn.NewFileStore(dir)
 	now := time.Now().UTC()
@@ -283,8 +286,9 @@ func TestArchiveCmd_includesPromptDepsInArchive(t *testing.T) {
 	})
 
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"archive", parentID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"archive", parentID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute archive: %v", err)
 		}
 	})
@@ -340,8 +344,9 @@ func TestVerifyCommand_runsConfiguredCommand(t *testing.T) {
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"verify"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"verify"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -362,8 +367,9 @@ func TestVerifyCommand_noVerifyConfigured_errors(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
-	rootCmd.SetArgs([]string{"verify"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"verify"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("verify with no configured command should return error")
 	}
@@ -382,8 +388,9 @@ func TestVerifyCommand_failingCommand_errors(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
-	rootCmd.SetArgs([]string{"verify"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"verify"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("verify with failing command should return error")
 	}
@@ -402,13 +409,13 @@ func TestVerifyCommand_failingCommand_suppressesUsage(t *testing.T) {
 	configDir := t.TempDir()
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
-	// Cobra prints usage to rootCmd's out writer (via Println); capture it to assert it's suppressed.
+	// Cobra prints usage to root's out writer (via Println); capture it to assert it's suppressed.
 	var outBuf bytes.Buffer
-	rootCmd.SetOut(&outBuf)
-	defer rootCmd.SetOut(nil)
-
-	rootCmd.SetArgs([]string{"verify"})
-	_ = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetOut(&outBuf)
+	defer root.SetOut(nil)
+	root.SetArgs([]string{"verify"})
+	_ = root.Execute()
 
 	if strings.Contains(outBuf.String(), "Usage:") {
 		t.Errorf("wn verify should not print usage on command failure; got: %q", outBuf.String())
@@ -430,12 +437,13 @@ func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
 	var stderrBuf bytes.Buffer
-	rootCmd.SetErr(&stderrBuf)
-	defer rootCmd.SetErr(os.Stderr)
+	root := newRootCmd()
+	root.SetErr(&stderrBuf)
+	defer root.SetErr(os.Stderr)
 
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"verify"})
-		if err := rootCmd.Execute(); err != nil {
+		root.SetArgs([]string{"verify"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -458,17 +466,15 @@ func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
 	if err := os.Chdir(subdir); err != nil {
 		t.Fatalf("Chdir subdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		verifyAtRoot = false
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	configDir := t.TempDir()
 	t.Setenv("WN_CONFIG_DIR", configDir)
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"verify", "--root"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"verify", "--root"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -480,13 +486,6 @@ func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
 	if strings.Contains(out, subdir) {
 		t.Errorf("verify --root output = %q, should not contain subdir %q", out, subdir)
 	}
-}
-
-func resetSettingsEditFlags() {
-	settingsEditUser = false
-	settingsEditUserLocal = false
-	settingsEditProject = false
-	settingsEditProjectLocal = false
 }
 
 func TestSettingsShow(t *testing.T) {
@@ -513,10 +512,11 @@ func TestSettingsShow(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	defer rootCmd.SetOut(nil)
-	rootCmd.SetArgs([]string{"settings", "show"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetOut(&buf)
+	defer root.SetOut(nil)
+	root.SetArgs([]string{"settings", "show"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("settings show: %v", err)
 	}
 
@@ -545,9 +545,9 @@ func TestSettingsEdit_projectFlag(t *testing.T) {
 	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
 
 	projectSettingsPath := filepath.Join(dir, ".wn", "settings.json")
-	defer resetSettingsEditFlags()
-	rootCmd.SetArgs([]string{"settings", "edit", "--project"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "edit", "--project"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("settings edit --project: %v", err)
 	}
 
@@ -577,9 +577,9 @@ func TestSettingsEdit_userFlag(t *testing.T) {
 	t.Setenv("WN_SETTINGS_USER", userPath)
 	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
 
-	defer resetSettingsEditFlags()
-	rootCmd.SetArgs([]string{"settings", "edit", "--user"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "edit", "--user"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("settings edit --user: %v", err)
 	}
 
@@ -593,14 +593,6 @@ func TestSettingsEdit_userFlag(t *testing.T) {
 	if strings.TrimSpace(string(data)) != "{}" {
 		t.Errorf("user settings content = %q, want {}", strings.TrimSpace(string(data)))
 	}
-}
-
-// resetCleanupWorktreesFlags resets cleanup worktrees flags to defaults between tests.
-func resetCleanupWorktreesFlags() {
-	cleanupWorktreesDryRun = false
-	cleanupWorktreesBranch = ""
-	cleanupWorktreesCleanIgnored = false
-	cleanupWorktreesForce = false
 }
 
 // setupGitWnRepo creates a temp dir with a git repo and wn store, creates an item
@@ -656,7 +648,8 @@ func setupGitWnRepo(t *testing.T) (dir string, wtPath string) {
 
 func TestCompletionZsh(t *testing.T) {
 	var buf bytes.Buffer
-	if err := rootCmd.GenZshCompletion(&buf); err != nil {
+	root := newRootCmd()
+	if err := root.GenZshCompletion(&buf); err != nil {
 		t.Fatalf("GenZshCompletion: %v", err)
 	}
 	out := buf.String()
@@ -672,7 +665,8 @@ func TestCompletionZsh(t *testing.T) {
 
 func TestCompletionBash(t *testing.T) {
 	var buf bytes.Buffer
-	if err := rootCmd.GenBashCompletionV2(&buf, true); err != nil {
+	root := newRootCmd()
+	if err := root.GenBashCompletionV2(&buf, true); err != nil {
 		t.Fatalf("GenBashCompletionV2: %v", err)
 	}
 	out := buf.String()
@@ -688,7 +682,8 @@ func TestCompletionBash(t *testing.T) {
 
 func TestCompletionFish(t *testing.T) {
 	var buf bytes.Buffer
-	if err := rootCmd.GenFishCompletion(&buf, true); err != nil {
+	root := newRootCmd()
+	if err := root.GenFishCompletion(&buf, true); err != nil {
 		t.Fatalf("GenFishCompletion: %v", err)
 	}
 	out := buf.String()
@@ -698,11 +693,6 @@ func TestCompletionFish(t *testing.T) {
 	if !strings.Contains(out, "wn") {
 		t.Errorf("fish completion output should mention 'wn', got:\n%.200s", out)
 	}
-}
-
-func resetMergeFlags() {
-	mergeMessage = ""
-	mergeDryRun = false
 }
 
 // setupGitWnRootNoItem creates a temp dir with a git repo and wn initialized.
@@ -732,8 +722,9 @@ func TestWnRootCmd_NormalRepo(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"root"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"root"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -766,8 +757,9 @@ func TestWnRootCmd_Worktree(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"root"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"root"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})

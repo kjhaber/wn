@@ -29,8 +29,9 @@ func TestDoneCmd_autoMarksPromptDepsAsDone(t *testing.T) {
 		return it, nil
 	})
 
-	rootCmd.SetArgs([]string{"done", parentID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"done", parentID})
+	if err := root.Execute(); err != nil {
 		t.Errorf("Execute done: %v", err)
 	}
 
@@ -66,8 +67,9 @@ func TestDoneCmd_promptDepDoesNotBlockDone(t *testing.T) {
 	})
 
 	// Should succeed without --force even though prompt dep is undone
-	rootCmd.SetArgs([]string{"done", parentID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"done", parentID})
+	if err := root.Execute(); err != nil {
 		t.Errorf("done should not be blocked by prompt dep: %v", err)
 	}
 }

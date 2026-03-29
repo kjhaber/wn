@@ -8,46 +8,60 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var tagCmd = &cobra.Command{
-	Use:   "tag",
-	Short: "Add, remove, or list tags on a work item",
-	Long:  "Subcommands: add, rm, list. Use --wid to specify work item; when omitted, uses the current task. Use 'wn tag add -i <tag>' to pick items with fzf and toggle the tag on each.",
+type tagPersistFlags struct {
+	wid string
 }
 
-var tagWid string
-var tagAddInteractive bool
-
-var tagAddCmd = &cobra.Command{
-	Use:   "add <tag-name>",
-	Short: "Add a tag to a work item",
-	Long:  "Add a tag. Use --wid <id> to specify the work item; when omitted, uses the current task. Use -i/--interactive to pick items with fzf and toggle the tag on each selected item.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTagAdd,
+type tagAddFlags struct {
+	interactive bool
 }
 
-var tagRmCmd = &cobra.Command{
-	Use:   "rm <tag-name>",
-	Short: "Remove a tag from a work item",
-	Long:  "Remove a tag. Use --wid <id> to specify the work item; when omitted, uses the current task.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTagRm,
-}
+func newTagCmd() *cobra.Command {
+	persist := &tagPersistFlags{}
+	tagCmd := &cobra.Command{
+		Use:   "tag",
+		Short: "Add, remove, or list tags on a work item",
+		Long:  "Subcommands: add, rm, list. Use --wid to specify work item; when omitted, uses the current task. Use 'wn tag add -i <tag>' to pick items with fzf and toggle the tag on each.",
+	}
+	tagCmd.PersistentFlags().StringVar(&persist.wid, "wid", "", "Work item id (default: current task)")
 
-var tagListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List tags on a work item (one per line)",
-	Long:  "List tags on the work item. Use --wid <id> to specify the work item; when omitted, uses the current task. Output is one tag per line.",
-	Args:  cobra.NoArgs,
-	RunE:  runTagList,
-}
+	addF := &tagAddFlags{}
+	tagAddCmd := &cobra.Command{
+		Use:   "add <tag-name>",
+		Short: "Add a tag to a work item",
+		Long:  "Add a tag. Use --wid <id> to specify the work item; when omitted, uses the current task. Use -i/--interactive to pick items with fzf and toggle the tag on each selected item.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTagAdd(cmd, args, persist, addF)
+		},
+	}
+	tagAddCmd.Flags().BoolVarP(&addF.interactive, "interactive", "i", false, "Pick work items with fzf (or numbered list); toggle tag on selected items")
 
-func init() {
-	tagCmd.PersistentFlags().StringVar(&tagWid, "wid", "", "Work item id (default: current task)")
-	tagAddCmd.Flags().BoolVarP(&tagAddInteractive, "interactive", "i", false, "Pick work items with fzf (or numbered list); toggle tag on selected items")
+	tagRmCmd := &cobra.Command{
+		Use:   "rm <tag-name>",
+		Short: "Remove a tag from a work item",
+		Long:  "Remove a tag. Use --wid <id> to specify the work item; when omitted, uses the current task.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTagRm(cmd, args, persist)
+		},
+	}
+
+	tagListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List tags on a work item (one per line)",
+		Long:  "List tags on the work item. Use --wid <id> to specify the work item; when omitted, uses the current task. Output is one tag per line.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTagList(cmd, args, persist)
+		},
+	}
+
 	tagCmd.AddCommand(tagAddCmd, tagRmCmd, tagListCmd)
+	return tagCmd
 }
 
-func resolveTagWid() (string, error) {
+func resolveTagWid(p *tagPersistFlags) (string, error) {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return "", err
@@ -56,18 +70,18 @@ func resolveTagWid() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return wn.ResolveItemID(meta.CurrentID, tagWid)
+	return wn.ResolveItemID(meta.CurrentID, p.wid)
 }
 
-func runTagAdd(cmd *cobra.Command, args []string) error {
-	if tagAddInteractive {
+func runTagAdd(cmd *cobra.Command, args []string, persist *tagPersistFlags, addF *tagAddFlags) error {
+	if addF.interactive {
 		return runTagInteractive(args)
 	}
 	tag := args[0]
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
 	}
-	id, err := resolveTagWid()
+	id, err := resolveTagWid(persist)
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
@@ -153,9 +167,9 @@ func runTagInteractive(args []string) error {
 	return nil
 }
 
-func runTagRm(cmd *cobra.Command, args []string) error {
+func runTagRm(cmd *cobra.Command, args []string, persist *tagPersistFlags) error {
 	tag := args[0]
-	id, err := resolveTagWid()
+	id, err := resolveTagWid(persist)
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
@@ -181,8 +195,8 @@ func runTagRm(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func runTagList(cmd *cobra.Command, args []string) error {
-	id, err := resolveTagWid()
+func runTagList(cmd *cobra.Command, args []string, persist *tagPersistFlags) error {
+	id, err := resolveTagWid(persist)
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
@@ -205,32 +219,74 @@ func runTagList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// depend command and subcommands add, rm, list. Work item id is --wid (current task when omitted).
-var dependCmd = &cobra.Command{
-	Use:   "depend",
-	Short: "Add, remove, or list dependencies on a work item",
-	Long:  "Use 'wn depend add --on <id> [--wid <id>]', 'wn depend rm --on <id> [--wid <id>]', and 'wn depend list [--wid <id>]'. Omit --wid to use the current task.",
+type dependAddFlags struct {
+	on          string
+	wid         string
+	interactive bool
 }
 
-var dependAddCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Mark an item as depending on another",
-	Long:  "Add a dependency. Use --on for the dependency id; omit --wid to use the current task. Use -i to pick the depended-on item interactively (fzf or numbered list).",
-	Args:  cobra.NoArgs,
-	RunE:  runDependAdd,
-}
-var dependAddOn string
-var dependAddWid string
-var dependAddInteractive bool
-
-func init() {
-	dependAddCmd.Flags().StringVar(&dependAddOn, "on", "", "ID of the item this one will depend on")
-	dependAddCmd.Flags().StringVar(&dependAddWid, "wid", "", "Work item id (current task when omitted)")
-	dependAddCmd.Flags().BoolVarP(&dependAddInteractive, "interactive", "i", false, "Pick the depended-on item with fzf (undone items only)")
-	dependCmd.AddCommand(dependAddCmd)
+type dependRmFlags struct {
+	on          string
+	wid         string
+	interactive bool
 }
 
-func runDependAdd(cmd *cobra.Command, args []string) error {
+type dependListFlags struct {
+	wid string
+}
+
+func newDependCmd() *cobra.Command {
+	dependCmd := &cobra.Command{
+		Use:   "depend",
+		Short: "Add, remove, or list dependencies on a work item",
+		Long:  "Use 'wn depend add --on <id> [--wid <id>]', 'wn depend rm --on <id> [--wid <id>]', and 'wn depend list [--wid <id>]'. Omit --wid to use the current task.",
+	}
+
+	addF := &dependAddFlags{}
+	dependAddCmd := &cobra.Command{
+		Use:   "add",
+		Short: "Mark an item as depending on another",
+		Long:  "Add a dependency. Use --on for the dependency id; omit --wid to use the current task. Use -i to pick the depended-on item interactively (fzf or numbered list).",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDependAdd(cmd, args, addF)
+		},
+	}
+	dependAddCmd.Flags().StringVar(&addF.on, "on", "", "ID of the item this one will depend on")
+	dependAddCmd.Flags().StringVar(&addF.wid, "wid", "", "Work item id (current task when omitted)")
+	dependAddCmd.Flags().BoolVarP(&addF.interactive, "interactive", "i", false, "Pick the depended-on item with fzf (undone items only)")
+
+	rmF := &dependRmFlags{}
+	dependRmCmd := &cobra.Command{
+		Use:   "rm",
+		Short: "Remove a dependency",
+		Long:  "Remove a dependency. Use --on for the dependency id to remove; omit --wid to use the current task. Use -i to pick which dependency to remove (fzf or numbered list).",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDependRm(cmd, args, rmF)
+		},
+	}
+	dependRmCmd.Flags().StringVar(&rmF.on, "on", "", "ID of the dependency to remove")
+	dependRmCmd.Flags().StringVar(&rmF.wid, "wid", "", "Work item id (current task when omitted)")
+	dependRmCmd.Flags().BoolVarP(&rmF.interactive, "interactive", "i", false, "Pick the dependency to remove with fzf")
+
+	listF := &dependListFlags{}
+	dependListCmd := &cobra.Command{
+		Use:   "list",
+		Short: "List dependencies of a work item (one id per line)",
+		Long:  "Output the dependency ids of the work item, one per line. Omit --wid to use the current task.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDependList(cmd, args, listF)
+		},
+	}
+	dependListCmd.Flags().StringVar(&listF.wid, "wid", "", "Work item id (current task when omitted)")
+
+	dependCmd.AddCommand(dependAddCmd, dependRmCmd, dependListCmd)
+	return dependCmd
+}
+
+func runDependAdd(cmd *cobra.Command, args []string, f *dependAddFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -239,7 +295,7 @@ func runDependAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := wn.ResolveItemID(meta.CurrentID, dependAddWid)
+	id, err := wn.ResolveItemID(meta.CurrentID, f.wid)
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}
@@ -248,7 +304,7 @@ func runDependAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	var onID string
-	if dependAddInteractive {
+	if f.interactive {
 		onID, err = runDependInteractive(store, root, id)
 		if err != nil {
 			return err
@@ -257,10 +313,10 @@ func runDependAdd(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	} else {
-		if dependAddOn == "" {
+		if f.on == "" {
 			return fmt.Errorf("required flag \"on\" not set")
 		}
-		onID = dependAddOn
+		onID = f.on
 	}
 	items, err := store.List()
 	if err != nil {
@@ -300,25 +356,7 @@ func runDependInteractive(store wn.Store, root string, excludeID string) (string
 	return wn.PickInteractive(candidates)
 }
 
-var dependRmCmd = &cobra.Command{
-	Use:   "rm",
-	Short: "Remove a dependency",
-	Long:  "Remove a dependency. Use --on for the dependency id to remove; omit --wid to use the current task. Use -i to pick which dependency to remove (fzf or numbered list).",
-	Args:  cobra.NoArgs,
-	RunE:  runDependRm,
-}
-var dependRmOn string
-var dependRmWid string
-var dependRmInteractive bool
-
-func init() {
-	dependRmCmd.Flags().StringVar(&dependRmOn, "on", "", "ID of the dependency to remove")
-	dependRmCmd.Flags().StringVar(&dependRmWid, "wid", "", "Work item id (current task when omitted)")
-	dependRmCmd.Flags().BoolVarP(&dependRmInteractive, "interactive", "i", false, "Pick the dependency to remove with fzf")
-	dependCmd.AddCommand(dependRmCmd)
-}
-
-func runDependRm(cmd *cobra.Command, args []string) error {
+func runDependRm(cmd *cobra.Command, args []string, f *dependRmFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -327,7 +365,7 @@ func runDependRm(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := wn.ResolveItemID(meta.CurrentID, dependRmWid)
+	id, err := wn.ResolveItemID(meta.CurrentID, f.wid)
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}
@@ -336,7 +374,7 @@ func runDependRm(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	var onID string
-	if dependRmInteractive {
+	if f.interactive {
 		onID, err = runRmdependInteractive(store, root, id)
 		if err != nil {
 			return err
@@ -345,10 +383,10 @@ func runDependRm(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 	} else {
-		if dependRmOn == "" {
+		if f.on == "" {
 			return fmt.Errorf("required flag \"on\" not set")
 		}
-		onID = dependRmOn
+		onID = f.on
 	}
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		var newDeps []string
@@ -384,21 +422,7 @@ func runRmdependInteractive(store wn.Store, root string, id string) (string, err
 	return wn.PickInteractive(candidates)
 }
 
-var dependListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List dependencies of a work item (one id per line)",
-	Long:  "Output the dependency ids of the work item, one per line. Omit --wid to use the current task.",
-	Args:  cobra.NoArgs,
-	RunE:  runDependList,
-}
-var dependListWid string
-
-func init() {
-	dependListCmd.Flags().StringVar(&dependListWid, "wid", "", "Work item id (current task when omitted)")
-	dependCmd.AddCommand(dependListCmd)
-}
-
-func runDependList(cmd *cobra.Command, args []string) error {
+func runDependList(cmd *cobra.Command, args []string, f *dependListFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -407,7 +431,7 @@ func runDependList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, err := wn.ResolveItemID(meta.CurrentID, dependListWid)
+	id, err := wn.ResolveItemID(meta.CurrentID, f.wid)
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}

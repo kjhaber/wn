@@ -11,26 +11,32 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var statusCmd = &cobra.Command{
-	Use:   "status <undone|claimed|review|done|closed|suspend> [id]",
-	Short: "Set work item status",
-	Long:  "Set the work item to the given status. If id is omitted, uses the current task. Use --for when setting to claimed (duration, e.g. 30m); -m for a message when setting to done/closed/suspend. Use --duplicate-of <id> when setting to closed to mark the item as a duplicate of another (adds duplicate-of note).",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runStatus,
-}
-var statusFor string
-var statusMessage string
-var statusClaimBy string
-var statusDuplicateOf string
-
-func init() {
-	statusCmd.Flags().StringVar(&statusFor, "for", "", "Claim duration when setting to claimed (e.g. 30m, 1h); default 1h")
-	statusCmd.Flags().StringVarP(&statusMessage, "message", "m", "", "Optional message when setting to done, closed, or suspend")
-	statusCmd.Flags().StringVar(&statusClaimBy, "by", "", "Optional worker ID when setting to claimed")
-	statusCmd.Flags().StringVar(&statusDuplicateOf, "duplicate-of", "", "When setting to closed: mark item as duplicate of this work item id (adds duplicate-of note)")
+type statusFlags struct {
+	forDuration string
+	message     string
+	claimBy     string
+	duplicateOf string
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
+func newStatusCmd() *cobra.Command {
+	flags := &statusFlags{}
+	cmd := &cobra.Command{
+		Use:   "status <undone|claimed|review|done|closed|suspend> [id]",
+		Short: "Set work item status",
+		Long:  "Set the work item to the given status. If id is omitted, uses the current task. Use --for when setting to claimed (duration, e.g. 30m); -m for a message when setting to done/closed/suspend. Use --duplicate-of <id> when setting to closed to mark the item as a duplicate of another (adds duplicate-of note).",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runStatus(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVar(&flags.forDuration, "for", "", "Claim duration when setting to claimed (e.g. 30m, 1h); default 1h")
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Optional message when setting to done, closed, or suspend")
+	cmd.Flags().StringVar(&flags.claimBy, "by", "", "Optional worker ID when setting to claimed")
+	cmd.Flags().StringVar(&flags.duplicateOf, "duplicate-of", "", "When setting to closed: mark item as duplicate of this work item id (adds duplicate-of note)")
+	return cmd
+}
+
+func runStatus(cmd *cobra.Command, args []string, flags *statusFlags) error {
 	state := args[0]
 	if !wn.ValidStatus(state) {
 		return fmt.Errorf("invalid status %q; must be one of: undone, claimed, review, done, closed, suspend", state)
@@ -55,14 +61,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if state != wn.StatusClosed && statusDuplicateOf != "" {
+	if state != wn.StatusClosed && flags.duplicateOf != "" {
 		return fmt.Errorf("--duplicate-of is only valid when setting status to closed")
 	}
-	opts := wn.StatusOpts{DoneMessage: statusMessage, ClaimBy: statusClaimBy, DuplicateOf: statusDuplicateOf}
-	if state == wn.StatusClaimed && statusFor != "" {
-		d, err := time.ParseDuration(statusFor)
+	opts := wn.StatusOpts{DoneMessage: flags.message, ClaimBy: flags.claimBy, DuplicateOf: flags.duplicateOf}
+	if state == wn.StatusClaimed && flags.forDuration != "" {
+		d, err := time.ParseDuration(flags.forDuration)
 		if err != nil {
-			return fmt.Errorf("invalid --for duration %q: %w", statusFor, err)
+			return fmt.Errorf("invalid --for duration %q: %w", flags.forDuration, err)
 		}
 		if d <= 0 {
 			return fmt.Errorf("--for duration must be positive, got %v", d)
@@ -72,42 +78,48 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err := wn.SetStatus(store, id, state, opts); err != nil {
 		return err
 	}
-	if state == wn.StatusClosed && statusDuplicateOf != "" {
-		fmt.Printf("marked %s as duplicate of %s\n", id, statusDuplicateOf)
+	if state == wn.StatusClosed && flags.duplicateOf != "" {
+		fmt.Printf("marked %s as duplicate of %s\n", id, flags.duplicateOf)
 	} else {
 		fmt.Printf("marked %s %s\n", id, state)
 	}
 	return nil
 }
 
-var claimCmd = &cobra.Command{
-	Use:   "claim [id]",
-	Short: "Mark a work item in progress (exclusive until expiration)",
-	Long:  "Claims the item so it leaves the undone list until --for duration expires or you run wn done/release. If id is omitted, uses current task. Omit --for to use default (1h) and renew/extend a claim without losing context.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runClaim,
-}
-var claimFor string
-var claimBy string
-
-func init() {
-	claimCmd.Flags().StringVar(&claimFor, "for", "", "Duration the claim is held (e.g. 30m, 1h); default 1h so you can renew with just wn claim")
-	claimCmd.Flags().StringVar(&claimBy, "by", "", "Optional worker ID for logging")
+type claimFlags struct {
+	forDuration string
+	by          string
 }
 
-func runClaim(cmd *cobra.Command, args []string) error {
+func newClaimCmd() *cobra.Command {
+	flags := &claimFlags{}
+	cmd := &cobra.Command{
+		Use:   "claim [id]",
+		Short: "Mark a work item in progress (exclusive until expiration)",
+		Long:  "Claims the item so it leaves the undone list until --for duration expires or you run wn done/release. If id is omitted, uses current task. Omit --for to use default (1h) and renew/extend a claim without losing context.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runClaim(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVar(&flags.forDuration, "for", "", "Duration the claim is held (e.g. 30m, 1h); default 1h so you can renew with just wn claim")
+	cmd.Flags().StringVar(&flags.by, "by", "", "Optional worker ID for logging")
+	return cmd
+}
+
+func runClaim(cmd *cobra.Command, args []string, flags *claimFlags) error {
 	d := wn.DefaultClaimDuration
-	if claimFor != "" {
+	if flags.forDuration != "" {
 		var err error
-		d, err = time.ParseDuration(claimFor)
+		d, err = time.ParseDuration(flags.forDuration)
 		if err != nil {
-			return fmt.Errorf("invalid --for duration %q: %w", claimFor, err)
+			return fmt.Errorf("invalid --for duration %q: %w", flags.forDuration, err)
 		}
 		if d <= 0 {
 			return fmt.Errorf("--for duration must be positive, got %v", d)
 		}
 	}
-	claimForMsg := claimFor
+	claimForMsg := flags.forDuration
 	if claimForMsg == "" {
 		claimForMsg = d.String()
 	}
@@ -135,19 +147,21 @@ func runClaim(cmd *cobra.Command, args []string) error {
 	until := now.Add(d)
 	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.InProgressUntil = until
-		it.InProgressBy = claimBy
+		it.InProgressBy = flags.by
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: claimForMsg})
 		return it, nil
 	})
 }
 
-var releaseCmd = &cobra.Command{
-	Use:   "release [id]",
-	Short: "Clear in-progress on a work item (return to undone list)",
-	Long:  "If id is omitted, releases the current task.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runRelease,
+func newReleaseCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "release [id]",
+		Short: "Clear in-progress on a work item (return to undone list)",
+		Long:  "If id is omitted, releases the current task.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runRelease,
+	}
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
@@ -182,13 +196,15 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var reviewReadyCmd = &cobra.Command{
-	Use:     "review-ready [id]",
-	Aliases: []string{"rr"},
-	Short:   "Set work item to review-ready (excluded from wn next until marked done)",
-	Long:    "If id is omitted, uses the current task. Clears in-progress and marks the item review-ready.",
-	Args:    cobra.MaximumNArgs(1),
-	RunE:    runReviewReady,
+func newReviewReadyCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "review-ready [id]",
+		Aliases: []string{"rr"},
+		Short:   "Set work item to review-ready (excluded from wn next until marked done)",
+		Long:    "If id is omitted, uses the current task. Clears in-progress and marks the item review-ready.",
+		Args:    cobra.MaximumNArgs(1),
+		RunE:    runReviewReady,
+	}
 }
 
 func runReviewReady(cmd *cobra.Command, args []string) error {
@@ -224,58 +240,74 @@ func runReviewReady(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var cleanupCmd = &cobra.Command{
-	Use:   "cleanup",
-	Short: "Bulk maintenance utilities for work items",
+type cleanupMergedFlags struct {
+	dryRun bool
+	branch string
 }
 
-var cleanupSetMergedReviewItemsDoneCmd = &cobra.Command{
-	Use:   "set-merged-review-items-done",
-	Short: "Mark review items done when their work has been merged",
-	Long:  "Checks all review-ready work items, finds their 'branch' note, and marks them done if that branch (or recorded commit) has been merged into the current branch (or --branch). Use --dry-run to see what would be marked without making changes.",
-	Args:  cobra.NoArgs,
-	RunE:  runCleanupSetMergedReviewItemsDone,
+type cleanupCloseDoneFlags struct {
+	age    string
+	dryRun bool
 }
 
-var cleanupMergedDryRun bool
-var cleanupMergedBranch string
-
-var cleanupCloseDoneItemsCmd = &cobra.Command{
-	Use:   "close-done-items",
-	Short: "Close done items older than a configurable age",
-	Long:  "Finds items in done state whose done time is older than the configured age and sets them to closed. Age comes from --age or settings cleanup.close_done_items_age.",
-	Args:  cobra.NoArgs,
-	RunE:  runCleanupCloseDoneItems,
+type cleanupWorktreesFlags struct {
+	dryRun        bool
+	branch        string
+	cleanIgnored  bool
+	force         bool
+	worktreesOnly bool
 }
 
-var cleanupCloseDoneItemsAge string
-var cleanupCloseDoneItemsDryRun bool
+func newCleanupCmd() *cobra.Command {
+	cleanupCmd := &cobra.Command{
+		Use:   "cleanup",
+		Short: "Bulk maintenance utilities for work items",
+	}
 
-var cleanupWorktreesCmd = &cobra.Command{
-	Use:   "worktrees",
-	Short: "Remove completed worktrees and branches whose work is merged",
-	Long:  "Finds all non-main git worktrees whose associated wn item is done and whose branch has been merged into the current HEAD (or --branch). Removes those worktrees and deletes their branches. Also finds and deletes orphaned branches (branches with no worktree whose item is done and merged). Use --worktrees-only to skip branch deletion. Use --clean-ignored to also remove gitignored files (build artifacts, temp config) before removal. Use --dry-run to preview without making changes.",
-	Args:  cobra.NoArgs,
-	RunE:  runCleanupWorktrees,
-}
+	mergedF := &cleanupMergedFlags{}
+	cleanupSetMergedReviewItemsDoneCmd := &cobra.Command{
+		Use:   "set-merged-review-items-done",
+		Short: "Mark review items done when their work has been merged",
+		Long:  "Checks all review-ready work items, finds their 'branch' note, and marks them done if that branch (or recorded commit) has been merged into the current branch (or --branch). Use --dry-run to see what would be marked without making changes.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCleanupSetMergedReviewItemsDone(cmd, args, mergedF)
+		},
+	}
+	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&mergedF.dryRun, "dry-run", false, "Report what would be marked without making changes")
+	cleanupSetMergedReviewItemsDoneCmd.Flags().StringVarP(&mergedF.branch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
 
-var cleanupWorktreesDryRun bool
-var cleanupWorktreesBranch string
-var cleanupWorktreesCleanIgnored bool
-var cleanupWorktreesForce bool
-var cleanupWorktreesWorktreesOnly bool
+	closeF := &cleanupCloseDoneFlags{}
+	cleanupCloseDoneItemsCmd := &cobra.Command{
+		Use:   "close-done-items",
+		Short: "Close done items older than a configurable age",
+		Long:  "Finds items in done state whose done time is older than the configured age and sets them to closed. Age comes from --age or settings cleanup.close_done_items_age.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCleanupCloseDoneItems(cmd, args, closeF)
+		},
+	}
+	cleanupCloseDoneItemsCmd.Flags().StringVar(&closeF.age, "age", "", "Age threshold (e.g. 30d, 7d, 48h); items done longer ago are closed")
+	cleanupCloseDoneItemsCmd.Flags().BoolVar(&closeF.dryRun, "dry-run", false, "Report what would be closed without making changes")
 
-func init() {
-	cleanupSetMergedReviewItemsDoneCmd.Flags().BoolVar(&cleanupMergedDryRun, "dry-run", false, "Report what would be marked without making changes")
-	cleanupSetMergedReviewItemsDoneCmd.Flags().StringVarP(&cleanupMergedBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
-	cleanupCloseDoneItemsCmd.Flags().StringVar(&cleanupCloseDoneItemsAge, "age", "", "Age threshold (e.g. 30d, 7d, 48h); items done longer ago are closed")
-	cleanupCloseDoneItemsCmd.Flags().BoolVar(&cleanupCloseDoneItemsDryRun, "dry-run", false, "Report what would be closed without making changes")
-	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesDryRun, "dry-run", false, "Report what would be removed without making changes")
-	cleanupWorktreesCmd.Flags().StringVarP(&cleanupWorktreesBranch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
-	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesCleanIgnored, "clean-ignored", false, "Remove gitignored files (e.g. build artifacts) from each worktree before removal")
-	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesForce, "force", false, "Skip confirmation prompt and remove immediately")
-	cleanupWorktreesCmd.Flags().BoolVar(&cleanupWorktreesWorktreesOnly, "worktrees-only", false, "Remove worktrees but do not delete their branches")
+	wtF := &cleanupWorktreesFlags{}
+	cleanupWorktreesCmd := &cobra.Command{
+		Use:   "worktrees",
+		Short: "Remove completed worktrees and branches whose work is merged",
+		Long:  "Finds all non-main git worktrees whose associated wn item is done and whose branch has been merged into the current HEAD (or --branch). Removes those worktrees and deletes their branches. Also finds and deletes orphaned branches (branches with no worktree whose item is done and merged). Use --worktrees-only to skip branch deletion. Use --clean-ignored to also remove gitignored files (build artifacts, temp config) before removal. Use --dry-run to preview without making changes.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCleanupWorktrees(cmd, args, wtF)
+		},
+	}
+	cleanupWorktreesCmd.Flags().BoolVar(&wtF.dryRun, "dry-run", false, "Report what would be removed without making changes")
+	cleanupWorktreesCmd.Flags().StringVarP(&wtF.branch, "branch", "b", "", "Check merged into this ref (default: current HEAD)")
+	cleanupWorktreesCmd.Flags().BoolVar(&wtF.cleanIgnored, "clean-ignored", false, "Remove gitignored files (e.g. build artifacts) from each worktree before removal")
+	cleanupWorktreesCmd.Flags().BoolVar(&wtF.force, "force", false, "Skip confirmation prompt and remove immediately")
+	cleanupWorktreesCmd.Flags().BoolVar(&wtF.worktreesOnly, "worktrees-only", false, "Remove worktrees but do not delete their branches")
+
 	cleanupCmd.AddCommand(cleanupSetMergedReviewItemsDoneCmd, cleanupCloseDoneItemsCmd, cleanupWorktreesCmd)
+	return cleanupCmd
 }
 
 // promptYN writes prompt to w and reads one line from r.
@@ -287,7 +319,7 @@ func promptYN(r io.Reader, w io.Writer, prompt string) bool {
 	return strings.EqualFold(strings.TrimSpace(line), "y")
 }
 
-func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error {
+func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string, f *cleanupMergedFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -296,8 +328,8 @@ func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error
 	if err != nil {
 		return err
 	}
-	intoRef := cleanupMergedBranch
-	results, err := wn.MarkMergedItems(store, root, intoRef, cleanupMergedDryRun)
+	intoRef := f.branch
+	results, err := wn.MarkMergedItems(store, root, intoRef, f.dryRun)
 	if err != nil {
 		return err
 	}
@@ -305,7 +337,7 @@ func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error
 		switch r.Status {
 		case "marked":
 			prefix := "marked"
-			if cleanupMergedDryRun {
+			if f.dryRun {
 				prefix = "would mark"
 			}
 			fmt.Printf("%s %s: %s\n", prefix, r.ID, r.Reason)
@@ -320,7 +352,7 @@ func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string) error
 	return nil
 }
 
-func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
+func runCleanupCloseDoneItems(cmd *cobra.Command, args []string, f *cleanupCloseDoneFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -333,7 +365,7 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ageStr := cleanupCloseDoneItemsAge
+	ageStr := f.age
 	if ageStr == "" {
 		ageStr = settings.Cleanup.CloseDoneItemsAge
 	}
@@ -348,7 +380,7 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("age must be positive, got %v", age)
 	}
 	cutoff := time.Now().UTC().Add(-age)
-	results, err := wn.CloseDoneItems(store, cutoff, cleanupCloseDoneItemsDryRun)
+	results, err := wn.CloseDoneItems(store, cutoff, f.dryRun)
 	if err != nil {
 		return err
 	}
@@ -356,21 +388,20 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string) error {
 		switch r.Status {
 		case "closed":
 			prefix := "closed"
-			if cleanupCloseDoneItemsDryRun {
+			if f.dryRun {
 				prefix = "would close"
 			}
 			fmt.Printf("%s %s: %s\n", prefix, r.ID, r.Reason)
 		case "skipped_not_done", "skipped_not_old_enough":
 			fmt.Printf("skip %s: %s\n", r.ID, r.Reason)
 		default:
-			// Unknown status: still print for visibility.
 			fmt.Printf("%s %s: %s\n", r.Status, r.ID, r.Reason)
 		}
 	}
 	return nil
 }
 
-func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
+func runCleanupWorktrees(cmd *cobra.Command, args []string, f *cleanupWorktreesFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -380,8 +411,7 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Dry-run pass to find eligible items before prompting.
-	preview, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, true, cleanupWorktreesCleanIgnored, cleanupWorktreesWorktreesOnly, nil)
+	preview, err := wn.CleanupWorktrees(store, root, f.branch, true, f.cleanIgnored, f.worktreesOnly, nil)
 	if err != nil {
 		return err
 	}
@@ -397,7 +427,6 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Show what would be removed.
 	for _, r := range eligible {
 		label := r.Branch
 		if r.ItemID != "" {
@@ -410,7 +439,7 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if cleanupWorktreesDryRun {
+	if f.dryRun {
 		worktreeCount := 0
 		branchCount := 0
 		for _, r := range eligible {
@@ -431,7 +460,7 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if !cleanupWorktreesForce {
+	if !f.force {
 		msg := fmt.Sprintf("Remove %d item(s)?", len(eligible))
 		if !promptYN(os.Stdin, os.Stdout, msg) {
 			fmt.Println("aborted")
@@ -439,7 +468,7 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	results, err := wn.CleanupWorktrees(store, root, cleanupWorktreesBranch, false, cleanupWorktreesCleanIgnored, cleanupWorktreesWorktreesOnly, os.Stderr)
+	results, err := wn.CleanupWorktrees(store, root, f.branch, false, f.cleanIgnored, f.worktreesOnly, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -462,7 +491,6 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Printf("deleted orphaned branch %s\n", label)
 		case "skipped_not_done", "skipped_not_merged", "skipped_no_item", "skipped_detached":
-			// Silently skip — these are expected non-actionable states.
 		case "error":
 			fmt.Fprintf(os.Stderr, "error %s: %s\n", r.Branch, r.Reason)
 		}

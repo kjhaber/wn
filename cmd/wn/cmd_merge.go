@@ -8,10 +8,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var mergeCmd = &cobra.Command{
-	Use:   "merge <branch>",
-	Short: "Squash-merge a feature branch, record commit hash, and mark item done",
-	Long: `Squash-merge a feature branch into the current HEAD of the main worktree.
+type mergeFlags struct {
+	message string
+	dryRun  bool
+}
+
+func newMergeCmd() *cobra.Command {
+	flags := &mergeFlags{}
+	cmd := &cobra.Command{
+		Use:   "merge <branch>",
+		Short: "Squash-merge a feature branch, record commit hash, and mark item done",
+		Long: `Squash-merge a feature branch into the current HEAD of the main worktree.
 
 Steps performed:
   1. Find the wn item associated with <branch> via its wn:branch note
@@ -24,22 +31,20 @@ This command is worktree-aware: git operations run in the main repo root
 regardless of the current working directory.
 
 Use --dry-run to preview what would happen without making any changes.`,
-	Args: cobra.ExactArgs(1),
-	RunE: runMerge,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runMerge(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Commit message (opens $EDITOR if omitted)")
+	cmd.Flags().BoolVar(&flags.dryRun, "dry-run", false, "Show what would happen without making changes")
+	return cmd
 }
 
-var mergeMessage string
-var mergeDryRun bool
-
-func init() {
-	mergeCmd.Flags().StringVarP(&mergeMessage, "message", "m", "", "Commit message (opens $EDITOR if omitted)")
-	mergeCmd.Flags().BoolVar(&mergeDryRun, "dry-run", false, "Show what would happen without making changes")
-}
-
-func runMerge(cmd *cobra.Command, args []string) error {
+func runMerge(cmd *cobra.Command, args []string, flags *mergeFlags) error {
 	branch := args[0]
 
-	message := mergeMessage
+	message := flags.message
 	if message == "" {
 		var err error
 		message, err = wn.EditWithEditor("")
@@ -60,12 +65,12 @@ func runMerge(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	result, err := wn.SquashMerge(store, root, branch, message, mergeDryRun)
+	result, err := wn.SquashMerge(store, root, branch, message, flags.dryRun)
 	if err != nil {
 		return err
 	}
 
-	if mergeDryRun {
+	if flags.dryRun {
 		fmt.Printf("would squash-merge %s (item %s) into current HEAD\n", result.Branch, result.ItemID)
 		return nil
 	}

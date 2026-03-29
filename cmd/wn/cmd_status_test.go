@@ -21,8 +21,9 @@ func TestStatusCommand(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn status suspend [id] marks item done with done_status suspend
-	rootCmd.SetArgs([]string{"status", "suspend", itemID, "-m", "deferred"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"status", "suspend", itemID, "-m", "deferred"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn status suspend: %v", err)
 	}
 	store, err := wn.NewFileStore(dir)
@@ -38,8 +39,9 @@ func TestStatusCommand(t *testing.T) {
 	}
 
 	// wn status undone [id] clears done/suspend
-	rootCmd.SetArgs([]string{"status", "undone", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"status", "undone", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn status undone: %v", err)
 	}
 	item, _ = store.Get(itemID)
@@ -48,8 +50,9 @@ func TestStatusCommand(t *testing.T) {
 	}
 
 	// invalid status returns error
-	rootCmd.SetArgs([]string{"status", "invalid", itemID})
-	if err := rootCmd.Execute(); err == nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"status", "invalid", itemID})
+	if err := root.Execute(); err == nil {
 		t.Error("wn status invalid should fail")
 	}
 }
@@ -84,8 +87,9 @@ func TestStatus_closed_duplicate_of(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"status", "closed", "def456", "--duplicate-of", "abc123"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"status", "closed", "def456", "--duplicate-of", "abc123"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn status closed --duplicate-of: %v", err)
 		}
 	})
@@ -118,8 +122,9 @@ func TestStatus_duplicate_of_only_with_closed(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"status", "done", "--duplicate-of", "abc123"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"status", "done", "--duplicate-of", "abc123"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn status done --duplicate-of should error")
 	}
@@ -139,14 +144,16 @@ func TestClaimWithoutForUsesDefault(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"claim"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"claim"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn claim (no --for): %v", err)
 	}
 
 	showOut := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--json", itemID})
-		_ = rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--json", itemID})
+		_ = root.Execute()
 	})
 	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
 		t.Errorf("wn claim without --for should set in_progress_until (default duration); got %s", showOut)
@@ -163,15 +170,16 @@ func TestReviewReadySetsState(t *testing.T) {
 			}
 			defer func() { _ = os.Chdir(cwd) }()
 
-			rootCmd.SetArgs([]string{cmdName, itemID})
-			if err := rootCmd.Execute(); err != nil {
+			root := newRootCmd()
+			root.SetArgs([]string{cmdName, itemID})
+			if err := root.Execute(); err != nil {
 				t.Fatalf("%s: %v", cmdName, err)
 			}
 
-			resetListFlags()
 			out := captureStdout(t, func() {
-				rootCmd.SetArgs([]string{"list", "--review-ready", "--json"})
-				if err := rootCmd.Execute(); err != nil {
+				root := newRootCmd()
+				root.SetArgs([]string{"list", "--review-ready", "--json"})
+				if err := root.Execute(); err != nil {
 					t.Errorf("list: %v", err)
 				}
 			})
@@ -232,8 +240,9 @@ func TestCleanupSetMergedReviewItemsDone_MarksDoneWhenBranchMerged(t *testing.T)
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("cleanup set-merged-review-items-done: %v", err)
 		}
 	})
@@ -319,8 +328,9 @@ func TestCleanupSetMergedReviewItemsDone_BranchDeletedUsesCommitNote(t *testing.
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "set-merged-review-items-done"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("cleanup set-merged-review-items-done: %v", err)
 		}
 	})
@@ -410,8 +420,9 @@ func TestCleanupCloseDoneItems_closesOldDoneKeepsRecent(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "close-done-items", "--age", "1d"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "close-done-items", "--age", "1d"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("cleanup close-done-items: %v", err)
 		}
 	})
@@ -516,10 +527,10 @@ func TestCleanupWorktreesCmd_force(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetCleanupWorktreesFlags()
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "worktrees", "--force"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "worktrees", "--force"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -549,10 +560,10 @@ func TestCleanupWorktreesCmd_confirmY(t *testing.T) {
 	}
 	_ = w.Close()
 
-	resetCleanupWorktreesFlags()
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "worktrees"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "worktrees"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -585,10 +596,10 @@ func TestCleanupWorktreesCmd_confirmN(t *testing.T) {
 	}
 	_ = w.Close()
 
-	resetCleanupWorktreesFlags()
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"cleanup", "worktrees"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"cleanup", "worktrees"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})

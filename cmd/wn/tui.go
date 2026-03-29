@@ -1327,20 +1327,25 @@ func tuiSplitArgs(s string) []string {
 	return parts
 }
 
-var tuiResetState bool
-
-var tuiCmd = &cobra.Command{
-	Use:   "tui",
-	Short: "Interactive TUI for managing work items",
-	Args:  cobra.NoArgs,
-	RunE:  runTUI,
+type tuiFlags struct {
+	resetState bool
 }
 
-func init() {
-	tuiCmd.Flags().BoolVar(&tuiResetState, "reset-state", false, "Start with default TUI state (ignore saved state)")
+func newTUICmd() *cobra.Command {
+	flags := &tuiFlags{}
+	cmd := &cobra.Command{
+		Use:   "tui",
+		Short: "Interactive TUI for managing work items",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runTUI(cmd, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.resetState, "reset-state", false, "Start with default TUI state (ignore saved state)")
+	return cmd
 }
 
-func runTUI(cmd *cobra.Command, args []string) error {
+func runTUI(cmd *cobra.Command, args []string, flags *tuiFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -1352,7 +1357,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	settings, _ := wn.ReadSettingsInRoot(root)
 	meta, _ := wn.ReadMeta(root)
 	var state tuiState
-	if tuiResetState {
+	if flags.resetState {
 		state = tuiState{StatusFilter: tuiFilterActive, GroupMode: tuiGroupModeStatus}
 	} else {
 		state = loadTUIState(root)

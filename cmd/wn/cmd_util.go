@@ -12,10 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var initCmd = &cobra.Command{
-	Use:   "init",
-	Short: "Initialize wn in the current directory",
-	RunE:  runInit,
+func newInitCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "init",
+		Short: "Initialize wn in the current directory",
+		RunE:  runInit,
+	}
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
@@ -30,12 +32,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var rmCmd = &cobra.Command{
-	Use:   "rm [id ...]",
-	Short: "Remove a work item",
-	Long:  "If no id is given, removes the current task. Pass one or more ids to remove those directly.",
-	Args:  cobra.ArbitraryArgs,
-	RunE:  runRm,
+func newRmCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rm [id ...]",
+		Short: "Remove a work item",
+		Long:  "If no id is given, removes the current task. Pass one or more ids to remove those directly.",
+		Args:  cobra.ArbitraryArgs,
+		RunE:  runRm,
+	}
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
@@ -88,25 +92,30 @@ func runRm(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var archiveLocation string
+type archiveFlags struct {
+	location string
+}
 
-var archiveCmd = &cobra.Command{
-	Use:   "archive [id]",
-	Short: "Archive a work item",
-	Long: `Archive a work item: saves its content to an archive file then removes it from the project.
+func newArchiveCmd() *cobra.Command {
+	flags := &archiveFlags{}
+	cmd := &cobra.Command{
+		Use:   "archive [id]",
+		Short: "Archive a work item",
+		Long: `Archive a work item: saves its content to an archive file then removes it from the project.
 
 The archived item can be recovered with 'wn import'.
 
 By default, archives are saved under .wn/archive/<id>.json. Use --location to override.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runArchive,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runArchive(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVar(&flags.location, "location", "", "Directory to write archive file (default: .wn/archive)")
+	return cmd
 }
 
-func init() {
-	archiveCmd.Flags().StringVar(&archiveLocation, "location", "", "Directory to write archive file (default: .wn/archive)")
-}
-
-func runArchive(cmd *cobra.Command, args []string) error {
+func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -140,7 +149,7 @@ func runArchive(cmd *cobra.Command, args []string) error {
 		}
 		clearCurrent := false
 		for _, aid := range ids {
-			archivePath, err := wn.ArchiveItem(store, aid, archiveLocation)
+			archivePath, err := wn.ArchiveItem(store, aid, flags.location)
 			if err != nil {
 				return err
 			}
@@ -163,7 +172,7 @@ func runArchive(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	archivePath, err := wn.ArchiveItem(store, id, archiveLocation)
+	archivePath, err := wn.ArchiveItem(store, id, flags.location)
 	if err != nil {
 		return err
 	}
@@ -177,12 +186,14 @@ func runArchive(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var editCmd = &cobra.Command{
-	Use:   "edit [id]",
-	Short: "Edit a work item description in $EDITOR",
-	Long:  "If id is omitted, edits the current task.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runEdit,
+func newEditCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit [id]",
+		Short: "Edit a work item description in $EDITOR",
+		Long:  "If id is omitted, edits the current task.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runEdit,
+	}
 }
 
 func runEdit(cmd *cobra.Command, args []string) error {
@@ -218,43 +229,49 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var settingsCmd = &cobra.Command{
-	Use:   "settings",
-	Short: "Manage wn settings",
-	Long:  "Subcommands: show (print effective merged settings as JSON), edit (open a settings file in $EDITOR).",
+type settingsEditFlags struct {
+	user         bool
+	userLocal    bool
+	project      bool
+	projectLocal bool
 }
 
-var settingsShowCmd = &cobra.Command{
-	Use:   "show",
-	Short: "Print effective merged settings as JSON",
-	Long:  "Prints the fully merged effective settings (user + user-local + project + project-local) as JSON.",
-	RunE:  runSettingsShow,
-}
+func newSettingsCmd() *cobra.Command {
+	settingsCmd := &cobra.Command{
+		Use:   "settings",
+		Short: "Manage wn settings",
+		Long:  "Subcommands: show (print effective merged settings as JSON), edit (open a settings file in $EDITOR).",
+	}
 
-var settingsEditCmd = &cobra.Command{
-	Use:   "edit",
-	Short: "Open a settings file in $EDITOR",
-	Long: `Interactively pick a settings file to open in $EDITOR. Use a flag to skip the picker:
+	settingsShowCmd := &cobra.Command{
+		Use:   "show",
+		Short: "Print effective merged settings as JSON",
+		Long:  "Prints the fully merged effective settings (user + user-local + project + project-local) as JSON.",
+		RunE:  runSettingsShow,
+	}
+
+	editF := &settingsEditFlags{}
+	settingsEditCmd := &cobra.Command{
+		Use:   "edit",
+		Short: "Open a settings file in $EDITOR",
+		Long: `Interactively pick a settings file to open in $EDITOR. Use a flag to skip the picker:
   --user          edit user settings (WN_SETTINGS_USER or default)
   --user-local    edit user-local settings (WN_SETTINGS_USER_LOCAL)
   --project       edit project settings (.wn/settings.json)
   --project-local edit project-local settings (.wn/settings.local.json)
 
 Missing files are created as {} before opening.`,
-	RunE: runSettingsEdit,
-}
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSettingsEdit(cmd, args, editF)
+		},
+	}
+	settingsEditCmd.Flags().BoolVar(&editF.user, "user", false, "Edit user settings")
+	settingsEditCmd.Flags().BoolVar(&editF.userLocal, "user-local", false, "Edit user-local settings (requires WN_SETTINGS_USER_LOCAL)")
+	settingsEditCmd.Flags().BoolVar(&editF.project, "project", false, "Edit project settings (.wn/settings.json)")
+	settingsEditCmd.Flags().BoolVar(&editF.projectLocal, "project-local", false, "Edit project-local settings (.wn/settings.local.json)")
 
-var settingsEditUser bool
-var settingsEditUserLocal bool
-var settingsEditProject bool
-var settingsEditProjectLocal bool
-
-func init() {
 	settingsCmd.AddCommand(settingsShowCmd, settingsEditCmd)
-	settingsEditCmd.Flags().BoolVar(&settingsEditUser, "user", false, "Edit user settings")
-	settingsEditCmd.Flags().BoolVar(&settingsEditUserLocal, "user-local", false, "Edit user-local settings (requires WN_SETTINGS_USER_LOCAL)")
-	settingsEditCmd.Flags().BoolVar(&settingsEditProject, "project", false, "Edit project settings (.wn/settings.json)")
-	settingsEditCmd.Flags().BoolVar(&settingsEditProjectLocal, "project-local", false, "Edit project-local settings (.wn/settings.local.json)")
+	return settingsCmd
 }
 
 func runSettingsShow(cmd *cobra.Command, _ []string) error {
@@ -304,7 +321,7 @@ func openSettingsFile(path string) error {
 	return wn.RunEditorOnFile(path)
 }
 
-func runSettingsEdit(_ *cobra.Command, _ []string) error {
+func runSettingsEdit(_ *cobra.Command, _ []string, f *settingsEditFlags) error {
 	root, _ := wn.FindRootForCLI()
 	candidates, err := settingsEditCandidates(root)
 	if err != nil {
@@ -313,13 +330,13 @@ func runSettingsEdit(_ *cobra.Command, _ []string) error {
 
 	var targetLabel string
 	switch {
-	case settingsEditUser:
+	case f.user:
 		targetLabel = "user"
-	case settingsEditUserLocal:
+	case f.userLocal:
 		targetLabel = "user-local"
-	case settingsEditProject:
+	case f.project:
 		targetLabel = "project"
-	case settingsEditProjectLocal:
+	case f.projectLocal:
 		targetLabel = "project-local"
 	}
 	if targetLabel != "" {
@@ -353,23 +370,28 @@ func runSettingsEdit(_ *cobra.Command, _ []string) error {
 	return openSettingsFile(candidates[idx].path)
 }
 
-var verifyAtRoot bool
-
-var verifyCmd = &cobra.Command{
-	Use:          "verify",
-	Short:        "Run the configured verify command (e.g. make all, npm test)",
-	Long:         "Runs the shell command configured in settings.verify. Set it in project settings (.wn/settings.json) or user settings (~/.config/wn/settings.json). Useful for agents and humans alike to confirm the build passes.",
-	RunE:         runVerify,
-	SilenceUsage: true,
+type verifyFlags struct {
+	atRoot bool
 }
 
-func init() {
-	verifyCmd.Flags().BoolVar(&verifyAtRoot, "root", false, "Change to the project root directory before running verify")
+func newVerifyCmd() *cobra.Command {
+	flags := &verifyFlags{}
+	cmd := &cobra.Command{
+		Use:   "verify",
+		Short: "Run the configured verify command (e.g. make all, npm test)",
+		Long:  "Runs the shell command configured in settings.verify. Set it in project settings (.wn/settings.json) or user settings (~/.config/wn/settings.json). Useful for agents and humans alike to confirm the build passes.",
+		RunE: func(c *cobra.Command, args []string) error {
+			return runVerify(c, args, flags)
+		},
+		SilenceUsage: true,
+	}
+	cmd.Flags().BoolVar(&flags.atRoot, "root", false, "Change to the project root directory before running verify")
+	return cmd
 }
 
-func runVerify(cobraCmd *cobra.Command, _ []string) error {
+func runVerify(cobraCmd *cobra.Command, _ []string, f *verifyFlags) error {
 	root, _ := wn.FindRootForCLI()
-	if verifyAtRoot {
+	if f.atRoot {
 		if root == "" {
 			return wn.ErrNoRoot
 		}
@@ -392,13 +414,15 @@ func runVerify(cobraCmd *cobra.Command, _ []string) error {
 	return cmd.Run()
 }
 
-var repoRootCmd = &cobra.Command{
-	Use:          "root",
-	Short:        "Print the main git repository root (worktree-aware)",
-	Long:         "Prints the absolute path to the main git repository root. In a linked worktree, this resolves to the main repo root rather than the worktree directory. Useful in scripts and hooks that need to operate on the main repo from a feature worktree.",
-	Args:         cobra.NoArgs,
-	RunE:         runRepoRoot,
-	SilenceUsage: true,
+func newRepoRootCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:          "root",
+		Short:        "Print the main git repository root (worktree-aware)",
+		Long:         "Prints the absolute path to the main git repository root. In a linked worktree, this resolves to the main repo root rather than the worktree directory. Useful in scripts and hooks that need to operate on the main repo from a feature worktree.",
+		Args:         cobra.NoArgs,
+		RunE:         runRepoRoot,
+		SilenceUsage: true,
+	}
 }
 
 func runRepoRoot(_ *cobra.Command, _ []string) error {
@@ -410,35 +434,41 @@ func runRepoRoot(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-var exportCmd = &cobra.Command{
-	Use:   "export",
-	Short: "Export work items to JSON (optionally filtered by criteria)",
-	RunE:  runExport,
-}
-var exportOutput string
-var exportAll bool
-var exportUndone bool
-var exportDone bool
-var exportReviewReady bool
-var exportTag string
-var exportSort string
-var exportLimit int
-var exportOffset int
-
-func init() {
-	exportCmd.Flags().StringVarP(&exportOutput, "output", "o", "", "Write to file (default: stdout)")
-	exportCmd.Flags().BoolVar(&exportAll, "all", false, "Export all items (default when no status filter)")
-	exportCmd.Flags().BoolVar(&exportUndone, "undone", false, "Export only undone items")
-	exportCmd.Flags().BoolVar(&exportDone, "done", false, "Export only done items")
-	exportCmd.Flags().BoolVar(&exportReviewReady, "review-ready", false, "Export only review-ready items")
-	exportCmd.Flags().BoolVar(&exportReviewReady, "rr", false, "Export only review-ready items")
-	exportCmd.Flags().StringVar(&exportTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
-	exportCmd.Flags().StringVar(&exportSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
-	exportCmd.Flags().IntVar(&exportLimit, "limit", 0, "Return at most N items (0 = no limit)")
-	exportCmd.Flags().IntVar(&exportOffset, "offset", 0, "Skip first N items")
+type exportFlags struct {
+	output      string
+	all         bool
+	undone      bool
+	done        bool
+	reviewReady bool
+	tag         string
+	sort        string
+	limit       int
+	offset      int
 }
 
-func runExport(cmd *cobra.Command, args []string) error {
+func newExportCmd() *cobra.Command {
+	flags := &exportFlags{}
+	cmd := &cobra.Command{
+		Use:   "export",
+		Short: "Export work items to JSON (optionally filtered by criteria)",
+		RunE: func(c *cobra.Command, args []string) error {
+			return runExport(c, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.output, "output", "o", "", "Write to file (default: stdout)")
+	cmd.Flags().BoolVar(&flags.all, "all", false, "Export all items (default when no status filter)")
+	cmd.Flags().BoolVar(&flags.undone, "undone", false, "Export only undone items")
+	cmd.Flags().BoolVar(&flags.done, "done", false, "Export only done items")
+	cmd.Flags().BoolVar(&flags.reviewReady, "review-ready", false, "Export only review-ready items")
+	cmd.Flags().BoolVar(&flags.reviewReady, "rr", false, "Export only review-ready items")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+	cmd.Flags().StringVar(&flags.sort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
+	cmd.Flags().IntVar(&flags.limit, "limit", 0, "Return at most N items (0 = no limit)")
+	cmd.Flags().IntVar(&flags.offset, "offset", 0, "Skip first N items")
+	return cmd
+}
+
+func runExport(cmd *cobra.Command, args []string, flags *exportFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -448,32 +478,32 @@ func runExport(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	stateFlags := 0
-	if exportAll {
+	if flags.all {
 		stateFlags++
 	}
-	if exportUndone {
+	if flags.undone {
 		stateFlags++
 	}
-	if exportDone {
+	if flags.done {
 		stateFlags++
 	}
-	if exportReviewReady {
+	if flags.reviewReady {
 		stateFlags++
 	}
 	if stateFlags > 1 {
 		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
 	}
-	useCriteria := stateFlags > 0 || exportTag != "" || exportSort != "" || exportLimit > 0 || exportOffset > 0
+	useCriteria := stateFlags > 0 || flags.tag != "" || flags.sort != "" || flags.limit > 0 || flags.offset > 0
 	if !useCriteria {
-		return wn.Export(store, exportOutput)
+		return wn.Export(store, flags.output)
 	}
 	var items []*wn.Item
-	if exportUndone {
+	if flags.undone {
 		items, err = wn.ListableUndoneItems(store)
 		if err != nil {
 			return err
 		}
-	} else if exportDone {
+	} else if flags.done {
 		all, err := store.List()
 		if err != nil {
 			return err
@@ -483,23 +513,21 @@ func runExport(cmd *cobra.Command, args []string) error {
 				items = append(items, it)
 			}
 		}
-	} else if exportReviewReady {
+	} else if flags.reviewReady {
 		items, err = wn.ReviewReadyItems(store)
 		if err != nil {
 			return err
 		}
 	} else {
-		// --all, or only --tag/--sort/--limit/--offset with no state filter: load everything
 		items, err = store.List()
 		if err != nil {
 			return err
 		}
 	}
-	items = wn.FilterByTag(items, exportTag)
-	// Apply sort
+	items = wn.FilterByTag(items, flags.tag)
 	var sortSpec []wn.SortOption
-	if exportSort != "" {
-		sortSpec, err = wn.ParseSortSpec(exportSort)
+	if flags.sort != "" {
+		sortSpec, err = wn.ParseSortSpec(flags.sort)
 		if err != nil {
 			return err
 		}
@@ -517,37 +545,42 @@ func runExport(cmd *cobra.Command, args []string) error {
 			ordered = items
 		}
 	}
-	// Apply offset and limit
-	if exportOffset > 0 || exportLimit > 0 {
-		if exportOffset > len(ordered) {
+	if flags.offset > 0 || flags.limit > 0 {
+		if flags.offset > len(ordered) {
 			ordered = nil
 		} else {
-			ordered = ordered[exportOffset:]
-			if exportLimit > 0 && len(ordered) > exportLimit {
-				ordered = ordered[:exportLimit]
+			ordered = ordered[flags.offset:]
+			if flags.limit > 0 && len(ordered) > flags.limit {
+				ordered = ordered[:flags.limit]
 			}
 		}
 	}
-	return wn.ExportItems(ordered, exportOutput)
+	return wn.ExportItems(ordered, flags.output)
 }
 
-var importCmd = &cobra.Command{
-	Use:   "import [file]",
-	Short: "Import work items from an export file",
-	Long:  "Import work items from a JSON export file. When the store already has items, you must choose --append (add/merge from file) or --replace (delete all existing, then load file). When the store is empty, either flag is optional.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runImport,
-}
-var importReplace bool
-var importAppend bool
-
-func init() {
-	importCmd.Flags().BoolVar(&importAppend, "append", false, "Add items from file to the store (merge by ID; same ID overwrites)")
-	importCmd.Flags().BoolVar(&importReplace, "replace", false, "Replace all existing items with the contents of the file")
+type importFlags struct {
+	replace bool
+	append  bool
 }
 
-func runImport(cmd *cobra.Command, args []string) error {
-	if importAppend && importReplace {
+func newImportCmd() *cobra.Command {
+	flags := &importFlags{}
+	cmd := &cobra.Command{
+		Use:   "import [file]",
+		Short: "Import work items from an export file",
+		Long:  "Import work items from a JSON export file. When the store already has items, you must choose --append (add/merge from file) or --replace (delete all existing, then load file). When the store is empty, either flag is optional.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			return runImport(c, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.append, "append", false, "Add items from file to the store (merge by ID; same ID overwrites)")
+	cmd.Flags().BoolVar(&flags.replace, "replace", false, "Replace all existing items with the contents of the file")
+	return cmd
+}
+
+func runImport(cmd *cobra.Command, args []string, flags *importFlags) error {
+	if flags.append && flags.replace {
 		return fmt.Errorf("cannot use both --append and --replace; choose one")
 	}
 	path := args[0]
@@ -563,10 +596,10 @@ func runImport(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if hasItems && !importAppend && !importReplace {
+	if hasItems && !flags.append && !flags.replace {
 		return fmt.Errorf("store already has items; use --append to add to existing items or --replace to replace all")
 	}
-	if importReplace {
+	if flags.replace {
 		return wn.ImportReplace(store, path)
 	}
 	return wn.ImportAppend(store, path)

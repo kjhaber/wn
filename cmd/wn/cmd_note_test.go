@@ -19,8 +19,9 @@ func TestNoteAddAndList(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// Add a note with a name
-	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "I wrote this in file X"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "I wrote this in file X"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
@@ -39,8 +40,9 @@ func TestNoteAddAndList(t *testing.T) {
 
 	// List notes: should show name and body
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "list", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "list", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note list: %v", err)
 		}
 	})
@@ -60,18 +62,21 @@ func TestNoteListOrderedByCreateTime(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "first", itemID, "-m", "first note"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "first", itemID, "-m", "first note"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add 1: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", "second", itemID, "-m", "second note"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "second", itemID, "-m", "second note"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add 2: %v", err)
 	}
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "list", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "list", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note list: %v", err)
 		}
 	})
@@ -94,19 +99,22 @@ func TestNoteEdit(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "original"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "original"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "edit", itemID, "pr-url", "-m", "edited body"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "edit", itemID, "pr-url", "-m", "edited body"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note edit: %v", err)
 	}
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "list", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "list", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note list: %v", err)
 		}
 	})
@@ -126,19 +134,22 @@ func TestNoteRm(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "to-remove", itemID, "-m", "to be removed"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "to-remove", itemID, "-m", "to be removed"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "rm", itemID, "to-remove"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "rm", itemID, "to-remove"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note rm: %v", err)
 	}
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "list", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "list", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note list: %v", err)
 		}
 	})
@@ -155,15 +166,17 @@ func TestNoteShow(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "branch", itemID, "-m", "my-feature-branch"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "branch", itemID, "-m", "my-feature-branch"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
 	// show with explicit id
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "show", itemID, "branch"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "show", itemID, "branch"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note show: %v", err)
 		}
 	})
@@ -181,20 +194,23 @@ func TestNoteShow_CurrentItem(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// claim so there's a current item
-	rootCmd.SetArgs([]string{"claim", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"claim", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "add", "branch", "-m", "current-branch"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "branch", "-m", "current-branch"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
 	// show with just note name (uses current item)
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "show", "branch"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "show", "branch"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note show (current): %v", err)
 		}
 	})
@@ -211,8 +227,9 @@ func TestNoteShow_NotFound(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "show", itemID, "nonexistent"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "show", itemID, "nonexistent"})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("note show with nonexistent note should fail")
 	}
@@ -229,8 +246,9 @@ func TestNoteAddInvalidName(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "bad name", itemID, "-m", "body"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "bad name", itemID, "-m", "body"})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("note add with invalid name (space) should fail")
 	}
@@ -247,12 +265,14 @@ func TestNoteAddUpsert(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "first"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "first"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add 1: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "second"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "issue-number", itemID, "-m", "second"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add 2 (same name): %v", err)
 	}
 
@@ -281,8 +301,9 @@ func TestNoteListEmpty(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "list", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "list", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note list: %v", err)
 		}
 	})
@@ -291,12 +312,6 @@ func TestNoteListEmpty(t *testing.T) {
 		// Accept empty output or a message like "no notes"
 		t.Logf("note list (empty) output: %q", out)
 	}
-}
-
-func resetNoteSearchFlags() {
-	noteSearchFirst = false
-	noteSearchLatest = false
-	noteSearchIDOnly = false
 }
 
 func TestNoteSearch_ByName(t *testing.T) {
@@ -325,16 +340,17 @@ func TestNoteSearch_ByName(t *testing.T) {
 	}
 
 	// Add note "pr-url" to item1 only
-	rootCmd.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/1"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/1"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
 	// Search by name: should find item1
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "pr-url"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "pr-url"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search: %v", err)
 		}
 	})
@@ -372,20 +388,22 @@ func TestNoteSearch_ByNameAndValue(t *testing.T) {
 	}
 
 	// Add same note name with different values to both items
-	rootCmd.SetArgs([]string{"note", "add", "branch", item1ID, "-m", "feature-a"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "branch", item1ID, "-m", "feature-a"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add item1: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", "branch", "def456", "-m", "feature-b"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "branch", "def456", "-m", "feature-b"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add item2: %v", err)
 	}
 
 	// Search by name+value: should find only item1
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "branch", "feature-a"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "branch", "feature-a"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search: %v", err)
 		}
 	})
@@ -405,10 +423,10 @@ func TestNoteSearch_NoMatches(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetNoteSearchFlags()
 	err := func() error {
-		rootCmd.SetArgs([]string{"note", "search", "nonexistent-note"})
-		return rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "nonexistent-note"})
+		return root.Execute()
 	}()
 	if err == nil {
 		t.Fatal("note search with no matches should return error")
@@ -454,10 +472,10 @@ func TestNoteSearch_FirstFlag(t *testing.T) {
 	}
 
 	// --first should return only the oldest item
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "shared-note", "--first"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "shared-note", "--first"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search --first: %v", err)
 		}
 	})
@@ -507,10 +525,10 @@ func TestNoteSearch_LatestFlag(t *testing.T) {
 	}
 
 	// --latest should return only the most recently updated item
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "shared-note", "--latest"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "shared-note", "--latest"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search --latest: %v", err)
 		}
 	})
@@ -530,10 +548,10 @@ func TestNoteSearch_FirstAndLatestMutuallyExclusive(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetNoteSearchFlags()
 	err := func() error {
-		rootCmd.SetArgs([]string{"note", "search", "some-note", "--first", "--latest"})
-		return rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "some-note", "--first", "--latest"})
+		return root.Execute()
 	}()
 	if err == nil {
 		t.Fatal("note search with both --first and --latest should return error")
@@ -548,16 +566,17 @@ func TestNoteSearch_IDOnly(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/pr/1"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "pr-url", item1ID, "-m", "https://example.com/pr/1"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
 	// --id-only should print just the id, no description
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "pr-url", "--id-only"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "pr-url", "--id-only"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search --id-only: %v", err)
 		}
 	})
@@ -590,20 +609,22 @@ func TestNoteSearch_IDOnly_MultipleMatches(t *testing.T) {
 		t.Fatalf("Put item2: %v", err)
 	}
 
-	rootCmd.SetArgs([]string{"note", "add", "shared", item1ID, "-m", "val"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "shared", item1ID, "-m", "val"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add item1: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", "shared", "def456", "-m", "val"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "shared", "def456", "-m", "val"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add item2: %v", err)
 	}
 
 	// --id-only with multiple matches should print one id per line
-	resetNoteSearchFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"note", "search", "shared", "--id-only"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"note", "search", "shared", "--id-only"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("note search --id-only: %v", err)
 		}
 	})
@@ -627,8 +648,9 @@ func TestNoteAdd_WnBranchUnknownName(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "wn:unknown", itemID, "-m", "value"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "wn:unknown", itemID, "-m", "value"})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("note add with unknown wn: name should fail")
 	}
@@ -645,8 +667,9 @@ func TestNoteAdd_WnBranchExplicit(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "my-feature-branch"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "my-feature-branch"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add wn:branch: %v", err)
 	}
 	store, err := wn.NewFileStore(dir)
@@ -681,9 +704,9 @@ func TestNoteAdd_WnBranchAutoDetect(t *testing.T) {
 	}
 	wantBranch := strings.TrimSpace(string(out))
 
-	noteAddMessage = "" // reset in case a prior test set it via -m
-	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "wn:branch", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add wn:branch (auto-detect): %v", err)
 	}
 	store, err := wn.NewFileStore(dir)

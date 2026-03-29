@@ -10,31 +10,43 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// --- note command and subcommands add, list, edit, rm ---
-
-var noteCmd = &cobra.Command{
-	Use:   "note",
-	Short: "Add, list, edit, remove, show, or search notes (attachments) on a work item",
-	Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note show [id] <name>', 'wn note edit [id] <name> -m \"...\"', 'wn note rm [id] <name>', and 'wn note search <name> [value]'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
+type noteAddFlags struct {
+	message string
 }
 
-var noteAddCmd = &cobra.Command{
-	Use:   "add <name> [id]",
-	Short: "Add or update a note by name on a work item",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runNoteAdd,
-}
-var noteAddMessage string
-
-func init() {
-	noteAddCmd.Flags().StringVarP(&noteAddMessage, "message", "m", "", "Note text (or open $EDITOR if omitted)")
-	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteShowCmd, noteEditCmd, noteRmCmd, noteSearchCmd)
+type noteSearchFlags struct {
+	first  bool
+	latest bool
+	idOnly bool
 }
 
-var noteSearchCmd = &cobra.Command{
-	Use:   "search <name> [value]",
-	Short: "Search all work items for those having a note with the given name (and optionally value)",
-	Long: `Search all work items for those that have a note named <name>.
+type noteEditFlags struct {
+	message string
+}
+
+func newNoteCmd() *cobra.Command {
+	noteCmd := &cobra.Command{
+		Use:   "note",
+		Short: "Add, list, edit, remove, show, or search notes (attachments) on a work item",
+		Long:  "Notes attach text by logical name (e.g. pr-url, issue-number). Use 'wn note add <name> [id] -m \"...\"', 'wn note list [id]', 'wn note show [id] <name>', 'wn note edit [id] <name> -m \"...\"', 'wn note rm [id] <name>', and 'wn note search <name> [value]'. Names are alphanumeric, slash, underscore, or hyphen, up to 32 chars.",
+	}
+
+	addF := &noteAddFlags{}
+	noteAddCmd := &cobra.Command{
+		Use:   "add <name> [id]",
+		Short: "Add or update a note by name on a work item",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNoteAdd(cmd, args, addF)
+		},
+	}
+	noteAddCmd.Flags().StringVarP(&addF.message, "message", "m", "", "Note text (or open $EDITOR if omitted)")
+
+	searchF := &noteSearchFlags{}
+	noteSearchCmd := &cobra.Command{
+		Use:   "search <name> [value]",
+		Short: "Search all work items for those having a note with the given name (and optionally value)",
+		Long: `Search all work items for those that have a note named <name>.
 If <value> is given, only items where the note body exactly matches <value> are returned.
 
 Each matching item is printed as: <id>  <first line of description>
@@ -43,21 +55,53 @@ Flags:
   --first   Return only the oldest matching item (by created time).
   --latest  Return only the most recently updated matching item.
 `,
-	Args: cobra.RangeArgs(1, 2),
-	RunE: runNoteSearch,
-}
-var noteSearchFirst bool
-var noteSearchLatest bool
-var noteSearchIDOnly bool
+		Args: cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNoteSearch(cmd, args, searchF)
+		},
+	}
+	noteSearchCmd.Flags().BoolVar(&searchF.first, "first", false, "Return only the oldest matching item (by created time)")
+	noteSearchCmd.Flags().BoolVar(&searchF.latest, "latest", false, "Return only the most recently updated matching item")
+	noteSearchCmd.Flags().BoolVar(&searchF.idOnly, "id-only", false, "Print only the item ID(s), one per line")
 
-func init() {
-	noteSearchCmd.Flags().BoolVar(&noteSearchFirst, "first", false, "Return only the oldest matching item (by created time)")
-	noteSearchCmd.Flags().BoolVar(&noteSearchLatest, "latest", false, "Return only the most recently updated matching item")
-	noteSearchCmd.Flags().BoolVar(&noteSearchIDOnly, "id-only", false, "Print only the item ID(s), one per line")
+	noteShowCmd := &cobra.Command{
+		Use:   "show [id] <name>",
+		Short: "Print the body of a named note",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE:  runNoteShow,
+	}
+
+	noteListCmd := &cobra.Command{
+		Use:   "list [id]",
+		Short: "List notes on a work item (ordered by create time)",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runNoteList,
+	}
+
+	editF := &noteEditFlags{}
+	noteEditCmd := &cobra.Command{
+		Use:   "edit [id] <name>",
+		Short: "Edit a note by name",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNoteEdit(cmd, args, editF)
+		},
+	}
+	noteEditCmd.Flags().StringVarP(&editF.message, "message", "m", "", "New note text (or open $EDITOR with current body if omitted)")
+
+	noteRmCmd := &cobra.Command{
+		Use:   "rm [id] <name>",
+		Short: "Remove a note by name",
+		Args:  cobra.RangeArgs(1, 2),
+		RunE:  runNoteRm,
+	}
+
+	noteCmd.AddCommand(noteAddCmd, noteListCmd, noteShowCmd, noteEditCmd, noteRmCmd, noteSearchCmd)
+	return noteCmd
 }
 
-func runNoteSearch(cmd *cobra.Command, args []string) error {
-	if noteSearchFirst && noteSearchLatest {
+func runNoteSearch(cmd *cobra.Command, args []string, f *noteSearchFlags) error {
+	if f.first && f.latest {
 		return fmt.Errorf("--first and --latest are mutually exclusive")
 	}
 	name := args[0]
@@ -94,7 +138,7 @@ func runNoteSearch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no items found with note %q", name)
 	}
 
-	if noteSearchFirst {
+	if f.first {
 		oldest := matches[0]
 		for _, it := range matches[1:] {
 			if it.Created.Before(oldest.Created) {
@@ -102,7 +146,7 @@ func runNoteSearch(cmd *cobra.Command, args []string) error {
 			}
 		}
 		matches = []*wn.Item{oldest}
-	} else if noteSearchLatest {
+	} else if f.latest {
 		newest := matches[0]
 		for _, it := range matches[1:] {
 			if it.Updated.After(newest.Updated) {
@@ -113,7 +157,7 @@ func runNoteSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, it := range matches {
-		if noteSearchIDOnly {
+		if f.idOnly {
 			fmt.Println(it.ID)
 			continue
 		}
@@ -126,7 +170,7 @@ func runNoteSearch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func runNoteAdd(cmd *cobra.Command, args []string) error {
+func runNoteAdd(cmd *cobra.Command, args []string, f *noteAddFlags) error {
 	name := args[0]
 	if !wn.ValidNoteName(name) {
 		return fmt.Errorf("invalid note name %q (alphanumeric, slash, underscore, hyphen, 1-32 chars; or wn:<name> for special notes)", name)
@@ -134,7 +178,7 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 	if err := wn.ValidateSpecialNote(name); err != nil {
 		return err
 	}
-	body := noteAddMessage
+	body := f.message
 	if body == "" {
 		switch name {
 		case wn.NoteNameBranch:
@@ -206,13 +250,6 @@ func runNoteAdd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var noteShowCmd = &cobra.Command{
-	Use:   "show [id] <name>",
-	Short: "Print the body of a named note",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runNoteShow,
-}
-
 func runNoteShow(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
@@ -249,13 +286,6 @@ func runNoteShow(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var noteListCmd = &cobra.Command{
-	Use:   "list [id]",
-	Short: "List notes on a work item (ordered by create time)",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runNoteList,
-}
-
 func runNoteList(cmd *cobra.Command, args []string) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
@@ -287,19 +317,7 @@ func runNoteList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var noteEditCmd = &cobra.Command{
-	Use:   "edit [id] <name>",
-	Short: "Edit a note by name",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runNoteEdit,
-}
-var noteEditMessage string
-
-func init() {
-	noteEditCmd.Flags().StringVarP(&noteEditMessage, "message", "m", "", "New note text (or open $EDITOR with current body if omitted)")
-}
-
-func runNoteEdit(cmd *cobra.Command, args []string) error {
+func runNoteEdit(cmd *cobra.Command, args []string, f *noteEditFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -323,7 +341,7 @@ func runNoteEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	body := noteEditMessage
+	body := f.message
 	if body == "" {
 		item, err := store.Get(id)
 		if err != nil {
@@ -355,13 +373,6 @@ func runNoteEdit(cmd *cobra.Command, args []string) error {
 		it.Updated = now
 		return it, nil
 	})
-}
-
-var noteRmCmd = &cobra.Command{
-	Use:   "rm [id] <name>",
-	Short: "Remove a note by name",
-	Args:  cobra.RangeArgs(1, 2),
-	RunE:  runNoteRm,
 }
 
 func runNoteRm(cmd *cobra.Command, args []string) error {

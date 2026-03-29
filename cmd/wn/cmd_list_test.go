@@ -22,8 +22,9 @@ func TestListJSON(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -46,11 +47,11 @@ func TestShowPlain(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--plain", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--plain", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -83,11 +84,11 @@ func TestShowPlainOneLine(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--plain"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--plain"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -103,11 +104,11 @@ func TestShowFields(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--fields", "title", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--fields", "title", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -127,11 +128,11 @@ func TestShowAll(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--all", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--all", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -162,8 +163,9 @@ func TestBareWnAcceptsID(t *testing.T) {
 	_ = itemID // current task stays as abc123
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"zzz999"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"zzz999"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -189,11 +191,11 @@ func TestShowRespectsSettingsDefaultFields(t *testing.T) {
 	if err := os.WriteFile(settingsPath, []byte(`{"show":{"default_fields":"title,body,log"}}`), 0644); err != nil {
 		t.Fatalf("WriteFile settings: %v", err)
 	}
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -212,8 +214,9 @@ func TestShowOutputsFullItemJSON(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--json", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--json", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -243,11 +246,11 @@ func TestShowDefaultIsHumanReadable(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -269,8 +272,9 @@ func TestShowCurrentWhenNoArg(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--json"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--json"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -313,8 +317,9 @@ func TestCurrentTaskShowsDependsOnAndDependentTasks(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs(nil)
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs(nil)
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -349,11 +354,11 @@ func TestShowShowsDependentTasks(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetShowFlags()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "aa1111"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "aa1111"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -374,8 +379,9 @@ func TestListJSONEmpty(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -410,8 +416,9 @@ func TestListJSONRespectsDoneFilter(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--done"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--done"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -445,10 +452,10 @@ func TestListUndoneIncludesReviewReady(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetListFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--undone"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--undone"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -483,8 +490,9 @@ func TestPickWithID_SetsCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"pick", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick %s: %v", itemID, err)
 	}
 	meta, err := wn.ReadMeta(dir)
@@ -504,8 +512,9 @@ func TestPickWithID_NotFound(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"pick", "badid"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "badid"})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("pick badid: expected error, got nil")
 	}
@@ -549,9 +558,9 @@ func TestPickWithDoneFlag(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "--done"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "--done"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick --done: %v", err)
 	}
 	meta, err := wn.ReadMeta(dir)
@@ -602,9 +611,9 @@ func TestPickWithAllFlag(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "--all"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "--all"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick --all: %v", err)
 	}
 	meta, err := wn.ReadMeta(dir)
@@ -654,9 +663,9 @@ func TestPickWithReviewReadyFlag(t *testing.T) {
 			}
 			defer func() { _ = os.Chdir(cwd) }()
 
-			resetPickFlags()
-			rootCmd.SetArgs([]string{"pick", flag})
-			if err := rootCmd.Execute(); err != nil {
+			root := newRootCmd()
+			root.SetArgs([]string{"pick", flag})
+			if err := root.Execute(); err != nil {
 				t.Fatalf("pick %s: %v", flag, err)
 			}
 			meta, err := wn.ReadMeta(dir)
@@ -710,9 +719,9 @@ func TestPickDefaultIsUndone(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick (default): %v", err)
 	}
 	meta, err := wn.ReadMeta(dir)
@@ -741,9 +750,9 @@ func TestPickStateFlagsMutualExclusion(t *testing.T) {
 		{"pick", "--undone", "--all"},
 		{"pick", "--done", "--rr"},
 	} {
-		resetPickFlags()
-		rootCmd.SetArgs(args)
-		err := rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs(args)
+		err := root.Execute()
 		if err == nil {
 			t.Errorf("pick %v: expected error (only one state flag allowed), got nil", args)
 		}
@@ -763,7 +772,6 @@ func TestPickWithPickerNumberedFlag(t *testing.T) {
 	os.Stdin = r
 	t.Cleanup(func() {
 		os.Stdin = origStdin
-		pickerFlag = ""
 		_ = wn.SetPickerMode("")
 	})
 	if _, err := w.WriteString("1\n"); err != nil {
@@ -789,9 +797,9 @@ func TestPickWithPickerNumberedFlag(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "--picker", "numbered"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "--picker", "numbered"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick --picker numbered: %v", err)
 	}
 	meta, err := wn.ReadMeta(dir)
@@ -814,13 +822,12 @@ func TestPickWithPickerInvalidFlag(t *testing.T) {
 	}
 	defer func() {
 		_ = os.Chdir(cwd)
-		pickerFlag = ""
 		_ = wn.SetPickerMode("")
 	}()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "--picker", "invalid"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "--picker", "invalid"})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("pick --picker invalid: expected error, got nil")
 	}
@@ -853,10 +860,10 @@ func TestExportWithCriteria(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
-	rootCmd.SetArgs([]string{"export", "--tag", "prio", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--tag", "prio", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --tag prio: %v", err)
 	}
 	data, err := os.ReadFile(outPath)
@@ -881,19 +888,6 @@ func itemIDs(items []*wn.Item) []string {
 		ids[i] = it.ID
 	}
 	return ids
-}
-
-// resetExportFlags clears export flags to avoid Cobra's flag persistence across Execute() calls.
-func resetExportFlags() {
-	exportOutput = ""
-	exportAll = false
-	exportUndone = false
-	exportDone = false
-	exportReviewReady = false
-	exportTag = ""
-	exportSort = ""
-	exportLimit = 0
-	exportOffset = 0
 }
 
 func TestExport_ReviewReady(t *testing.T) {
@@ -921,10 +915,10 @@ func TestExport_ReviewReady(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
-	rootCmd.SetArgs([]string{"export", "--review-ready", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--review-ready", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --review-ready: %v", err)
 	}
 	data, err := os.ReadFile(outPath)
@@ -968,11 +962,11 @@ func TestExport_CompoundTag(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
 	// AND filter: only items with both "a" and "b"
-	rootCmd.SetArgs([]string{"export", "--tag", "a,b", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--tag", "a,b", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --tag a,b: %v", err)
 	}
 	data, err := os.ReadFile(outPath)
@@ -1015,11 +1009,11 @@ func TestExport_Sort(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
 	// Sort alphabetically descending — should put "alpha second" before "alpha first"
-	rootCmd.SetArgs([]string{"export", "--all", "--sort", "alpha:desc", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--all", "--sort", "alpha:desc", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --sort alpha:desc: %v", err)
 	}
 	data, err := os.ReadFile(outPath)
@@ -1067,11 +1061,11 @@ func TestExport_LimitOffset(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
 	// --limit 2: should return first 2 items
-	rootCmd.SetArgs([]string{"export", "--all", "--sort", "priority", "--limit", "2", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--all", "--sort", "priority", "--limit", "2", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --limit 2: %v", err)
 	}
 	data, err := os.ReadFile(outPath)
@@ -1092,9 +1086,9 @@ func TestExport_LimitOffset(t *testing.T) {
 	}
 
 	// --offset 1: should skip first item
-	resetExportFlags()
-	rootCmd.SetArgs([]string{"export", "--all", "--sort", "priority", "--offset", "1", "-o", outPath})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"export", "--all", "--sort", "priority", "--offset", "1", "-o", outPath})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("export --offset 1: %v", err)
 	}
 	data, err = os.ReadFile(outPath)
@@ -1122,18 +1116,12 @@ func TestExport_MultipleStateFlags_Errors(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	defer resetExportFlags()
 
-	rootCmd.SetArgs([]string{"export", "--undone", "--done"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"export", "--undone", "--done"})
+	if err := root.Execute(); err == nil {
 		t.Error("export --undone --done: expected error, got nil")
 	}
-}
-
-// resetImportFlags clears import flags so tests get consistent behavior.
-func resetImportFlags() {
-	importReplace = false
-	importAppend = false
 }
 
 func TestImport_StoreHasItemsNoFlagErrors(t *testing.T) {
@@ -1158,9 +1146,9 @@ func TestImport_StoreHasItemsNoFlagErrors(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetImportFlags()
-	rootCmd.SetArgs([]string{"import", path})
-	err = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"import", path})
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("expected error when store has items and no --append/--replace")
 	}
@@ -1200,9 +1188,9 @@ func TestImport_Replace(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetImportFlags()
-	rootCmd.SetArgs([]string{"import", "--replace", path})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"import", "--replace", path})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("import --replace: %v", err)
 	}
 	store2, _ := wn.NewFileStore(dir)
@@ -1239,9 +1227,9 @@ func TestImport_Append(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetImportFlags()
-	rootCmd.SetArgs([]string{"import", "--append", path})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"import", "--append", path})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("import --append: %v", err)
 	}
 	store2, _ := wn.NewFileStore(dir)
@@ -1272,9 +1260,9 @@ func TestImport_BothAppendAndReplaceErrors(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetImportFlags()
-	rootCmd.SetArgs([]string{"import", "--append", "--replace", path})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"import", "--append", "--replace", path})
+	err := root.Execute()
 	if err == nil {
 		t.Fatal("expected error when both --append and --replace")
 	}
@@ -1299,9 +1287,9 @@ func TestImport_EmptyStoreNoFlagSucceeds(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	defer func() { _ = os.Chdir(cwd) }()
-	resetImportFlags()
-	rootCmd.SetArgs([]string{"import", path})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"import", path})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("import into empty store: %v", err)
 	}
 	store, _ := wn.NewFileStore(dir)
@@ -1315,7 +1303,6 @@ func TestImport_EmptyStoreNoFlagSucceeds(t *testing.T) {
 }
 
 func TestListShowsStatusWithAlignment(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1340,8 +1327,9 @@ func TestListShowsStatusWithAlignment(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--all"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--all"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1381,8 +1369,9 @@ func TestCurrentTaskShowsState(t *testing.T) {
 		defer func() { _ = os.Chdir(cwd) }()
 
 		out := captureStdout(t, func() {
-			rootCmd.SetArgs(nil)
-			if err := rootCmd.Execute(); err != nil {
+			root := newRootCmd()
+			root.SetArgs(nil)
+			if err := root.Execute(); err != nil {
 				t.Errorf("Execute: %v", err)
 			}
 		})
@@ -1403,14 +1392,16 @@ func TestCurrentTaskShowsState(t *testing.T) {
 		}
 		defer func() { _ = os.Chdir(cwd) }()
 
-		rootCmd.SetArgs([]string{"done"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"done"})
+		if err := root.Execute(); err != nil {
 			t.Fatalf("wn done: %v", err)
 		}
 
 		out := captureStdout(t, func() {
-			rootCmd.SetArgs(nil)
-			if err := rootCmd.Execute(); err != nil {
+			root := newRootCmd()
+			root.SetArgs(nil)
+			if err := root.Execute(); err != nil {
 				t.Errorf("Execute: %v", err)
 			}
 		})
@@ -1427,14 +1418,16 @@ func TestCurrentTaskShowsState(t *testing.T) {
 		}
 		defer func() { _ = os.Chdir(cwd) }()
 
-		rootCmd.SetArgs([]string{"claim", "--for", "1h"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"claim", "--for", "1h"})
+		if err := root.Execute(); err != nil {
 			t.Fatalf("wn claim: %v", err)
 		}
 
 		out := captureStdout(t, func() {
-			rootCmd.SetArgs(nil)
-			if err := rootCmd.Execute(); err != nil {
+			root := newRootCmd()
+			root.SetArgs(nil)
+			if err := root.Execute(); err != nil {
 				t.Errorf("Execute: %v", err)
 			}
 		})
@@ -1453,8 +1446,9 @@ func TestNextWithClaim(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"next", "--claim", "30m"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"next", "--claim", "30m"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn next --claim: %v", err)
 		}
 	})
@@ -1463,8 +1457,9 @@ func TestNextWithClaim(t *testing.T) {
 	}
 	// Verify item is actually claimed: show --json should have in_progress_until set
 	showOut := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--json", itemID})
-		_ = rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--json", itemID})
+		_ = root.Execute()
 	})
 	if !strings.Contains(showOut, "in_progress_until") || strings.Contains(showOut, "\"in_progress_until\":\"0001-01-01T00:00:00Z\"") {
 		t.Errorf("wn show after next --claim should show in_progress_until; got %s", showOut)
@@ -1501,8 +1496,9 @@ func TestNextWithTag(t *testing.T) {
 
 	// wn next --tag agent should set current to bb2222
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"next", "--tag", "agent"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"next", "--tag", "agent"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn next --tag agent: %v", err)
 		}
 	})
@@ -1519,8 +1515,9 @@ func TestNextWithTag(t *testing.T) {
 
 	// wn next --tag nonexistent should print "No next task."
 	out2 := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"next", "--tag", "nonexistent"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"next", "--tag", "nonexistent"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn next --tag nonexistent: %v", err)
 		}
 	})
@@ -1540,8 +1537,9 @@ func TestDoneNext_oneItem(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"done", "--next"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"done", "--next"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn done --next: %v", err)
 		}
 	})
@@ -1580,8 +1578,9 @@ func TestDoneNext_twoItems(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"done", "--next"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"done", "--next"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn done --next: %v", err)
 		}
 	})
@@ -1630,8 +1629,9 @@ func TestCurrentTaskShowsTags(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs(nil)
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs(nil)
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1646,7 +1646,6 @@ func TestCurrentTaskShowsTags(t *testing.T) {
 }
 
 func TestListShowsTags(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1674,8 +1673,9 @@ func TestListShowsTags(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--all"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--all"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1693,8 +1693,6 @@ func TestListShowsTags(t *testing.T) {
 }
 
 func TestListSortFlag(t *testing.T) {
-	resetListFlags()
-	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1719,8 +1717,9 @@ func TestListSortFlag(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--sort", "alpha"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1734,8 +1733,9 @@ func TestListSortFlag(t *testing.T) {
 	}
 
 	out2 := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--sort", "updated:desc"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--sort", "updated:desc"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1744,12 +1744,9 @@ func TestListSortFlag(t *testing.T) {
 	if list2.Items[0].ID != "aaa" || list2.Items[1].ID != "bbb" {
 		t.Errorf("list --sort updated:desc = %v, %v; want aaa then bbb", list2.Items[0].ID, list2.Items[1].ID)
 	}
-	listJson = false
 }
 
 func TestListLimit(t *testing.T) {
-	resetListFlags()
-	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1775,8 +1772,9 @@ func TestListLimit(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "2"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "2"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1787,12 +1785,9 @@ func TestListLimit(t *testing.T) {
 	if list.Items[0].ID != "aaa" || list.Items[1].ID != "bbb" {
 		t.Errorf("list --limit 2 = %v, %v; want aaa, bbb", list.Items[0].ID, list.Items[1].ID)
 	}
-	listJson = false
 }
 
 func TestListLimitOffset(t *testing.T) {
-	resetListFlags()
-	listJson = true
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1818,8 +1813,9 @@ func TestListLimitOffset(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "1", "--offset", "1"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--json", "--sort", "alpha", "--limit", "1", "--offset", "1"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1830,11 +1826,9 @@ func TestListLimitOffset(t *testing.T) {
 	if list.Items[0].ID != "bbb" {
 		t.Errorf("list --limit 1 --offset 1 = %v; want bbb", list.Items[0].ID)
 	}
-	listJson = false
 }
 
 func TestListGroupByTags(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1860,8 +1854,9 @@ func TestListGroupByTags(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--group", "tags"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--group", "tags"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1898,7 +1893,6 @@ func TestListGroupByTags(t *testing.T) {
 }
 
 func TestListGroupByTagsNoTagsGroup(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1923,9 +1917,9 @@ func TestListGroupByTagsNoTagsGroup(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		resetListFlags()
-		rootCmd.SetArgs([]string{"list", "--group", "tags"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--group", "tags"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1942,7 +1936,6 @@ func TestListGroupByTagsNoTagsGroup(t *testing.T) {
 }
 
 func TestListGroupByStatus(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -1968,8 +1961,9 @@ func TestListGroupByStatus(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"list", "--all", "--group", "status"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "--all", "--group", "status"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1991,7 +1985,6 @@ func TestListGroupByStatus(t *testing.T) {
 }
 
 func TestListGroupInvalidKey(t *testing.T) {
-	resetListFlags()
 	dir, _ := setupWnRoot(t)
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -1999,14 +1992,14 @@ func TestListGroupInvalidKey(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"list", "--group", "bogus"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"list", "--group", "bogus"})
+	if err := root.Execute(); err == nil {
 		t.Error("list --group bogus should return an error")
 	}
 }
 
 func TestListGroupWithJSON(t *testing.T) {
-	resetListFlags()
 	dir, _ := setupWnRoot(t)
 	cwd, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -2014,8 +2007,9 @@ func TestListGroupWithJSON(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"list", "--group", "tags", "--json"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"list", "--group", "tags", "--json"})
+	if err := root.Execute(); err == nil {
 		t.Error("list --group with --json should return an error")
 	}
 }
@@ -2037,7 +2031,6 @@ func writeViewSettings(t *testing.T, root string, views map[string]string) {
 }
 
 func TestListViewAtSyntax_filtersByTag(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -2063,9 +2056,9 @@ func TestListViewAtSyntax_filtersByTag(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		resetListFlags()
-		rootCmd.SetArgs([]string{"list", "@agent"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "@agent"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -2079,7 +2072,6 @@ func TestListViewAtSyntax_filtersByTag(t *testing.T) {
 }
 
 func TestListViewAtSyntax_unknownView(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -2091,15 +2083,14 @@ func TestListViewAtSyntax_unknownView(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetListFlags()
-	rootCmd.SetArgs([]string{"list", "@nosuchview"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"list", "@nosuchview"})
+	if err := root.Execute(); err == nil {
 		t.Error("list @nosuchview should return an error")
 	}
 }
 
 func TestListViewAtSyntax_withSortAndGroup(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -2126,9 +2117,9 @@ func TestListViewAtSyntax_withSortAndGroup(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		resetListFlags()
-		rootCmd.SetArgs([]string{"list", "@bygroup"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"list", "@bygroup"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -2139,7 +2130,6 @@ func TestListViewAtSyntax_withSortAndGroup(t *testing.T) {
 }
 
 func TestListViewAtSyntax_noViews(t *testing.T) {
-	resetListFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -2152,9 +2142,9 @@ func TestListViewAtSyntax_noViews(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetListFlags()
-	rootCmd.SetArgs([]string{"list", "@agent"})
-	if err := rootCmd.Execute(); err == nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"list", "@agent"})
+	if err := root.Execute(); err == nil {
 		t.Error("list @agent with no views configured should return an error")
 	}
 }
@@ -2167,14 +2157,16 @@ func TestShowIncludesNotes(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"note", "add", "see-file", itemID, "-m", "see file X"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "see-file", itemID, "-m", "see file X"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add: %v", err)
 	}
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--json", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--json", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("show: %v", err)
 		}
 	})
@@ -2205,17 +2197,17 @@ func TestPickDash_selectsPreviousItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "def456"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "def456"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("pick def456: %v", err)
 	}
 
 	// Now pick - should return to abc123
-	resetPickFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"pick", "-"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"pick", "-"})
+		if err := root.Execute(); err != nil {
 			t.Fatalf("pick -: %v", err)
 		}
 	})
@@ -2243,9 +2235,9 @@ func TestPickDash_noPreviousItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "-"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "-"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn pick - with no previous item should error")
 	}
@@ -2297,10 +2289,10 @@ func TestPickDot_selectsItemForCurrentBranch(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"pick", "."})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"pick", "."})
+		if err := root.Execute(); err != nil {
 			t.Fatalf("pick .: %v", err)
 		}
 	})
@@ -2334,19 +2326,15 @@ func TestPickDot_noMatchingItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetPickFlags()
-	rootCmd.SetArgs([]string{"pick", "."})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"pick", "."})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn pick . with no matching item should error")
 	}
 	if !strings.Contains(err.Error(), "no work item") {
 		t.Errorf("want 'no work item' error; got: %v", err)
 	}
-}
-
-func resetArchiveFlags() {
-	archiveLocation = ""
 }
 
 func TestShowMetadataSection(t *testing.T) {
@@ -2358,19 +2346,21 @@ func TestShowMetadataSection(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// Add a special wn: note and a regular note
-	rootCmd.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "feat/my-branch"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"note", "add", "wn:branch", itemID, "-m", "feat/my-branch"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add wn:branch: %v", err)
 	}
-	rootCmd.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "https://example.com/pr/1"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"note", "add", "pr-url", itemID, "-m", "https://example.com/pr/1"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("note add pr-url: %v", err)
 	}
 
-	resetShowFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"show", "--fields", "notes", itemID})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"show", "--fields", "notes", itemID})
+		if err := root.Execute(); err != nil {
 			t.Errorf("show: %v", err)
 		}
 	})

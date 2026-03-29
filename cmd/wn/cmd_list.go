@@ -12,10 +12,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var showCmd = &cobra.Command{
-	Use:   "show [id]",
-	Short: "Show a work item",
-	Long: `Show a work item. If id is omitted, uses current task.
+type showFlags struct {
+	jsonOutput bool
+	plain      bool
+	all        bool
+	fields     string
+}
+
+func newShowCmd() *cobra.Command {
+	flags := &showFlags{}
+	cmd := &cobra.Command{
+		Use:   "show [id]",
+		Short: "Show a work item",
+		Long: `Show a work item. If id is omitted, uses current task.
 
 Output modes:
   (default)  Human-readable; fields controlled by --fields or --all
@@ -25,21 +34,19 @@ Output modes:
 Field selection (human-readable mode only):
   --fields title,body,status,deps,notes,log
   --all      Show all fields (equivalent to --fields title,body,status,deps,notes,log)`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runShow,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runShow(cmd, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false, "Output as JSON")
+	cmd.Flags().BoolVar(&flags.plain, "plain", false, "Output description text only (for agents/scripts)")
+	cmd.Flags().BoolVar(&flags.all, "all", false, "Show all fields including log")
+	cmd.Flags().StringVar(&flags.fields, "fields", "", "Comma-separated fields: title,body,status,deps,notes,log")
+	return cmd
 }
 
-var showJson, showPlain, showAll bool
-var showFields string
-
-func init() {
-	showCmd.Flags().BoolVar(&showJson, "json", false, "Output as JSON")
-	showCmd.Flags().BoolVar(&showPlain, "plain", false, "Output description text only (for agents/scripts)")
-	showCmd.Flags().BoolVar(&showAll, "all", false, "Show all fields including log")
-	showCmd.Flags().StringVar(&showFields, "fields", "", "Comma-separated fields: title,body,status,deps,notes,log")
-}
-
-func runShow(cmd *cobra.Command, args []string) error {
+func runShow(cmd *cobra.Command, args []string, flags *showFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -64,17 +71,17 @@ func runShow(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
-	if showJson {
+	if flags.jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetEscapeHTML(false)
 		return enc.Encode(item)
 	}
-	if showPlain {
+	if flags.plain {
 		fmt.Println(wn.PromptContent(item.Description))
 		return nil
 	}
 	settings, _ := wn.ReadSettingsInRoot(root)
-	fields := resolveShowFields(showAll, showFields, settings)
+	fields := resolveShowFields(flags.all, flags.fields, settings)
 	return renderItemHuman(item, fields, store)
 }
 
@@ -109,7 +116,6 @@ func parseFieldSet(s string) map[string]bool {
 func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) error {
 	const timeFmt = "2006-01-02 15:04:05"
 
-	// Compute blocked state once: non-done items with unresolved deps.
 	blocked := false
 	if !item.Done && !item.ReviewReady && len(item.DependsOn) > 0 {
 		if allItems, err := store.List(); err == nil {
@@ -137,7 +143,7 @@ func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) erro
 		}
 		firstLine := wn.FirstLine(item.Description)
 		tagsStr := formatTags(item.Tags)
-		const titleWidth = 56 // pad so tags/state align on the right
+		const titleWidth = 56
 		content := fmt.Sprintf("[%s] %s", item.ID, firstLine)
 		if tagsStr != "" {
 			if len(content) > titleWidth {
@@ -220,12 +226,14 @@ func renderItemHuman(item *wn.Item, fields map[string]bool, store wn.Store) erro
 	return nil
 }
 
-var logCmd = &cobra.Command{
-	Use:   "log [id]",
-	Short: "Show history of a work item",
-	Long:  "If id is omitted, shows log for the current task.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runLog,
+func newLogCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "log [id]",
+		Short: "Show history of a work item",
+		Long:  "If id is omitted, shows log for the current task.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runLog,
+	}
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
@@ -263,23 +271,29 @@ func runLog(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var nextCmd = &cobra.Command{
-	Use:   "next",
-	Short: "Pick the next task (first undone in dependency order) and set as current",
-	Long:  "When --tag is provided, pick the next undone item that has that tag (dependency order). Use --claim <duration> to also claim the task (e.g. wn next --claim 30m).",
-	RunE:  runNext,
-}
-var nextClaimFor string
-var nextClaimBy string
-var nextTag string
-
-func init() {
-	nextCmd.Flags().StringVar(&nextTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
-	nextCmd.Flags().StringVar(&nextClaimFor, "claim", "", "Also claim the task for this duration (e.g. 30m, 1h)")
-	nextCmd.Flags().StringVar(&nextClaimBy, "claim-by", "", "Optional worker ID when using --claim")
+type nextFlags struct {
+	tag     string
+	claim   string
+	claimBy string
 }
 
-func runNext(cmd *cobra.Command, args []string) error {
+func newNextCmd() *cobra.Command {
+	flags := &nextFlags{}
+	cmd := &cobra.Command{
+		Use:   "next",
+		Short: "Pick the next task (first undone in dependency order) and set as current",
+		Long:  "When --tag is provided, pick the next undone item that has that tag (dependency order). Use --claim <duration> to also claim the task (e.g. wn next --claim 30m).",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runNext(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVar(&flags.tag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+	cmd.Flags().StringVar(&flags.claim, "claim", "", "Also claim the task for this duration (e.g. 30m, 1h)")
+	cmd.Flags().StringVar(&flags.claimBy, "claim-by", "", "Optional worker ID when using --claim")
+	return cmd
+}
+
+func runNext(cmd *cobra.Command, args []string, flags *nextFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -288,7 +302,7 @@ func runNext(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	next, err := wn.NextUndoneItem(store, nextTag)
+	next, err := wn.NextUndoneItem(store, flags.tag)
 	if err != nil {
 		return err
 	}
@@ -302,10 +316,10 @@ func runNext(cmd *cobra.Command, args []string) error {
 	}); err != nil {
 		return err
 	}
-	if nextClaimFor != "" {
-		d, err := time.ParseDuration(nextClaimFor)
+	if flags.claim != "" {
+		d, err := time.ParseDuration(flags.claim)
 		if err != nil {
-			return fmt.Errorf("invalid --claim duration %q: %w", nextClaimFor, err)
+			return fmt.Errorf("invalid --claim duration %q: %w", flags.claim, err)
 		}
 		if d <= 0 {
 			return fmt.Errorf("--claim duration must be positive, got %v", d)
@@ -314,44 +328,49 @@ func runNext(cmd *cobra.Command, args []string) error {
 		until := now.Add(d)
 		if err := store.UpdateItem(next.ID, func(it *wn.Item) (*wn.Item, error) {
 			it.InProgressUntil = until
-			it.InProgressBy = nextClaimBy
+			it.InProgressBy = flags.claimBy
 			it.Updated = now
-			it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: nextClaimFor})
+			it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "in_progress", Msg: flags.claim})
 			return it, nil
 		}); err != nil {
 			return err
 		}
-		fmt.Printf("  %s: %s (claimed for %s)\n", next.ID, next.Description, nextClaimFor)
+		fmt.Printf("  %s: %s (claimed for %s)\n", next.ID, next.Description, flags.claim)
 		return nil
 	}
 	fmt.Printf("  %s: %s\n", next.ID, next.Description)
 	return nil
 }
 
-var pickCmd = &cobra.Command{
-	Use:   "pick [id|.|−]",
-	Short: "Interactively pick a current task (uses fzf if available)",
-	Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Pass '.' to select the item for the current directory's git branch (useful when switching between worktrees). Pass '-' to switch to the previously selected item (like git checkout -). Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runPick,
+type pickFlags struct {
+	undone      bool
+	done        bool
+	all         bool
+	reviewReady bool
+	tag         string
 }
 
-var pickUndone bool
-var pickDone bool
-var pickAll bool
-var pickReviewReady bool
-var pickTag string
-
-func initPick() {
-	pickCmd.Flags().BoolVar(&pickUndone, "undone", false, "Pick from undone items only (default)")
-	pickCmd.Flags().BoolVar(&pickDone, "done", false, "Pick from done items only")
-	pickCmd.Flags().BoolVar(&pickAll, "all", false, "Pick from all items")
-	pickCmd.Flags().BoolVar(&pickReviewReady, "rr", false, "Pick from review-ready items only")
-	pickCmd.Flags().BoolVar(&pickReviewReady, "review-ready", false, "Pick from review-ready items only")
-	pickCmd.Flags().StringVar(&pickTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+func newPickCmd() *cobra.Command {
+	flags := &pickFlags{}
+	cmd := &cobra.Command{
+		Use:   "pick [id|.|−]",
+		Short: "Interactively pick a current task (uses fzf if available)",
+		Long:  "With no id, shows an interactive list to choose from. Pass an id to set current task directly. Pass '.' to select the item for the current directory's git branch (useful when switching between worktrees). Pass '-' to switch to the previously selected item (like git checkout -). Use --undone (default), --done, --all, or --rr/--review-ready to filter by state.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			return runPick(c, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.undone, "undone", false, "Pick from undone items only (default)")
+	cmd.Flags().BoolVar(&flags.done, "done", false, "Pick from done items only")
+	cmd.Flags().BoolVar(&flags.all, "all", false, "Pick from all items")
+	cmd.Flags().BoolVar(&flags.reviewReady, "rr", false, "Pick from review-ready items only")
+	cmd.Flags().BoolVar(&flags.reviewReady, "review-ready", false, "Pick from review-ready items only")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+	return cmd
 }
 
-func runPick(cmd *cobra.Command, args []string) error {
+func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -361,10 +380,8 @@ func runPick(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// If id passed, set current to that item (must exist)
 	if len(args) == 1 {
 		id := args[0]
-		// "-" is a special argument: switch to the previously selected item (like git checkout -)
 		if id == "-" {
 			meta, err := wn.ReadMeta(root)
 			if err != nil {
@@ -386,7 +403,6 @@ func runPick(cmd *cobra.Command, args []string) error {
 			fmt.Printf("%s %s\n", item.ID, wn.FirstLine(item.Description))
 			return nil
 		}
-		// "." is a special argument: resolve item from current directory's git branch
 		if id == "." {
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -422,16 +438,16 @@ func runPick(cmd *cobra.Command, args []string) error {
 	}
 
 	stateFlags := 0
-	if pickUndone {
+	if flags.undone {
 		stateFlags++
 	}
-	if pickDone {
+	if flags.done {
 		stateFlags++
 	}
-	if pickAll {
+	if flags.all {
 		stateFlags++
 	}
-	if pickReviewReady {
+	if flags.reviewReady {
 		stateFlags++
 	}
 	if stateFlags > 1 {
@@ -439,12 +455,12 @@ func runPick(cmd *cobra.Command, args []string) error {
 	}
 
 	var items []*wn.Item
-	if pickAll {
+	if flags.all {
 		items, err = store.List()
 		if err != nil {
 			return err
 		}
-	} else if pickDone {
+	} else if flags.done {
 		all, err := store.List()
 		if err != nil {
 			return err
@@ -454,27 +470,26 @@ func runPick(cmd *cobra.Command, args []string) error {
 				items = append(items, it)
 			}
 		}
-	} else if pickReviewReady {
+	} else if flags.reviewReady {
 		items, err = wn.ReviewReadyItems(store)
 		if err != nil {
 			return err
 		}
 	} else {
-		// default: undone (available for next/claim)
 		items, err = wn.UndoneItems(store)
 		if err != nil {
 			return err
 		}
 	}
 
-	items = wn.FilterByTag(items, pickTag)
+	items = wn.FilterByTag(items, flags.tag)
 	if len(items) == 0 {
 		msg := "No undone tasks."
-		if pickDone {
+		if flags.done {
 			msg = "No done tasks."
-		} else if pickAll {
+		} else if flags.all {
 			msg = "No tasks."
-		} else if pickReviewReady {
+		} else if flags.reviewReady {
 			msg = "No review-ready tasks."
 		}
 		fmt.Println(msg)
@@ -494,46 +509,49 @@ func runPick(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var listCmd = &cobra.Command{
-	Use:     "list [@view]",
-	Aliases: []string{"ls"},
-	Short:   "List work items (default: undone, in dependency order)",
-	Args:    cobra.MaximumNArgs(1),
-	RunE:    runList,
-}
-var listUndone bool
-var listDone bool
-var listAll bool
-var listReviewReady bool
-var listTag string
-var listSort string
-var listLimit int
-var listOffset int
-
-var listJson bool
-var listGroup string
-
-func init() {
-	listCmd.Flags().BoolVar(&listUndone, "undone", false, "List undone items (default when no filter; includes both available and review-ready; excludes in-progress)")
-	listCmd.Flags().BoolVar(&listDone, "done", false, "List done items")
-	listCmd.Flags().BoolVar(&listAll, "all", false, "List all items")
-	listCmd.Flags().BoolVar(&listReviewReady, "review-ready", false, "List review-ready items only")
-	listCmd.Flags().BoolVar(&listReviewReady, "rr", false, "List review-ready items only")
-	listCmd.Flags().StringVar(&listTag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
-	listCmd.Flags().StringVar(&listSort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
-	listCmd.Flags().IntVar(&listLimit, "limit", 0, "Return at most N items (0 = no limit)")
-	listCmd.Flags().IntVar(&listOffset, "offset", 0, "Skip first N items")
-	listCmd.Flags().BoolVar(&listJson, "json", false, "Output as JSON (same format as export: version, exported_at, items with all attributes)")
-	listCmd.Flags().StringVar(&listGroup, "group", "", "Group items by key: tags, status")
-	initPick()
+type listFlags struct {
+	undone      bool
+	done        bool
+	all         bool
+	reviewReady bool
+	tag         string
+	sort        string
+	limit       int
+	offset      int
+	jsonOutput  bool
+	group       string
 }
 
-func runList(cmd *cobra.Command, args []string) error {
+func newListCmd() *cobra.Command {
+	flags := &listFlags{}
+	cmd := &cobra.Command{
+		Use:     "list [@view]",
+		Aliases: []string{"ls"},
+		Short:   "List work items (default: undone, in dependency order)",
+		Args:    cobra.MaximumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			return runList(c, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.undone, "undone", false, "List undone items (default when no filter; includes both available and review-ready; excludes in-progress)")
+	cmd.Flags().BoolVar(&flags.done, "done", false, "List done items")
+	cmd.Flags().BoolVar(&flags.all, "all", false, "List all items")
+	cmd.Flags().BoolVar(&flags.reviewReady, "review-ready", false, "List review-ready items only")
+	cmd.Flags().BoolVar(&flags.reviewReady, "rr", false, "List review-ready items only")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", `Filter by tag; use "a,b" for AND (must have both), "a|b" for OR (has either)`)
+	cmd.Flags().StringVar(&flags.sort, "sort", "", "Sort order (e.g. updated:desc,priority,tags). Overrides settings. Keys: created, updated, priority, alpha, tags")
+	cmd.Flags().IntVar(&flags.limit, "limit", 0, "Return at most N items (0 = no limit)")
+	cmd.Flags().IntVar(&flags.offset, "offset", 0, "Skip first N items")
+	cmd.Flags().BoolVar(&flags.jsonOutput, "json", false, "Output as JSON (same format as export: version, exported_at, items with all attributes)")
+	cmd.Flags().StringVar(&flags.group, "group", "", "Group items by key: tags, status")
+	return cmd
+}
+
+func runList(cmd *cobra.Command, args []string, flags *listFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
 	}
-	// If the first positional arg starts with '@', expand the named view from settings.
 	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
 		viewName := args[0][1:]
 		settings, _ := wn.ReadSettingsInRoot(root)
@@ -541,7 +559,6 @@ func runList(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		// Re-parse the view flags into this command's flag set so the global vars are set.
 		if err := cmd.Flags().Parse(viewArgs); err != nil {
 			return fmt.Errorf("view %q: invalid flags: %w", viewName, err)
 		}
@@ -551,45 +568,42 @@ func runList(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	stateFlags := 0
-	if listAll {
+	if flags.all {
 		stateFlags++
 	}
-	if listDone {
+	if flags.done {
 		stateFlags++
 	}
-	if listUndone {
+	if flags.undone {
 		stateFlags++
 	}
-	if listReviewReady {
+	if flags.reviewReady {
 		stateFlags++
 	}
 	if stateFlags > 1 {
 		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
 	}
-	// Default when no filter: undone (available for next/claim)
-	useUndone := listUndone || stateFlags == 0
-	// Load all items once for blocked state computation.
+	useUndone := flags.undone || stateFlags == 0
 	allItems, err := store.List()
 	if err != nil {
 		return err
 	}
 	blockedSet := wn.BlockedSet(allItems)
 	var items []*wn.Item
-	if listAll {
+	if flags.all {
 		items = allItems
-	} else if listDone {
+	} else if flags.done {
 		for _, it := range allItems {
 			if it.Done {
 				items = append(items, it)
 			}
 		}
-	} else if listReviewReady {
+	} else if flags.reviewReady {
 		items, err = wn.ReviewReadyItems(store)
 		if err != nil {
 			return err
 		}
 	} else if useUndone {
-		// --undone or default: all undone (including review-ready); exclude in-progress only
 		items, err = wn.ListableUndoneItems(store)
 		if err != nil {
 			return err
@@ -597,9 +611,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	} else {
 		items = nil
 	}
-	items = wn.FilterByTag(items, listTag)
+	items = wn.FilterByTag(items, flags.tag)
 	var ordered []*wn.Item
-	sortSpec := listSortSpec(root)
+	sortSpec := listSortSpec(root, flags.sort)
 	if len(sortSpec) > 0 {
 		ordered = wn.ApplySort(items, sortSpec)
 	} else {
@@ -609,40 +623,36 @@ func runList(cmd *cobra.Command, args []string) error {
 			ordered = items
 		}
 	}
-	// Apply offset and limit (bounded window for pagination).
-	if listOffset > 0 || listLimit > 0 {
-		if listOffset > len(ordered) {
+	if flags.offset > 0 || flags.limit > 0 {
+		if flags.offset > len(ordered) {
 			ordered = nil
 		} else {
-			ordered = ordered[listOffset:]
-			if listLimit > 0 && len(ordered) > listLimit {
-				ordered = ordered[:listLimit]
+			ordered = ordered[flags.offset:]
+			if flags.limit > 0 && len(ordered) > flags.limit {
+				ordered = ordered[:flags.limit]
 			}
 		}
 	}
-	if listGroup != "" {
-		switch listGroup {
+	if flags.group != "" {
+		switch flags.group {
 		case "tags", "status":
 		default:
-			return fmt.Errorf("invalid --group key %q (use: tags, status)", listGroup)
+			return fmt.Errorf("invalid --group key %q (use: tags, status)", flags.group)
 		}
-		if listJson {
+		if flags.jsonOutput {
 			return fmt.Errorf("--group and --json are incompatible")
 		}
-		// Group-first sort: when grouping by tags, sort by tags as primary key.
-		// When grouping by status, sort by status (computed) as primary.
 		now := time.Now().UTC()
-		ordered = applyGroupSort(ordered, listGroup, now, blockedSet)
-		printGroupedList(ordered, listGroup, now, blockedSet)
+		ordered = applyGroupSort(ordered, flags.group, now, blockedSet)
+		printGroupedList(ordered, flags.group, now, blockedSet)
 		return nil
 	}
-	if listJson {
-		// Same format as wn export: version, exported_at, items (full attributes).
+	if flags.jsonOutput {
 		return wn.ExportItems(ordered, "")
 	}
 	now := time.Now().UTC()
 	const listStatusWidth = 7
-	const listDescWidth = 51 // so tags align on the right
+	const listDescWidth = 51
 	for _, it := range ordered {
 		status := itemListStatus(it, now, blockedSet[it.ID])
 		desc := wn.FirstLine(it.Description)
@@ -655,12 +665,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// applyGroupSort sorts items so that items with the same group key are adjacent.
-// For "tags", uses the canonical tag string. For "status", uses the computed status string.
 func applyGroupSort(items []*wn.Item, by string, now time.Time, blockedSet map[string]bool) []*wn.Item {
 	switch by {
 	case "tags":
-		// Prepend tags as primary sort key, preserving existing sort for items within a group.
 		spec, _ := wn.ParseSortSpec("tags")
 		return wn.ApplySort(items, spec)
 	case "status":
@@ -679,7 +686,6 @@ func applyGroupSort(items []*wn.Item, by string, now time.Time, blockedSet map[s
 	return items
 }
 
-// itemGroupKey returns the display group key for an item under the given grouping.
 func itemGroupKey(it *wn.Item, by string, now time.Time, blockedSet map[string]bool) string {
 	switch by {
 	case "tags":
@@ -693,14 +699,12 @@ func itemGroupKey(it *wn.Item, by string, now time.Time, blockedSet map[string]b
 	return ""
 }
 
-// itemGroupHeader returns the formatted section header for a group key.
 func itemGroupHeader(key, by string) string {
 	switch by {
 	case "tags":
 		if key == "" {
 			return "--- (no tags) ---"
 		}
-		// Convert comma-separated canonical tag string to "#tag1 #tag2" display form.
 		tags := strings.Split(key, ",")
 		var parts []string
 		for _, t := range tags {
@@ -713,7 +717,6 @@ func itemGroupHeader(key, by string) string {
 	return "--- " + key + " ---"
 }
 
-// printGroupedList prints items with section headers between groups.
 func printGroupedList(items []*wn.Item, by string, now time.Time, blockedSet map[string]bool) {
 	const listStatusWidth = 7
 	const listDescWidth = 51
@@ -734,10 +737,9 @@ func printGroupedList(items []*wn.Item, by string, now time.Time, blockedSet map
 	}
 }
 
-// listSortSpec returns sort options from --sort flag or effective settings (user + project). Invalid spec returns nil.
-func listSortSpec(root string) []wn.SortOption {
-	if listSort != "" {
-		spec, err := wn.ParseSortSpec(listSort)
+func listSortSpec(root string, sortFlag string) []wn.SortOption {
+	if sortFlag != "" {
+		spec, err := wn.ParseSortSpec(sortFlag)
 		if err != nil {
 			return nil
 		}
@@ -750,7 +752,6 @@ func listSortSpec(root string) []wn.SortOption {
 	return wn.SortSpecFromSettings(settings)
 }
 
-// formatTags returns tags joined with ", " and wrapped in square brackets, or "" if none.
 func formatTags(tags []string) string {
 	if len(tags) == 0 {
 		return ""
@@ -758,7 +759,6 @@ func formatTags(tags []string) string {
 	return "[" + strings.Join(tags, ", ") + "]"
 }
 
-// itemListStatus returns the display status for list output.
 func itemListStatus(it *wn.Item, now time.Time, blocked bool) string {
 	return wn.ItemListStatus(it, now, blocked)
 }

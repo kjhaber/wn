@@ -8,21 +8,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var addCmd = &cobra.Command{
-	Use:   "add",
-	Short: "Add a work item",
-	RunE:  runAdd,
-}
-var addMessage string
-var addTags []string
-
-func init() {
-	addCmd.Flags().StringVarP(&addMessage, "message", "m", "", "Description of the work item")
-	addCmd.Flags().StringSliceVarP(&addTags, "tag", "t", nil, "Tag (repeatable)")
+type addFlags struct {
+	message string
+	tags    []string
 }
 
-func runAdd(cmd *cobra.Command, args []string) error {
-	msg := addMessage
+func newAddCmd() *cobra.Command {
+	flags := &addFlags{}
+	cmd := &cobra.Command{
+		Use:   "add",
+		Short: "Add a work item",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAdd(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Description of the work item")
+	cmd.Flags().StringSliceVarP(&flags.tags, "tag", "t", nil, "Tag (repeatable)")
+	return cmd
+}
+
+func runAdd(cmd *cobra.Command, args []string, flags *addFlags) error {
+	msg := flags.message
 	if msg == "" {
 		var err error
 		msg, err = wn.EditWithEditor("")
@@ -51,7 +57,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Description: msg,
 		Created:     now,
 		Updated:     now,
-		Tags:        addTags,
+		Tags:        flags.tags,
 		DependsOn:   nil,
 		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
 	}

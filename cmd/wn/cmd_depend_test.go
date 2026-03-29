@@ -11,7 +11,6 @@ import (
 )
 
 func TestTagInteractive_Toggle(t *testing.T) {
-	resetTagFlags()
 	origPath := os.Getenv("PATH")
 	_ = os.Setenv("PATH", "")
 	t.Cleanup(func() { _ = os.Setenv("PATH", origPath) })
@@ -51,8 +50,9 @@ func TestTagInteractive_Toggle(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"tag", "add", "-i", "mytag"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"tag", "add", "-i", "mytag"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag add -i mytag: %v", err)
 	}
 
@@ -81,7 +81,6 @@ func TestTagInteractive_Toggle(t *testing.T) {
 }
 
 func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
-	resetTagFlags()
 	// wn tag -i should list only undone items; done items must not appear in fzf/numbered list
 	origPath := os.Getenv("PATH")
 	_ = os.Setenv("PATH", "")
@@ -121,8 +120,9 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"tag", "add", "-i", "mytag"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"tag", "add", "-i", "mytag"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag add -i mytag: %v", err)
 	}
 
@@ -152,7 +152,6 @@ func TestTagInteractive_OnlyUndoneItems(t *testing.T) {
 }
 
 func TestTagAdd(t *testing.T) {
-	resetTagFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -180,8 +179,9 @@ func TestTagAdd(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn tag add mytag (current item)
-	rootCmd.SetArgs([]string{"tag", "add", "mytag"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"tag", "add", "mytag"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag add mytag: %v", err)
 	}
 	it, _ := store.Get("aa1111")
@@ -197,8 +197,9 @@ func TestTagAdd(t *testing.T) {
 	}
 
 	// wn tag add other --wid bb2222
-	rootCmd.SetArgs([]string{"tag", "add", "other", "--wid", "bb2222"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"tag", "add", "other", "--wid", "bb2222"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag add other --wid bb2222: %v", err)
 	}
 	it2, _ := store.Get("bb2222")
@@ -215,7 +216,6 @@ func TestTagAdd(t *testing.T) {
 }
 
 func TestTagRm(t *testing.T) {
-	resetTagFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -243,8 +243,9 @@ func TestTagRm(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn tag rm mytag (current item)
-	rootCmd.SetArgs([]string{"tag", "rm", "mytag"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"tag", "rm", "mytag"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag rm mytag: %v", err)
 	}
 	it, _ := store.Get("aa1111")
@@ -256,8 +257,9 @@ func TestTagRm(t *testing.T) {
 	}
 
 	// wn tag rm mytag --wid bb2222
-	rootCmd.SetArgs([]string{"tag", "rm", "mytag", "--wid", "bb2222"})
-	if err := rootCmd.Execute(); err != nil {
+	root = newRootCmd()
+	root.SetArgs([]string{"tag", "rm", "mytag", "--wid", "bb2222"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag rm mytag --wid bb2222: %v", err)
 	}
 	it2, _ := store.Get("bb2222")
@@ -267,7 +269,6 @@ func TestTagRm(t *testing.T) {
 }
 
 func TestTagList(t *testing.T) {
-	resetTagFlags()
 	dir := t.TempDir()
 	if err := wn.InitRoot(dir); err != nil {
 		t.Fatalf("InitRoot: %v", err)
@@ -295,13 +296,13 @@ func TestTagList(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn tag list (current item) — one per line
-	rootCmd.SetArgs([]string{"tag", "list"})
 	var out strings.Builder
-	rootCmd.SetOut(&out)
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"tag", "list"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag list: %v", err)
 	}
-	rootCmd.SetOut(nil)
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lines) != 2 {
 		t.Errorf("tag list: want 2 lines (foo, bar), got %d: %q", len(lines), lines)
@@ -311,13 +312,13 @@ func TestTagList(t *testing.T) {
 	}
 
 	// wn tag list --wid bb2222
-	rootCmd.SetArgs([]string{"tag", "list", "--wid", "bb2222"})
+	root = newRootCmd()
 	out.Reset()
-	rootCmd.SetOut(&out)
-	if err := rootCmd.Execute(); err != nil {
+	root.SetOut(&out)
+	root.SetArgs([]string{"tag", "list", "--wid", "bb2222"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("tag list --wid bb2222: %v", err)
 	}
-	rootCmd.SetOut(nil)
 	lines2 := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	if len(lines2) != 1 || lines2[0] != "baz" {
 		t.Errorf("tag list --wid bb2222: want one line 'baz'; got %q", lines2)
@@ -367,8 +368,9 @@ func TestDependInteractive(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"depend", "add", "-i"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"depend", "add", "-i"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend add -i: %v", err)
 	}
 
@@ -428,8 +430,9 @@ func TestRmdependInteractive(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"depend", "rm", "-i"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"depend", "rm", "-i"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend rm -i: %v", err)
 	}
 
@@ -468,10 +471,10 @@ func TestDependAddWithOnAndWid(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetDependFlags()
 	// depend add --on bb2222 --wid aa1111
-	rootCmd.SetArgs([]string{"depend", "add", "--on", "bb2222", "--wid", "aa1111"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"depend", "add", "--on", "bb2222", "--wid", "aa1111"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend add --on bb2222 --wid aa1111: %v", err)
 	}
 	it, _ := store.Get("aa1111")
@@ -509,9 +512,9 @@ func TestDependAddWithOnCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetDependFlags()
-	rootCmd.SetArgs([]string{"depend", "add", "--on", "bb2222"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"depend", "add", "--on", "bb2222"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend add --on bb2222: %v", err)
 	}
 	it, _ := store.Get("aa1111")
@@ -549,9 +552,9 @@ func TestDependRmWithOnAndWid(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetDependFlags()
-	rootCmd.SetArgs([]string{"depend", "rm", "--on", "bb2222", "--wid", "aa1111"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"depend", "rm", "--on", "bb2222", "--wid", "aa1111"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend rm --on bb2222 --wid aa1111: %v", err)
 	}
 	it, _ := store.Get("aa1111")
@@ -590,14 +593,13 @@ func TestDependList(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetDependFlags()
 	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-	defer func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil) }()
-
-	rootCmd.SetArgs([]string{"depend", "list", "--wid", "aa1111"})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	defer func() { root.SetOut(nil); root.SetErr(nil) }()
+	root.SetArgs([]string{"depend", "list", "--wid", "aa1111"})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend list --wid aa1111: %v", err)
 	}
 	out := strings.TrimSpace(buf.String())
@@ -620,14 +622,13 @@ func TestDependListEmpty(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetDependFlags()
 	var buf bytes.Buffer
-	rootCmd.SetOut(&buf)
-	rootCmd.SetErr(&buf)
-	defer func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil) }()
-
-	rootCmd.SetArgs([]string{"depend", "list", "--wid", itemID})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetOut(&buf)
+	root.SetErr(&buf)
+	defer func() { root.SetOut(nil); root.SetErr(nil) }()
+	root.SetArgs([]string{"depend", "list", "--wid", itemID})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("depend list: %v", err)
 	}
 	if buf.String() != "" {

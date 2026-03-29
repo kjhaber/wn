@@ -14,16 +14,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var mcpCmd = &cobra.Command{
-	Use:   "mcp [project_root]",
-	Short: "Run MCP server on stdio (for Cursor and other MCP clients)",
-	Long:  "Starts the Model Context Protocol server over stdin/stdout. Optional project_root is the directory containing .wn; when provided (or when WN_ROOT is set), the server is locked to that project and the per-request \"root\" parameter is ignored. No continuous process—exits when the client disconnects.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runMCP,
+func newMCPCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "mcp [project_root]",
+		Short: "Run MCP server on stdio (for Cursor and other MCP clients)",
+		Long:  "Starts the Model Context Protocol server over stdin/stdout. Optional project_root is the directory containing .wn; when provided (or when WN_ROOT is set), the server is locked to that project and the per-request \"root\" parameter is ignored. No continuous process—exits when the client disconnects.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runMCP,
+	}
 }
 
 func runMCP(cmd *cobra.Command, args []string) error {
-	// Fixed root: spawn-time arg wins, then WN_ROOT env, else no lock (tools use cwd or request "root").
 	if len(args) > 0 {
 		wn.SetMCPFixedRoot(args[0])
 	} else if r := os.Getenv("WN_ROOT"); r != "" {
@@ -36,10 +37,25 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var doCmd = &cobra.Command{
-	Use:   "do [runner] [id]",
-	Short: "Run agent on a work item; optionally loop through the queue",
-	Long: `Run a headless agent on a work item, then exit.
+type doFlags struct {
+	next         bool
+	loop         bool
+	maxTasks     int
+	claim        string
+	delay        string
+	poll         string
+	worktreeBase string
+	branch       string
+	branchPrefix string
+	tag          string
+}
+
+func newDoCmd() *cobra.Command {
+	flags := &doFlags{}
+	cmd := &cobra.Command{
+		Use:   "do [runner] [id]",
+		Short: "Run agent on a work item; optionally loop through the queue",
+		Long: `Run a headless agent on a work item, then exit.
 
   wn do [runner] [id]  Run agent on the current item (or a specific id), then exit.
   wn do --next         Claim the next item from the queue, run once, then exit. Fails immediately if the queue is empty.
@@ -47,61 +63,26 @@ var doCmd = &cobra.Command{
   wn do --loop -n N    Stop after processing N items.
 
 Runner is resolved from settings.runners; defaults to agent.default.`,
-	Args: cobra.RangeArgs(0, 2),
-	RunE: runDo,
+		Args: cobra.RangeArgs(0, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDo(cmd, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.next, "next", false, "Claim the next undone item from the queue, run once, then exit. Errors if queue is empty.")
+	cmd.Flags().BoolVar(&flags.loop, "loop", false, "Loop: continuously claim and process items (polls when queue empty).")
+	cmd.Flags().IntVarP(&flags.maxTasks, "max-tasks", "n", 0, "Stop after processing N items (only with --loop; 0 = run indefinitely).")
+	cmd.Flags().StringVar(&flags.claim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
+	cmd.Flags().StringVar(&flags.delay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
+	cmd.Flags().StringVar(&flags.poll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
+	cmd.Flags().StringVar(&flags.worktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
+	cmd.Flags().StringVar(&flags.branchPrefix, "branch-prefix", "", "Prefix for generated branch names (e.g. keith/). Overrides settings.")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", "Only consider items with this tag (queue modes). Overrides settings.")
+	return cmd
 }
 
-var (
-	doNext         bool
-	doLoop         bool
-	doMaxTasks     int
-	doClaim        string
-	doDelay        string
-	doPoll         string
-	doWorktreeBase string
-	doBranch       string
-	doBranchPrefix string
-	doTag          string
-)
-
-func init() {
-	doCmd.Flags().BoolVar(&doNext, "next", false, "Claim the next undone item from the queue, run once, then exit. Errors if queue is empty.")
-	doCmd.Flags().BoolVar(&doLoop, "loop", false, "Loop: continuously claim and process items (polls when queue empty).")
-	doCmd.Flags().IntVarP(&doMaxTasks, "max-tasks", "n", 0, "Stop after processing N items (only with --loop; 0 = run indefinitely).")
-	doCmd.Flags().StringVar(&doClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
-	doCmd.Flags().StringVar(&doDelay, "delay", "", "Delay between runs (e.g. 5m). Overrides settings.")
-	doCmd.Flags().StringVar(&doPoll, "poll", "", "Poll interval when queue empty (e.g. 60s). Overrides settings.")
-	doCmd.Flags().StringVar(&doWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
-	doCmd.Flags().StringVar(&doBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
-	doCmd.Flags().StringVar(&doBranchPrefix, "branch-prefix", "", "Prefix for generated branch names (e.g. keith/). Overrides settings.")
-	doCmd.Flags().StringVar(&doTag, "tag", "", "Only consider items with this tag (queue modes). Overrides settings.")
-}
-
-func runDo(cmd *cobra.Command, args []string) error {
-	// Read flags fresh; reset immediately to avoid persistence across test Execute() calls.
-	isNext, _ := cmd.Flags().GetBool("next")
-	isLoop, _ := cmd.Flags().GetBool("loop")
-	maxTasks, _ := cmd.Flags().GetInt("max-tasks")
-	flagClaim, _ := cmd.Flags().GetString("claim")
-	flagDelay, _ := cmd.Flags().GetString("delay")
-	flagPoll, _ := cmd.Flags().GetString("poll")
-	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
-	flagBranch, _ := cmd.Flags().GetString("branch")
-	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
-	flagTag, _ := cmd.Flags().GetString("tag")
-
-	_ = cmd.Flags().Set("next", "false")
-	_ = cmd.Flags().Set("loop", "false")
-	_ = cmd.Flags().Set("max-tasks", "0")
-	_ = cmd.Flags().Set("claim", "")
-	_ = cmd.Flags().Set("delay", "")
-	_ = cmd.Flags().Set("poll", "")
-	_ = cmd.Flags().Set("worktree-base", "")
-	_ = cmd.Flags().Set("branch", "")
-	_ = cmd.Flags().Set("branch-prefix", "")
-	_ = cmd.Flags().Set("tag", "")
-
-	if maxTasks != 0 && !isLoop {
+func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
+	if f.maxTasks != 0 && !f.loop {
 		return fmt.Errorf("-n / --max-tasks requires --loop")
 	}
 
@@ -117,9 +98,6 @@ func runDo(cmd *cobra.Command, args []string) error {
 	as := settings.Agent
 	ns := settings.Next
 
-	// Parse positional args: optional runner name and/or item ID.
-	// With 2 args: first = runner, second = item ID.
-	// With 1 arg: if arg matches a runner name, treat as runner; else treat as item ID.
 	var runnerName, workID string
 	switch len(args) {
 	case 2:
@@ -133,10 +111,10 @@ func runDo(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if isNext && workID != "" {
+	if f.next && workID != "" {
 		return fmt.Errorf("use either an id argument or --next, not both")
 	}
-	if isLoop && workID != "" {
+	if f.loop && workID != "" {
 		return fmt.Errorf("use either an id argument or --loop, not both")
 	}
 
@@ -145,7 +123,6 @@ func runDo(cmd *cobra.Command, args []string) error {
 		Audit: os.Stderr,
 	}
 
-	// Apply settings defaults
 	if ws.Claim != "" {
 		if d, err := time.ParseDuration(ws.Claim); err == nil {
 			opts.ClaimFor = d
@@ -180,42 +157,40 @@ func runDo(cmd *cobra.Command, args []string) error {
 		opts.Tag = ns.Tag
 	}
 
-	// Flag overrides
-	if flagClaim != "" {
-		d, err := time.ParseDuration(flagClaim)
+	if f.claim != "" {
+		d, err := time.ParseDuration(f.claim)
 		if err != nil {
 			return fmt.Errorf("--claim: %w", err)
 		}
 		opts.ClaimFor = d
 	}
-	if flagDelay != "" {
-		d, err := time.ParseDuration(flagDelay)
+	if f.delay != "" {
+		d, err := time.ParseDuration(f.delay)
 		if err != nil {
 			return fmt.Errorf("--delay: %w", err)
 		}
 		opts.Delay = d
 	}
-	if flagPoll != "" {
-		d, err := time.ParseDuration(flagPoll)
+	if f.poll != "" {
+		d, err := time.ParseDuration(f.poll)
 		if err != nil {
 			return fmt.Errorf("--poll: %w", err)
 		}
 		opts.Poll = d
 	}
-	if flagWorktreeBase != "" {
-		opts.WorktreesBase = flagWorktreeBase
+	if f.worktreeBase != "" {
+		opts.WorktreesBase = f.worktreeBase
 	}
-	if flagBranch != "" {
-		opts.DefaultBranch = flagBranch
+	if f.branch != "" {
+		opts.DefaultBranch = f.branch
 	}
-	if flagBranchPrefix != "" {
-		opts.BranchPrefix = flagBranchPrefix
+	if f.branchPrefix != "" {
+		opts.BranchPrefix = f.branchPrefix
 	}
-	if flagTag != "" {
-		opts.Tag = flagTag
+	if f.tag != "" {
+		opts.Tag = f.tag
 	}
 
-	// Defaults when still zero
 	if opts.ClaimFor == 0 {
 		opts.ClaimFor = 2 * time.Hour
 	}
@@ -223,12 +198,8 @@ func runDo(cmd *cobra.Command, args []string) error {
 		opts.Poll = 60 * time.Second
 	}
 
-	// Determine mode and work item before resolving runner.
 	switch {
-	case isNext:
-		// If the current item is still undone (not done or review-ready), re-use it rather
-		// than picking a new item from the queue. This supports running "wn do --next"
-		// repeatedly while using "wn pick" to advance to the next item.
+	case f.next:
 		meta, err := wn.ReadMeta(root)
 		if err != nil {
 			return err
@@ -243,12 +214,10 @@ func runDo(cmd *cobra.Command, args []string) error {
 				break
 			}
 		}
-		// --next: claim next from queue, run once, fail if empty
 		opts.FailIfEmpty = true
 		opts.MaxTasks = 1
-	case isLoop:
-		// --loop: queue mode, poll when empty
-		opts.MaxTasks = maxTasks // 0 = indefinite
+	case f.loop:
+		opts.MaxTasks = f.maxTasks
 	case workID != "":
 		opts.WorkID = workID
 	default:
@@ -262,7 +231,6 @@ func runDo(cmd *cobra.Command, args []string) error {
 		opts.WorkID = meta.CurrentID
 	}
 
-	// Resolve runner and apply to opts
 	runner, err := wn.ResolveRunner(settings, runnerName)
 	if err != nil {
 		return err
@@ -275,10 +243,23 @@ func runDo(cmd *cobra.Command, args []string) error {
 	return wn.RunAgentOrch(ctx, opts)
 }
 
-var launchCmd = &cobra.Command{
-	Use:   "launch [runner] [id]",
-	Short: "Dispatch agent on a work item asynchronously (fire-and-forget)",
-	Long: `Set up the worktree for a work item and dispatch the configured launch command without waiting.
+type launchFlags struct {
+	next         bool
+	loop         bool
+	maxTasks     int
+	claim        string
+	worktreeBase string
+	branch       string
+	branchPrefix string
+	tag          string
+}
+
+func newLaunchCmd() *cobra.Command {
+	flags := &launchFlags{}
+	cmd := &cobra.Command{
+		Use:   "launch [runner] [id]",
+		Short: "Dispatch agent on a work item asynchronously (fire-and-forget)",
+		Long: `Set up the worktree for a work item and dispatch the configured launch command without waiting.
 Intended for async workflows such as opening a new tmux window or launching an IDE.
 
   wn launch [runner] [id]  Dispatch for a specific item (or current if id omitted).
@@ -287,52 +268,24 @@ Intended for async workflows such as opening a new tmux window or launching an I
   wn launch --loop -n N    Stop after dispatching N items.
 
 Runner is resolved from settings.runners; defaults to agent.default_launch.`,
-	Args: cobra.RangeArgs(0, 2),
-	RunE: runLaunch,
+		Args: cobra.RangeArgs(0, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runLaunch(cmd, args, flags)
+		},
+	}
+	cmd.Flags().BoolVar(&flags.next, "next", false, "Dispatch for the next undone item from the queue.")
+	cmd.Flags().BoolVar(&flags.loop, "loop", false, "Loop: continuously dispatch items (polls when queue empty).")
+	cmd.Flags().IntVarP(&flags.maxTasks, "max-tasks", "n", 0, "Stop after dispatching N items (only with --loop; 0 = run indefinitely).")
+	cmd.Flags().StringVar(&flags.claim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
+	cmd.Flags().StringVar(&flags.worktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
+	cmd.Flags().StringVar(&flags.branchPrefix, "branch-prefix", "", "Prefix for generated branch names. Overrides settings.")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", "Only consider items with this tag (with --next or --loop). Overrides settings.")
+	return cmd
 }
 
-var (
-	launchNext         bool
-	launchLoop         bool
-	launchMaxTasks     int
-	launchClaim        string
-	launchWorktreeBase string
-	launchBranch       string
-	launchBranchPrefix string
-	launchTag          string
-)
-
-func init() {
-	launchCmd.Flags().BoolVar(&launchNext, "next", false, "Dispatch for the next undone item from the queue.")
-	launchCmd.Flags().BoolVar(&launchLoop, "loop", false, "Loop: continuously dispatch items (polls when queue empty).")
-	launchCmd.Flags().IntVarP(&launchMaxTasks, "max-tasks", "n", 0, "Stop after dispatching N items (only with --loop; 0 = run indefinitely).")
-	launchCmd.Flags().StringVar(&launchClaim, "claim", "", "Claim duration per item (e.g. 2h). Overrides settings.")
-	launchCmd.Flags().StringVar(&launchWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
-	launchCmd.Flags().StringVar(&launchBranch, "branch", "", "Default branch override (e.g. main). Overrides settings.")
-	launchCmd.Flags().StringVar(&launchBranchPrefix, "branch-prefix", "", "Prefix for generated branch names. Overrides settings.")
-	launchCmd.Flags().StringVar(&launchTag, "tag", "", "Only consider items with this tag (with --next or --loop). Overrides settings.")
-}
-
-func runLaunch(cmd *cobra.Command, args []string) error {
-	isNext, _ := cmd.Flags().GetBool("next")
-	isLoop, _ := cmd.Flags().GetBool("loop")
-	maxTasks, _ := cmd.Flags().GetInt("max-tasks")
-	flagClaim, _ := cmd.Flags().GetString("claim")
-	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
-	flagBranch, _ := cmd.Flags().GetString("branch")
-	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
-	flagTag, _ := cmd.Flags().GetString("tag")
-
-	_ = cmd.Flags().Set("next", "false")
-	_ = cmd.Flags().Set("loop", "false")
-	_ = cmd.Flags().Set("max-tasks", "0")
-	_ = cmd.Flags().Set("claim", "")
-	_ = cmd.Flags().Set("worktree-base", "")
-	_ = cmd.Flags().Set("branch", "")
-	_ = cmd.Flags().Set("branch-prefix", "")
-	_ = cmd.Flags().Set("tag", "")
-
-	if maxTasks != 0 && !isLoop {
+func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
+	if f.maxTasks != 0 && !f.loop {
 		return fmt.Errorf("-n / --max-tasks requires --loop")
 	}
 
@@ -348,7 +301,6 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	as := settings.Agent
 	ns := settings.Next
 
-	// Parse positional args: optional runner name and/or item ID.
 	var runnerName, workID string
 	switch len(args) {
 	case 2:
@@ -362,26 +314,22 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if isNext && workID != "" {
+	if f.next && workID != "" {
 		return fmt.Errorf("use either an id argument or --next, not both")
 	}
-	if isLoop && workID != "" {
+	if f.loop && workID != "" {
 		return fmt.Errorf("use either an id argument or --loop, not both")
 	}
 
-	// Determine the work item (or validate current task) before resolving runner.
 	tag := ns.Tag
-	if flagTag != "" {
-		tag = flagTag
+	if f.tag != "" {
+		tag = f.tag
 	}
 	var orchWorkID string
 	var orchFailIfEmpty bool
 	var orchMaxTasks int
 	switch {
-	case isNext:
-		// If the current item is still undone (not done or review-ready), re-use it rather
-		// than picking a new item from the queue. This supports running "wn launch --next"
-		// repeatedly while using "wn pick" to advance to the next item.
+	case f.next:
 		meta, err := wn.ReadMeta(root)
 		if err != nil {
 			return err
@@ -398,8 +346,8 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 		}
 		orchFailIfEmpty = true
 		orchMaxTasks = 1
-	case isLoop:
-		orchMaxTasks = maxTasks // 0 = indefinite
+	case f.loop:
+		orchMaxTasks = f.maxTasks
 	case workID != "":
 		orchWorkID = workID
 	default:
@@ -424,7 +372,7 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 		Async:         true,
 		AgentCmd:      runner.Cmd,
 		PromptTpl:     runner.Prompt,
-		LeaveWorktree: true, // always leave worktree for async dispatch
+		LeaveWorktree: true,
 		WorkID:        orchWorkID,
 		FailIfEmpty:   orchFailIfEmpty,
 		MaxTasks:      orchMaxTasks,
@@ -436,8 +384,8 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 			opts.ClaimFor = d
 		}
 	}
-	if flagClaim != "" {
-		d, err := time.ParseDuration(flagClaim)
+	if f.claim != "" {
+		d, err := time.ParseDuration(f.claim)
 		if err != nil {
 			return fmt.Errorf("--claim: %w", err)
 		}
@@ -459,20 +407,20 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	if ws.Base != "" {
 		opts.WorktreesBase = ws.Base
 	}
-	if flagWorktreeBase != "" {
-		opts.WorktreesBase = flagWorktreeBase
+	if f.worktreeBase != "" {
+		opts.WorktreesBase = f.worktreeBase
 	}
 	if ws.DefaultBranch != "" {
 		opts.DefaultBranch = ws.DefaultBranch
 	}
-	if flagBranch != "" {
-		opts.DefaultBranch = flagBranch
+	if f.branch != "" {
+		opts.DefaultBranch = f.branch
 	}
 	if ws.BranchPrefix != "" {
 		opts.BranchPrefix = ws.BranchPrefix
 	}
-	if flagBranchPrefix != "" {
-		opts.BranchPrefix = flagBranchPrefix
+	if f.branchPrefix != "" {
+		opts.BranchPrefix = f.branchPrefix
 	}
 	if ws.BranchTemplate != "" {
 		opts.BranchTemplate = ws.BranchTemplate
@@ -486,10 +434,21 @@ func runLaunch(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var worktreeSetupCmd = &cobra.Command{
-	Use:   "worktree [id]",
-	Short: "Claim a work item and create its git worktree, printing the path to stdout",
-	Long: `Claim a work item, create a branch and git worktree for it, and print the worktree path to stdout.
+type worktreeSetupFlags struct {
+	claim        string
+	branchPrefix string
+	worktreeBase string
+	tag          string
+	next         bool
+	branch       string
+}
+
+func newWorktreeSetupCmd() *cobra.Command {
+	flags := &worktreeSetupFlags{}
+	cmd := &cobra.Command{
+		Use:   "worktree [id]",
+		Short: "Claim a work item and create its git worktree, printing the path to stdout",
+		Long: `Claim a work item, create a branch and git worktree for it, and print the worktree path to stdout.
 
 Without args: uses the currently selected item (set via wn pick or wn next).
 With id: claims that specific item.
@@ -502,47 +461,22 @@ The worktree path is written to stdout, making it easy to script:
   tmux new-window -c "$WORKTREE" "cursor $WORKTREE"
 
 Settings from agent_orch (worktree_base, branch_prefix, claim) are reused.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runWorktreeSetup,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runWorktreeSetup(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVar(&flags.claim, "claim", "", "Claim duration (e.g. 2h). Overrides settings.")
+	cmd.Flags().StringVar(&flags.branchPrefix, "branch-prefix", "", "Branch name prefix (e.g. keith/). Overrides settings.")
+	cmd.Flags().StringVar(&flags.worktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
+	cmd.Flags().StringVar(&flags.tag, "tag", "", "Only consider items with this tag (with --next).")
+	cmd.Flags().BoolVar(&flags.next, "next", false, "Claim the next undone item from the queue.")
+	cmd.Flags().StringVar(&flags.branch, "branch", "", "Branch slug override (e.g. saved-views). Full name becomes [prefix]wn-<id>-<slug>. Overrides auto-generated slug.")
+	return cmd
 }
 
-var (
-	worktreeSetupClaim        string
-	worktreeSetupBranchPrefix string
-	worktreeSetupWorktreeBase string
-	worktreeSetupTag          string
-	worktreeSetupNext         bool
-	worktreeSetupBranch       string
-)
-
-func init() {
-	worktreeSetupCmd.Flags().StringVar(&worktreeSetupClaim, "claim", "", "Claim duration (e.g. 2h). Overrides settings.")
-	worktreeSetupCmd.Flags().StringVar(&worktreeSetupBranchPrefix, "branch-prefix", "", "Branch name prefix (e.g. keith/). Overrides settings.")
-	worktreeSetupCmd.Flags().StringVar(&worktreeSetupWorktreeBase, "worktree-base", "", "Base directory for worktrees. Overrides settings.")
-	worktreeSetupCmd.Flags().StringVar(&worktreeSetupTag, "tag", "", "Only consider items with this tag (with --next).")
-	worktreeSetupCmd.Flags().BoolVar(&worktreeSetupNext, "next", false, "Claim the next undone item from the queue.")
-	worktreeSetupCmd.Flags().StringVar(&worktreeSetupBranch, "branch", "", "Branch slug override (e.g. saved-views). Full name becomes [prefix]wn-<id>-<slug>. Overrides auto-generated slug.")
-}
-
-func runWorktreeSetup(cmd *cobra.Command, args []string) error {
-	// Read all flags from cmd directly; package-level flag vars may retain stale values
-	// across successive Execute() calls (e.g. in tests).
-	isNext, _ := cmd.Flags().GetBool("next")
-	flagClaim, _ := cmd.Flags().GetString("claim")
-	flagBranchPrefix, _ := cmd.Flags().GetString("branch-prefix")
-	flagWorktreeBase, _ := cmd.Flags().GetString("worktree-base")
-	flagTag, _ := cmd.Flags().GetString("tag")
-	flagBranch, _ := cmd.Flags().GetString("branch")
-
-	// Reset flags so they don't persist across test invocations.
-	_ = cmd.Flags().Set("next", "false")
-	_ = cmd.Flags().Set("claim", "")
-	_ = cmd.Flags().Set("branch-prefix", "")
-	_ = cmd.Flags().Set("worktree-base", "")
-	_ = cmd.Flags().Set("tag", "")
-	_ = cmd.Flags().Set("branch", "")
-
-	if isNext && len(args) > 0 {
+func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) error {
+	if f.next && len(args) > 0 {
 		return fmt.Errorf("use either an id argument or --next, not both")
 	}
 
@@ -563,8 +497,8 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 			claimFor = d
 		}
 	}
-	if flagClaim != "" {
-		d, err := time.ParseDuration(flagClaim)
+	if f.claim != "" {
+		d, err := time.ParseDuration(f.claim)
 		if err != nil {
 			return fmt.Errorf("--claim: %w", err)
 		}
@@ -572,17 +506,17 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	branchPrefix := ws.BranchPrefix
-	if flagBranchPrefix != "" {
-		branchPrefix = flagBranchPrefix
+	if f.branchPrefix != "" {
+		branchPrefix = f.branchPrefix
 	}
 	branchTemplate := ws.BranchTemplate
 	worktreesBase := ws.Base
-	if flagWorktreeBase != "" {
-		worktreesBase = flagWorktreeBase
+	if f.worktreeBase != "" {
+		worktreesBase = f.worktreeBase
 	}
 	tag := ns.Tag
-	if flagTag != "" {
-		tag = flagTag
+	if f.tag != "" {
+		tag = f.tag
 	}
 
 	store, err := wn.NewFileStore(root)
@@ -615,7 +549,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-	case isNext:
+	case f.next:
 		item, err = wn.ClaimNextItem(store, root, claimFor, "", tag)
 		if err != nil {
 			return err
@@ -647,10 +581,8 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// If --branch is provided, pre-set the branch note so SetupItemWorktree uses it.
-	// The slug comes from the flag value; the full name is generated via the branch template.
-	if flagBranch != "" {
-		slug := wn.BranchSlug(flagBranch)
+	if f.branch != "" {
+		slug := wn.BranchSlug(f.branch)
 		fullBranch := branchPrefix + wn.ExpandBranchTemplate(branchTemplate, item.ID, slug)
 		now := time.Now().UTC()
 		if err = store.UpdateItem(item.ID, func(it *wn.Item) (*wn.Item, error) {
@@ -680,10 +612,11 @@ func runWorktreeSetup(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var summaryCmd = &cobra.Command{
-	Use:   "summary",
-	Short: "Show a summary dashboard: counts by status and tag",
-	Long: `Show aggregate counts of work items by status and by tag.
+func newSummaryCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "summary",
+		Short: "Show a summary dashboard: counts by status and tag",
+		Long: `Show aggregate counts of work items by status and by tag.
 
 Example output:
   status      count
@@ -698,8 +631,9 @@ Example output:
   (no tags)             3        0        1
 
 Useful for a quick project health check without scrolling through all items.`,
-	Args: cobra.NoArgs,
-	RunE: runSummary,
+		Args: cobra.NoArgs,
+		RunE: runSummary,
+	}
 }
 
 func runSummary(_ *cobra.Command, _ []string) error {
@@ -718,7 +652,6 @@ func runSummary(_ *cobra.Command, _ []string) error {
 	now := time.Now().UTC()
 	blockedSet := wn.BlockedSet(allItems)
 
-	// Count items by status.
 	statusCounts := make(map[string]int)
 	for _, it := range allItems {
 		status := wn.ItemListStatus(it, now, blockedSet[it.ID])
@@ -732,7 +665,6 @@ func runSummary(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Tag breakdown for active statuses (undone, blocked, review).
 	type tagRow struct{ undone, blocked, review int }
 	tagMap := make(map[string]*tagRow)
 	var noTagRow tagRow
@@ -794,26 +726,31 @@ func runSummary(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-var promptMessage string
+type promptFlags struct {
+	message string
+}
 
-var promptCmd = &cobra.Command{
-	Use:   "prompt [parent-id]",
-	Short: "Create a prompt item (question for user) and add as dependency of parent",
-	Long: `Creates a new prompt-state work item (a question for the user) and adds it as a
+func newPromptCmd() *cobra.Command {
+	flags := &promptFlags{}
+	cmd := &cobra.Command{
+		Use:   "prompt [parent-id]",
+		Short: "Create a prompt item (question for user) and add as dependency of parent",
+		Long: `Creates a new prompt-state work item (a question for the user) and adds it as a
 dependency of the parent item. The parent item becomes blocked until the user responds.
 
 If parent-id is omitted, the current work item is used.
 Use -m to provide the question inline, or $EDITOR will be opened.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runPrompt,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPrompt(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Question text (or open $EDITOR if omitted)")
+	return cmd
 }
 
-func init() {
-	promptCmd.Flags().StringVarP(&promptMessage, "message", "m", "", "Question text (or open $EDITOR if omitted)")
-}
-
-func runPrompt(cmd *cobra.Command, args []string) error {
-	msg := promptMessage
+func runPrompt(cmd *cobra.Command, args []string, f *promptFlags) error {
+	msg := f.message
 	if msg == "" {
 		var err error
 		msg, err = wn.EditWithEditor("")
@@ -844,11 +781,9 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	// Verify parent exists
 	if _, err := store.Get(parentID); err != nil {
 		return err
 	}
-	// Create the prompt item
 	promptID, err := wn.GenerateID(store)
 	if err != nil {
 		return err
@@ -865,7 +800,6 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	if err := store.Put(promptItem); err != nil {
 		return err
 	}
-	// Add prompt item as dependency of parent
 	items, err := store.List()
 	if err != nil {
 		return err
@@ -886,25 +820,30 @@ func runPrompt(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var respondMessage string
+type respondFlags struct {
+	message string
+}
 
-var respondCmd = &cobra.Command{
-	Use:   "respond [prompt-id]",
-	Short: "Respond to a prompt item (marks it done and stores the response)",
-	Long: `Marks a prompt-state work item as done and stores the response as a note.
+func newRespondCmd() *cobra.Command {
+	flags := &respondFlags{}
+	cmd := &cobra.Command{
+		Use:   "respond [prompt-id]",
+		Short: "Respond to a prompt item (marks it done and stores the response)",
+		Long: `Marks a prompt-state work item as done and stores the response as a note.
 This unblocks the parent item that was waiting for the response.
 
 If prompt-id is omitted, the current work item is used.
 Use -m to provide the answer inline, or $EDITOR will be opened.`,
-	Args: cobra.MaximumNArgs(1),
-	RunE: runRespond,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRespond(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Response text (or open $EDITOR if omitted)")
+	return cmd
 }
 
-func init() {
-	respondCmd.Flags().StringVarP(&respondMessage, "message", "m", "", "Response text (or open $EDITOR if omitted)")
-}
-
-func runRespond(cmd *cobra.Command, args []string) error {
+func runRespond(cmd *cobra.Command, args []string, f *respondFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -932,7 +871,7 @@ func runRespond(cmd *cobra.Command, args []string) error {
 	if !item.PromptReady {
 		return fmt.Errorf("item %s is not in prompt state", id)
 	}
-	msg := respondMessage
+	msg := f.message
 	if msg == "" {
 		var err error
 		msg, err = wn.EditWithEditor("")
@@ -950,7 +889,6 @@ func runRespond(cmd *cobra.Command, args []string) error {
 		it.PromptReady = false
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: msg})
-		// Store response as a note
 		if it.Notes == nil {
 			it.Notes = []wn.Note{}
 		}

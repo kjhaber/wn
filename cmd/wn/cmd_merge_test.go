@@ -47,10 +47,10 @@ func TestMergeCmd_success(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetMergeFlags()
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"merge", "wn-abc999-feat", "-m", "Squash: implement feat"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"merge", "wn-abc999-feat", "-m", "Squash: implement feat"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn merge: %v", err)
 		}
 	})
@@ -106,10 +106,10 @@ func TestMergeCmd_dryRun(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetMergeFlags()
 	captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"merge", "wn-dry999-feat", "-m", "dry msg", "--dry-run"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"merge", "wn-dry999-feat", "-m", "dry msg", "--dry-run"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn merge --dry-run: %v", err)
 		}
 	})
@@ -138,10 +138,10 @@ func TestMergeCmd_missingItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetMergeFlags()
 	err := func() error {
-		rootCmd.SetArgs([]string{"merge", "wn-noitem-feat", "-m", "some msg"})
-		return rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"merge", "wn-noitem-feat", "-m", "some msg"})
+		return root.Execute()
 	}()
 	if err == nil {
 		t.Fatal("expected error for branch with no wn item")
@@ -156,10 +156,10 @@ func TestMergeCmd_missingBranchArg(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	resetMergeFlags()
 	err := func() error {
-		rootCmd.SetArgs([]string{"merge"})
-		return rootCmd.Execute()
+		root := newRootCmd()
+		root.SetArgs([]string{"merge"})
+		return root.Execute()
 	}()
 	if err == nil {
 		t.Fatal("expected error for missing branch argument")

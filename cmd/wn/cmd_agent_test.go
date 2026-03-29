@@ -23,8 +23,9 @@ func TestDoWithoutArgNoCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"do"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do without arg and no current task should fail")
 	}
@@ -42,8 +43,9 @@ func TestDoWithArgInvokesAgentOrch(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn do <id> should invoke agent-orch logic. It fails before running (agent_cmd, default branch, or similar).
-	rootCmd.SetArgs([]string{"do", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do without full setup should fail")
 	}
@@ -61,8 +63,9 @@ func TestDoWithoutArgUsesCurrent(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	// wn do with no arg should use current task and reach agent-orch. Fails before running.
-	rootCmd.SetArgs([]string{"do"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do without full setup should fail")
 	}
@@ -82,8 +85,9 @@ func TestWorktreeSetup_noCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"worktree"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"worktree"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn worktree with no current task should fail")
 	}
@@ -100,8 +104,9 @@ func TestWorktreeSetup_nextAndIdArgError(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"worktree", "--next", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"worktree", "--next", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn worktree --next <id> should fail")
 	}
@@ -120,8 +125,9 @@ func TestWorktreeSetup_withID(t *testing.T) {
 
 	worktreesBase := filepath.Join(dir, "worktrees")
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn worktree %s: %v", itemID, err)
 		}
 	})
@@ -158,8 +164,9 @@ func TestWorktreeSetup_usesCurrent(t *testing.T) {
 
 	worktreesBase := filepath.Join(dir, "worktrees")
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"worktree", "--worktree-base", worktreesBase})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"worktree", "--worktree-base", worktreesBase})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn worktree (no args, current set): %v", err)
 		}
 	})
@@ -184,8 +191,9 @@ func TestWorktreeSetup_claimsNext(t *testing.T) {
 
 	worktreesBase := filepath.Join(dir, "worktrees")
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"worktree", "--next", "--worktree-base", worktreesBase})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"worktree", "--next", "--worktree-base", worktreesBase})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn worktree --next: %v", err)
 		}
 	})
@@ -214,8 +222,9 @@ func TestWorktreeSetup_branchFlag(t *testing.T) {
 
 	worktreesBase := filepath.Join(dir, "worktrees")
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn worktree --branch: %v", err)
 		}
 	})
@@ -253,8 +262,9 @@ func TestWorktreeSetup_branchFlagWithPrefix(t *testing.T) {
 
 	worktreesBase := filepath.Join(dir, "worktrees")
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature", "--branch-prefix", "keith/"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"worktree", itemID, "--worktree-base", worktreesBase, "--branch", "my-feature", "--branch-prefix", "keith/"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("wn worktree --branch --branch-prefix: %v", err)
 		}
 	})
@@ -275,13 +285,6 @@ func TestWorktreeSetup_branchFlagWithPrefix(t *testing.T) {
 	}
 }
 
-// resetDoFlags resets wn do flags between test invocations.
-func resetDoFlags() {
-	doNext = false
-	doLoop = false
-	doMaxTasks = 0
-}
-
 // TestDoUnified_nextAndIdArgError verifies that "wn do --next <id>" is rejected.
 
 func TestDoUnified_nextAndIdArgError(t *testing.T) {
@@ -290,13 +293,11 @@ func TestDoUnified_nextAndIdArgError(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"do", "--next", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "--next", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do --next <id> should fail")
 	}
@@ -313,13 +314,11 @@ func TestDoUnified_loopAndIdArgError(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"do", "--loop", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "--loop", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do --loop <id> should fail")
 	}
@@ -345,14 +344,12 @@ func TestDoUnified_nextEmptyQueue(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"do", "--next"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "--next"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do --next on empty queue should fail")
 	}
@@ -369,13 +366,11 @@ func TestDoUnified_nWithoutLoopError(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"do", "-n", "3"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "-n", "3"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn do -n N without --loop should fail")
 	}
@@ -412,13 +407,11 @@ func TestDoWithBlockedItem(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"do", "task1"})
-	err = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "task1"})
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("wn do <blocked-id> should fail")
 	}
@@ -458,13 +451,11 @@ func TestDoCurrentItemBlocked(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"do"})
-	err = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"do"})
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("wn do with blocked current item should fail")
 	}
@@ -501,13 +492,11 @@ func TestLaunchWithBlockedItem(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"launch", "task1"})
-	err = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "task1"})
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("wn launch <blocked-id> should fail")
 	}
@@ -547,13 +536,11 @@ func TestLaunchCurrentItemBlocked(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"launch"})
-	err = rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch"})
+	err = root.Execute()
 	if err == nil {
 		t.Fatal("wn launch with blocked current item should fail")
 	}
@@ -573,8 +560,9 @@ func TestLaunchWithoutArgNoCurrent(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"launch"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch without current task should fail")
 	}
@@ -594,8 +582,9 @@ func TestLaunchNoLaunchRunnerConfigured(t *testing.T) {
 	t.Setenv("WN_CONFIG_DIR", t.TempDir())
 
 	// No settings file, so no default_launch runner configured.
-	rootCmd.SetArgs([]string{"launch"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch without configured launch runner should fail")
 	}
@@ -612,21 +601,15 @@ func TestLaunchNextAndIdArgError(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"launch", "--next", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "--next", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch --next <id> should fail")
 	}
 	if !strings.Contains(err.Error(), "not both") {
 		t.Errorf("want mutual exclusion error; got: %v", err)
 	}
-}
-
-// resetLaunchFlags resets wn launch flags between test invocations.
-func resetLaunchFlags() {
-	launchNext = false
-	launchLoop = false
-	launchMaxTasks = 0
 }
 
 // TestLaunchLoopAndIdArgError verifies that "wn launch --loop <id>" is rejected.
@@ -637,13 +620,11 @@ func TestLaunchLoopAndIdArgError(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"launch", "--loop", itemID})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "--loop", itemID})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch --loop <id> should fail")
 	}
@@ -660,13 +641,11 @@ func TestLaunchNWithoutLoopError(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"launch", "-n", "3"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "-n", "3"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch -n N without --loop should fail")
 	}
@@ -691,14 +670,12 @@ func TestLaunchNextEmptyQueue(t *testing.T) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("Chdir: %v", err)
 	}
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"launch", "--next"})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "--next"})
+	err := root.Execute()
 	if err == nil {
 		t.Error("wn launch --next on empty queue should fail")
 	}
@@ -734,14 +711,12 @@ func TestLaunchNext_currentUndoneItemUsed(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	worktreesBase := filepath.Join(dir, "worktrees")
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn launch --next: %v", err)
 	}
 
@@ -790,14 +765,12 @@ func TestLaunchNext_currentReviewReadyPicksFromQueue(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	worktreesBase := filepath.Join(dir, "worktrees")
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetLaunchFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	writeLaunchRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"launch", "--next", "--worktree-base", worktreesBase})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn launch --next: %v", err)
 	}
 
@@ -835,14 +808,12 @@ func TestDoNext_currentUndoneItemUsed(t *testing.T) {
 		t.Fatalf("Chdir: %v", err)
 	}
 	worktreesBase := filepath.Join(dir, "worktrees")
-	defer func() {
-		_ = os.Chdir(cwd)
-		resetDoFlags()
-	}()
+	defer func() { _ = os.Chdir(cwd) }()
 
 	writeRunnerSettings(t, dir, "echo-runner", "echo hello")
-	rootCmd.SetArgs([]string{"do", "--next", "--worktree-base", worktreesBase})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"do", "--next", "--worktree-base", worktreesBase})
+	if err := root.Execute(); err != nil {
 		t.Fatalf("wn do --next: %v", err)
 	}
 
@@ -867,8 +838,9 @@ func TestPromptCmd_createsItemAndDep(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"prompt", parentID, "-m", "What should the behavior be?"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"prompt", parentID, "-m", "What should the behavior be?"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -915,8 +887,9 @@ func TestPromptCmd_fallsBackToCurrentItem(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"prompt", "-m", "Is this right?"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"prompt", "-m", "Is this right?"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -942,8 +915,9 @@ func TestRespondCmd_marksPromptDone(t *testing.T) {
 	}
 	_ = store.Put(promptItem)
 
-	rootCmd.SetArgs([]string{"respond", "pmt111", "-m", "Yes, proceed."})
-	if err := rootCmd.Execute(); err != nil {
+	root := newRootCmd()
+	root.SetArgs([]string{"respond", "pmt111", "-m", "Yes, proceed."})
+	if err := root.Execute(); err != nil {
 		t.Errorf("Execute respond: %v", err)
 	}
 	got, _ := store.Get("pmt111")
@@ -966,8 +940,9 @@ func TestRespondCmd_rejectsNonPromptItem(t *testing.T) {
 	}
 	defer func() { _ = os.Chdir(cwd) }()
 
-	rootCmd.SetArgs([]string{"respond", itemID, "-m", "This should fail."})
-	err := rootCmd.Execute()
+	root := newRootCmd()
+	root.SetArgs([]string{"respond", itemID, "-m", "This should fail."})
+	err := root.Execute()
 	if err == nil {
 		t.Error("expected error when responding to non-prompt item")
 	}
@@ -985,8 +960,9 @@ func TestSummaryEmpty(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"summary"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"summary"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1030,8 +1006,9 @@ func TestSummaryStatusCounts(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"summary"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"summary"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1089,8 +1066,9 @@ func TestSummaryTagCounts(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"summary"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"summary"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1156,8 +1134,9 @@ func TestSummaryNoTagsRow(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"summary"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"summary"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})
@@ -1192,8 +1171,9 @@ func TestSummaryBlockedCount(t *testing.T) {
 	defer func() { _ = os.Chdir(cwd) }()
 
 	out := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"summary"})
-		if err := rootCmd.Execute(); err != nil {
+		root := newRootCmd()
+		root.SetArgs([]string{"summary"})
+		if err := root.Execute(); err != nil {
 			t.Errorf("Execute: %v", err)
 		}
 	})

@@ -10,42 +10,50 @@ import (
 
 var version = "dev"
 
+type rootFlags struct {
+	picker string
+}
+
+func newRootCmd() *cobra.Command {
+	rf := &rootFlags{}
+	root := &cobra.Command{
+		Use:   "wn",
+		Short: "What's Next — local task/work item tracker",
+		Long:  `wn is a CLI for tracking work items. Use wn init to create a tracker in the current directory.`,
+		Args:  cobra.MaximumNArgs(1),
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			mode := ""
+			rootPath, err := wn.FindRootForCLI()
+			if err == nil {
+				settings, _ := wn.ReadSettingsInRoot(rootPath)
+				mode = settings.Picker
+			}
+			if cmd.Root().PersistentFlags().Changed("picker") {
+				mode = rf.picker
+			}
+			return wn.SetPickerMode(mode)
+		},
+		RunE: runCurrent,
+	}
+	root.Version = version
+	root.SetVersionTemplate("wn version {{.Version}}\n")
+	root.PersistentFlags().StringVar(&rf.picker, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
+	root.AddCommand(
+		newInitCmd(), newAddCmd(), newRmCmd(), newArchiveCmd(), newEditCmd(), newTagCmd(), newDependCmd(),
+		newDoneCmd(), newUndoneCmd(), newStatusCmd(), newClaimCmd(), newReleaseCmd(), newReviewReadyCmd(), newCleanupCmd(),
+		newLogCmd(), newShowCmd(), newNextCmd(), newPickCmd(), newMCPCmd(), newDoCmd(), newLaunchCmd(), newWorktreeSetupCmd(),
+		newSettingsCmd(), newVerifyCmd(), newExportCmd(), newImportCmd(), newListCmd(), newNoteCmd(), newTUICmd(),
+		newPromptCmd(), newRespondCmd(), newSummaryCmd(), newMergeCmd(), newRepoRootCmd(),
+	)
+	root.CompletionOptions.DisableDefaultCmd = false
+	return root
+}
+
 func main() {
-	if err := rootCmd.Execute(); err != nil {
+	if err := newRootCmd().Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-}
-
-var pickerFlag string
-
-var rootCmd = &cobra.Command{
-	Use:   "wn",
-	Short: "What's Next — local task/work item tracker",
-	Long:  `wn is a CLI for tracking work items. Use wn init to create a tracker in the current directory.`,
-	Args:  cobra.MaximumNArgs(1),
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Determine effective picker mode: settings, overridden by --picker flag.
-		mode := ""
-		root, err := wn.FindRootForCLI()
-		if err == nil {
-			settings, _ := wn.ReadSettingsInRoot(root)
-			mode = settings.Picker
-		}
-		if cmd.Root().PersistentFlags().Changed("picker") {
-			mode = pickerFlag
-		}
-		return wn.SetPickerMode(mode)
-	},
-	RunE: runCurrent,
-}
-
-func init() {
-	rootCmd.Version = version
-	rootCmd.SetVersionTemplate("wn version {{.Version}}\n")
-	rootCmd.PersistentFlags().StringVar(&pickerFlag, "picker", "", "Picker mode: fzf, numbered, or empty (auto-detect)")
-	rootCmd.AddCommand(initCmd, addCmd, rmCmd, archiveCmd, editCmd, tagCmd, dependCmd, doneCmd, undoneCmd, statusCmd, claimCmd, releaseCmd, reviewReadyCmd, cleanupCmd, logCmd, showCmd, nextCmd, pickCmd, mcpCmd, doCmd, launchCmd, worktreeSetupCmd, settingsCmd, verifyCmd, exportCmd, importCmd, listCmd, noteCmd, tuiCmd, promptCmd, respondCmd, summaryCmd, mergeCmd, repoRootCmd)
-	rootCmd.CompletionOptions.DisableDefaultCmd = false
 }
 
 // defaultShowFields is the built-in default for bare 'wn [id]' and 'wn show [id]'

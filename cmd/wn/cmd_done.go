@@ -8,24 +8,30 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var doneCmd = &cobra.Command{
-	Use:   "done [id]",
-	Short: "Mark a work item complete",
-	Long:  "If id is omitted, marks the current task complete. Use --next to then set the next undone item as current (convenience for done + next).",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runDone,
-}
-var doneMessage string
-var doneForce bool
-var doneNext bool
-
-func init() {
-	doneCmd.Flags().StringVarP(&doneMessage, "message", "m", "", "Completion message (e.g. git commit)")
-	doneCmd.Flags().BoolVar(&doneForce, "force", false, "Mark complete even if dependencies are not done")
-	doneCmd.Flags().BoolVar(&doneNext, "next", false, "After marking done, set the next undone item as current (like running wn next)")
+type doneFlags struct {
+	message string
+	force   bool
+	next    bool
 }
 
-func runDone(cmd *cobra.Command, args []string) error {
+func newDoneCmd() *cobra.Command {
+	flags := &doneFlags{}
+	cmd := &cobra.Command{
+		Use:   "done [id]",
+		Short: "Mark a work item complete",
+		Long:  "If id is omitted, marks the current task complete. Use --next to then set the next undone item as current (convenience for done + next).",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDone(cmd, args, flags)
+		},
+	}
+	cmd.Flags().StringVarP(&flags.message, "message", "m", "", "Completion message (e.g. git commit)")
+	cmd.Flags().BoolVar(&flags.force, "force", false, "Mark complete even if dependencies are not done")
+	cmd.Flags().BoolVar(&flags.next, "next", false, "After marking done, set the next undone item as current (like running wn next)")
+	return cmd
+}
+
+func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 	root, err := wn.FindRootForCLI()
 	if err != nil {
 		return err
@@ -50,7 +56,7 @@ func runDone(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if !doneForce {
+	if !flags.force {
 		for _, depID := range item.DependsOn {
 			dep, err := store.Get(depID)
 			if err != nil {
@@ -63,7 +69,6 @@ func runDone(cmd *cobra.Command, args []string) error {
 		}
 	}
 	now := time.Now().UTC()
-	// Auto-mark prompt deps as done.
 	for _, depID := range item.DependsOn {
 		dep, err := store.Get(depID)
 		if err != nil {
@@ -84,16 +89,16 @@ func runDone(cmd *cobra.Command, args []string) error {
 	}
 	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
-		it.DoneMessage = doneMessage
+		it.DoneMessage = flags.message
 		it.DoneStatus = wn.DoneStatusDone
 		it.ReviewReady = false
 		it.Updated = now
-		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: doneMessage})
+		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "done", Msg: flags.message})
 		return it, nil
 	}); err != nil {
 		return err
 	}
-	if !doneNext {
+	if !flags.next {
 		return nil
 	}
 	undone, err := wn.UndoneItems(store)
@@ -116,12 +121,14 @@ func runDone(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var undoneCmd = &cobra.Command{
-	Use:   "undone [id]",
-	Short: "Mark a work item not complete",
-	Long:  "If id is omitted, marks the current task undone.",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runUndone,
+func newUndoneCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "undone [id]",
+		Short: "Mark a work item not complete",
+		Long:  "If id is omitted, marks the current task undone.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE:  runUndone,
+	}
 }
 
 func runUndone(cmd *cobra.Command, args []string) error {
