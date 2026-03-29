@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -672,6 +673,44 @@ func TestApplyFilter_GroupSortOrder(t *testing.T) {
 		if ids[i] != want[i] {
 			t.Errorf("position %d: got %q, want %q (full order: %v)", i, ids[i], want[i], ids)
 		}
+	}
+}
+
+// --- pure view layout (compute + render helpers) ---
+
+func TestTUIComputeListPaneLayout_PastEndIsBlank(t *testing.T) {
+	m := tuiModel{width: 80, height: 24, items: []*wn.Item{{ID: "x"}}}
+	m.buildRows()
+	m.listOffset = 10
+	bh := m.bodyHeight()
+	rows := tuiComputeListPaneLayout(m, bh)
+	if len(rows) != bh {
+		t.Fatalf("expected %d rows, got %d", bh, len(rows))
+	}
+	for i, r := range rows {
+		if r.groupHeader != "" || r.item != nil {
+			t.Errorf("row %d should be blank when listOffset past end, got %+v", i, r)
+		}
+	}
+}
+
+func TestTUIComputeHeaderLayout_CurrentStar(t *testing.T) {
+	m := tuiModel{
+		items:     []*wn.Item{{ID: "abc", Description: "d"}},
+		rows:      []tuiListRow{{header: "▼ Undone (1)", groupKey: "3", itemIdx: -1}, {itemIdx: 0}},
+		cursor:    1,
+		currentID: "abc",
+	}
+	h := tuiComputeHeaderLayout(m)
+	if h.rightItemID != "abc" || !h.showCurrent {
+		t.Fatalf("tuiComputeHeaderLayout() = %+v", h)
+	}
+}
+
+func TestTUIRenderFooter_ErrorKind(t *testing.T) {
+	got := tuiRenderFooter(tuiFooterLayout{kind: "error", err: fmt.Errorf("boom")})
+	if !strings.Contains(got, "boom") {
+		t.Errorf("expected error text in footer, got %q", got)
 	}
 }
 

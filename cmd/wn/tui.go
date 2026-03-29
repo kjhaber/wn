@@ -70,6 +70,41 @@ type tuiListRow struct {
 	itemIdx  int    // index into m.items; -1 for header rows
 }
 
+// tuiHeaderLayout is precomputed header content for the list/detail split (tuiRenderHeader applies lipgloss).
+type tuiHeaderLayout struct {
+	itemCount    int
+	statusFilter string
+	groupMode    string
+	filterText   string
+	filterMode   bool
+	rightItemID  string
+	showCurrent  bool
+}
+
+// tuiVisibleListRow is one row in the list viewport after scrolling (View applies lipgloss).
+type tuiVisibleListRow struct {
+	groupHeader string   // non-empty → group header row
+	item        *wn.Item // nil when groupHeader is set
+	cursorHere  bool
+}
+
+// tuiFooterLayout selects which footer line View renders.
+type tuiFooterLayout struct {
+	kind       string // "error", "filter", "msg", "hints", "help_hints"
+	err        error
+	filterText string
+	msg        string
+	showHelp   bool
+}
+
+// tuiViewLayout is the full frame layout for one View() call (pure data + lipgloss-free strings).
+type tuiViewLayout struct {
+	header       tuiHeaderLayout
+	listRows     []tuiVisibleListRow
+	bodyHeight   int
+	detailVPView string // pre-rendered viewport string (bubbletea viewport output)
+}
+
 // tuiState holds TUI display state that is persisted across sessions.
 type tuiState struct {
 	StatusFilter    string   `json:"statusFilter"`
@@ -278,16 +313,15 @@ func (m tuiModel) cmdLoad() tea.Cmd {
 	}
 }
 
-func (m *tuiModel) applyFilter() {
+// tuiFilteredSortedItems returns items matching status/text filters, sorted for the given group mode.
+func tuiFilteredSortedItems(allItems []*wn.Item, blockedSet map[string]bool, filterText, statusFilter, groupMode string, now time.Time) []*wn.Item {
 	var out []*wn.Item
 
-	// Determine text search mode: "#tag" prefix = tag-only match.
-	tagOnly := strings.HasPrefix(m.filterText, "#")
-	search := strings.ToLower(strings.TrimPrefix(m.filterText, "#"))
+	tagOnly := strings.HasPrefix(filterText, "#")
+	search := strings.ToLower(strings.TrimPrefix(filterText, "#"))
 
-	for _, it := range m.allItems {
-		// Status filter
-		switch m.statusFilter {
+	for _, it := range allItems {
+		switch statusFilter {
 		case tuiFilterActive:
 			if it.Done {
 				continue
@@ -302,7 +336,6 @@ func (m *tuiModel) applyFilter() {
 			}
 		}
 
-		// Text / tag filter
 		if search != "" {
 			if tagOnly {
 				matched := false
@@ -332,17 +365,15 @@ func (m *tuiModel) applyFilter() {
 		out = append(out, it)
 	}
 
-	// Sort by group key based on group mode (stable: preserves existing order within each group).
-	now := time.Now().UTC()
-	mode := m.groupMode
+	mode := groupMode
 	if mode == "" {
 		mode = tuiGroupModeStatus
 	}
 	switch mode {
 	case tuiGroupModeStatus:
 		sort.SliceStable(out, func(i, j int) bool {
-			gi := tuiGroupKey(out[i], m.blockedSet[out[i].ID], now)
-			gj := tuiGroupKey(out[j], m.blockedSet[out[j].ID], now)
+			gi := tuiGroupKey(out[i], blockedSet[out[i].ID], now)
+			gj := tuiGroupKey(out[j], blockedSet[out[j].ID], now)
 			return gi < gj
 		})
 	case tuiGroupModeTags:
@@ -356,9 +387,13 @@ func (m *tuiModel) applyFilter() {
 			}
 			return ti < tj
 		})
-		// tuiGroupModeNone: preserve existing sort order
 	}
-	m.items = out
+	return out
+}
+
+func (m *tuiModel) applyFilter() {
+	now := time.Now().UTC()
+	m.items = tuiFilteredSortedItems(m.allItems, m.blockedSet, m.filterText, m.statusFilter, m.groupMode, now)
 	m.buildRows()
 }
 
@@ -397,26 +432,25 @@ func tuiGroupLabel(g int) string {
 	}
 }
 
-// buildRows rebuilds the flat display-row list (group headers + item rows) from m.items.
-func (m *tuiModel) buildRows() {
-	m.rows = nil
-	if len(m.items) == 0 {
-		return
+// tuiBuildRows builds the flat display-row list (group headers + item rows) from filtered items.
+func tuiBuildRows(items []*wn.Item, groupMode string, collapsedGroups map[string]bool, blockedSet map[string]bool, now time.Time) []tuiListRow {
+	if len(items) == 0 {
+		return nil
 	}
 
-	mode := m.groupMode
+	mode := groupMode
 	if mode == "" {
 		mode = tuiGroupModeStatus
 	}
 
 	if mode == tuiGroupModeNone {
-		for i := range m.items {
-			m.rows = append(m.rows, tuiListRow{itemIdx: i})
+		rows := make([]tuiListRow, len(items))
+		for i := range items {
+			rows[i] = tuiListRow{itemIdx: i}
 		}
-		return
+		return rows
 	}
 
-	// Build ordered sections.
 	type section struct {
 		key   string
 		label string
@@ -424,13 +458,12 @@ func (m *tuiModel) buildRows() {
 	}
 	var sections []section
 	sectionIdx := map[string]int{}
-	now := time.Now().UTC()
 
-	for i, it := range m.items {
+	for i, it := range items {
 		var key, label string
 		switch mode {
 		case tuiGroupModeStatus:
-			g := tuiGroupKey(it, m.blockedSet[it.ID], now)
+			g := tuiGroupKey(it, blockedSet[it.ID], now)
 			key = strconv.Itoa(g)
 			label = tuiGroupLabel(g)
 		default: // tuiGroupModeTags
@@ -450,20 +483,27 @@ func (m *tuiModel) buildRows() {
 		}
 	}
 
+	var rows []tuiListRow
 	for _, sec := range sections {
-		collapsed := m.collapsedGroups != nil && m.collapsedGroups[sec.key]
+		collapsed := collapsedGroups != nil && collapsedGroups[sec.key]
 		indicator := "▼"
 		if collapsed {
 			indicator = "▶"
 		}
 		header := fmt.Sprintf("%s %s (%d)", indicator, sec.label, len(sec.items))
-		m.rows = append(m.rows, tuiListRow{header: header, groupKey: sec.key, itemIdx: -1})
+		rows = append(rows, tuiListRow{header: header, groupKey: sec.key, itemIdx: -1})
 		if !collapsed {
 			for _, idx := range sec.items {
-				m.rows = append(m.rows, tuiListRow{itemIdx: idx})
+				rows = append(rows, tuiListRow{itemIdx: idx})
 			}
 		}
 	}
+	return rows
+}
+
+func (m *tuiModel) buildRows() {
+	now := time.Now().UTC()
+	m.rows = tuiBuildRows(m.items, m.groupMode, m.collapsedGroups, m.blockedSet, now)
 }
 
 // clampCursor ensures m.cursor is within m.rows bounds and adjusts m.listOffset for scrolling.
@@ -595,6 +635,205 @@ func (m *tuiModel) refreshViewport() {
 	}
 	m.vp.SetContent(tuiItemDetail(it, m.blockedSet[it.ID], m.store, m.vp.Width))
 	m.vp.GotoTop()
+}
+
+func tuiComputeHeaderLayout(m tuiModel) tuiHeaderLayout {
+	it := m.selected()
+	h := tuiHeaderLayout{
+		itemCount:    len(m.items),
+		statusFilter: m.statusFilter,
+		groupMode:    m.groupMode,
+		filterText:   m.filterText,
+		filterMode:   m.filterMode,
+	}
+	if it != nil {
+		h.rightItemID = it.ID
+		h.showCurrent = it.ID == m.currentID
+	}
+	return h
+}
+
+func tuiComputeFooterLayout(m tuiModel) tuiFooterLayout {
+	if m.err != nil {
+		return tuiFooterLayout{kind: "error", err: m.err}
+	}
+	if m.filterMode {
+		return tuiFooterLayout{kind: "filter", filterText: m.filterText}
+	}
+	if m.msg != "" {
+		return tuiFooterLayout{kind: "msg", msg: m.msg}
+	}
+	return tuiFooterLayout{kind: "hints", showHelp: m.showHelp}
+}
+
+// tuiComputeListPaneLayout builds visible list rows for the body viewport (pure from model + geometry).
+func tuiComputeListPaneLayout(m tuiModel, bodyHeight int) []tuiVisibleListRow {
+	out := make([]tuiVisibleListRow, bodyHeight)
+	for i := range out {
+		rowIdx := m.listOffset + i
+		if rowIdx >= len(m.rows) {
+			continue
+		}
+		row := m.rows[rowIdx]
+		cursorHere := rowIdx == m.cursor
+		if row.header != "" {
+			out[i] = tuiVisibleListRow{groupHeader: row.header, cursorHere: cursorHere}
+		} else {
+			out[i] = tuiVisibleListRow{item: m.items[row.itemIdx], cursorHere: cursorHere}
+		}
+	}
+	return out
+}
+
+// tuiComputeViewLayout derives the full frame from tuiModel (no lipgloss; detail pane uses viewport's last View()).
+func tuiComputeViewLayout(m tuiModel) tuiViewLayout {
+	bh := m.bodyHeight()
+	return tuiViewLayout{
+		header:       tuiComputeHeaderLayout(m),
+		listRows:     tuiComputeListPaneLayout(m, bh),
+		bodyHeight:   bh,
+		detailVPView: m.vp.View(),
+	}
+}
+
+func tuiRenderHeader(h tuiHeaderLayout, vpWidth int) string {
+	leftHdr := fmt.Sprintf(" Items (%d)", h.itemCount)
+	switch h.statusFilter {
+	case tuiFilterActive:
+		leftHdr += " " + styleFilterActive.Render("[active]")
+	case tuiFilterReview:
+		leftHdr += " " + styleFilterReview.Render("[review]")
+	case tuiFilterDone:
+		leftHdr += " " + styleFilterDone.Render("[done]")
+	}
+	switch h.groupMode {
+	case tuiGroupModeTags:
+		leftHdr += " " + styleGroupBadge.Render("[group:tags]")
+	case tuiGroupModeNone:
+		leftHdr += " " + styleGroupBadge.Render("[group:none]")
+	}
+	if h.filterText != "" || h.filterMode {
+		var badge string
+		if h.filterMode {
+			badge = fmt.Sprintf("[%s_]", h.filterText)
+		} else {
+			badge = fmt.Sprintf("[%s]", h.filterText)
+		}
+		leftHdr += " " + styleFilterActive.Render(badge)
+	}
+	rightHdr := ""
+	if h.rightItemID != "" {
+		rightHdr = " " + h.rightItemID
+		if h.showCurrent {
+			rightHdr += " " + styleCurrent.Render("★ current")
+		}
+	}
+	return styleHeader.Width(tuiLeftWidth).Render(leftHdr) +
+		styleDivider.Render("│") +
+		styleHeader.Width(vpWidth).Render(rightHdr)
+}
+
+func tuiRenderGroupHeader(label string, selected bool) string {
+	if selected {
+		return styleCursor.Width(tuiLeftWidth).Render(" " + label)
+	}
+	return styleGroupHeader.Width(tuiLeftWidth).Render(" " + label)
+}
+
+func tuiRenderItemRow(m tuiModel, it *wn.Item, selected bool, now time.Time) string {
+	cursor := "  "
+	if selected {
+		cursor = "> "
+	}
+
+	star := " "
+	if it.ID == m.currentID {
+		star = styleCurrent.Render("★")
+	}
+
+	indicator := " "
+	switch {
+	case it.Done && it.DoneStatus == wn.DoneStatusSuspend:
+		indicator = "~"
+	case it.Done:
+		indicator = "✓"
+	case wn.IsInProgress(it, now):
+		indicator = "●"
+	case m.blockedSet[it.ID]:
+		indicator = "!"
+	}
+
+	tagPart := ""
+	if len(it.Tags) > 0 {
+		tagPart = " " + styleTag.Render("#"+strings.Join(it.Tags, " #"))
+	}
+
+	desc := wn.FirstLine(it.Description)
+	tagLen := lipgloss.Width(tagPart)
+	available := tuiLeftWidth - 6 - tagLen
+	if available < 3 {
+		available = 3
+	}
+	runes := []rune(desc)
+	if len(runes) > available {
+		desc = string(runes[:available-1]) + "…"
+	}
+
+	line := cursor + star + indicator + " " + desc + tagPart
+	switch {
+	case selected:
+		return styleCursor.Width(tuiLeftWidth).Render(line)
+	case it.Done:
+		return styleDone.Width(tuiLeftWidth).Render(line)
+	case wn.IsInProgress(it, now):
+		return styleInProgress.Width(tuiLeftWidth).Render(line)
+	default:
+		return lipgloss.NewStyle().Width(tuiLeftWidth).Render(line)
+	}
+}
+
+func tuiRenderListLines(m tuiModel, rows []tuiVisibleListRow, now time.Time) []string {
+	lines := make([]string, len(rows))
+	for i, vr := range rows {
+		switch {
+		case vr.groupHeader != "":
+			lines[i] = tuiRenderGroupHeader(vr.groupHeader, vr.cursorHere)
+		case vr.item != nil:
+			lines[i] = tuiRenderItemRow(m, vr.item, vr.cursorHere, now)
+		default:
+			lines[i] = lipgloss.NewStyle().Width(tuiLeftWidth).Render("")
+		}
+	}
+	return lines
+}
+
+func tuiRenderFooter(fl tuiFooterLayout) string {
+	switch fl.kind {
+	case "error":
+		return styleErrMsg.Render(" error: " + fl.err.Error())
+	case "filter":
+		return styleFooter.Render(fmt.Sprintf(" filter: /%s_  (Enter to confirm, Esc to cancel)", fl.filterText))
+	case "msg":
+		return styleFooter.Render(" " + fl.msg)
+	default:
+		return tuiRenderHints(fl.showHelp)
+	}
+}
+
+func tuiRenderHints(showHelp bool) string {
+	if showHelp {
+		return styleFooter.Render(" [?]close help  [q]quit")
+	}
+	type hint struct{ k, d string }
+	hints := []hint{
+		{"↵", "cur"}, {"a", "add"}, {"e", "edit"}, {"x", "done"},
+		{"/", "search"}, {"f", "filt"}, {"g", "grp"}, {"q", "quit"}, {"?", "more"},
+	}
+	var parts []string
+	for _, h := range hints {
+		parts = append(parts, styleKey.Render("["+h.k+"]")+styleFooter.Render(h.d))
+	}
+	return " " + strings.Join(parts, "  ")
 }
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -1021,174 +1260,30 @@ func (m tuiModel) View() string {
 	if !m.vpReady {
 		return "Loading...\n"
 	}
-	bh := m.bodyHeight()
+	now := time.Now().UTC()
+	layout := tuiComputeViewLayout(m)
 
-	// Header
-	it := m.selected()
-	leftHdr := fmt.Sprintf(" Items (%d)", len(m.items))
-	// Status filter badge
-	switch m.statusFilter {
-	case tuiFilterActive:
-		leftHdr += " " + styleFilterActive.Render("[active]")
-	case tuiFilterReview:
-		leftHdr += " " + styleFilterReview.Render("[review]")
-	case tuiFilterDone:
-		leftHdr += " " + styleFilterDone.Render("[done]")
-	}
-	// Group mode badge (shown when not in default status mode)
-	switch m.groupMode {
-	case tuiGroupModeTags:
-		leftHdr += " " + styleGroupBadge.Render("[group:tags]")
-	case tuiGroupModeNone:
-		leftHdr += " " + styleGroupBadge.Render("[group:none]")
-	}
-	// Text filter badge
-	if m.filterText != "" || m.filterMode {
-		var badge string
-		if m.filterMode {
-			badge = fmt.Sprintf("[%s_]", m.filterText)
-		} else {
-			badge = fmt.Sprintf("[%s]", m.filterText)
-		}
-		leftHdr += " " + styleFilterActive.Render(badge)
-	}
-	rightHdr := ""
-	if it != nil {
-		rightHdr = " " + it.ID
-		if it.ID == m.currentID {
-			rightHdr += " " + styleCurrent.Render("★ current")
-		}
-	}
-	header := styleHeader.Width(tuiLeftWidth).Render(leftHdr) +
-		styleDivider.Render("│") +
-		styleHeader.Width(m.vp.Width).Render(rightHdr)
-
-	// List column
-	listLines := m.renderList(bh)
+	header := tuiRenderHeader(layout.header, m.vp.Width)
+	listLines := tuiRenderListLines(m, layout.listRows, now)
 	listStr := strings.Join(listLines, "\n")
 
-	// Divider column
+	bh := layout.bodyHeight
 	divLines := make([]string, bh)
 	for i := range divLines {
 		divLines[i] = styleDivider.Render("│")
 	}
 	divStr := strings.Join(divLines, "\n")
 
-	// Detail column (viewport)
 	leftCol := lipgloss.NewStyle().Width(tuiLeftWidth).Height(bh).Render(listStr)
-	rightCol := lipgloss.NewStyle().Width(m.vp.Width).Height(bh).Render(m.vp.View())
+	rightCol := lipgloss.NewStyle().Width(m.vp.Width).Height(bh).Render(layout.detailVPView)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, divStr, rightCol)
 
-	return header + "\n" + body + "\n" + m.renderFooter()
-}
-
-func (m tuiModel) renderList(height int) []string {
-	lines := make([]string, height)
-	for i := range lines {
-		rowIdx := m.listOffset + i
-		if rowIdx >= len(m.rows) {
-			lines[i] = lipgloss.NewStyle().Width(tuiLeftWidth).Render("")
-			continue
-		}
-		row := m.rows[rowIdx]
-		cursorHere := rowIdx == m.cursor
-		if row.header != "" {
-			lines[i] = m.renderGroupHeader(row.header, cursorHere)
-		} else {
-			lines[i] = m.renderRow(m.items[row.itemIdx], cursorHere)
-		}
-	}
-	return lines
-}
-
-func (m tuiModel) renderGroupHeader(label string, selected bool) string {
-	if selected {
-		return styleCursor.Width(tuiLeftWidth).Render(" " + label)
-	}
-	return styleGroupHeader.Width(tuiLeftWidth).Render(" " + label)
-}
-
-func (m tuiModel) renderRow(it *wn.Item, selected bool) string {
-	cursor := "  "
-	if selected {
-		cursor = "> "
-	}
-
-	// Current item star (gold ★ if this is the active work item)
-	star := " "
-	if it.ID == m.currentID {
-		star = styleCurrent.Render("★")
-	}
-
-	indicator := " "
-	switch {
-	case it.Done && it.DoneStatus == wn.DoneStatusSuspend:
-		indicator = "~"
-	case it.Done:
-		indicator = "✓"
-	case wn.IsInProgress(it, time.Now().UTC()):
-		indicator = "●"
-	case m.blockedSet[it.ID]:
-		indicator = "!"
-	}
-
-	tagPart := ""
-	if len(it.Tags) > 0 {
-		tagPart = " " + styleTag.Render("#"+strings.Join(it.Tags, " #"))
-	}
-
-	desc := wn.FirstLine(it.Description)
-	// available = leftWidth minus cursor(2) + star(1) + indicator(1) + space(1) + tags + margin(1)
-	tagLen := lipgloss.Width(tagPart)
-	available := tuiLeftWidth - 6 - tagLen
-	if available < 3 {
-		available = 3
-	}
-	runes := []rune(desc)
-	if len(runes) > available {
-		desc = string(runes[:available-1]) + "…"
-	}
-
-	line := cursor + star + indicator + " " + desc + tagPart
-	switch {
-	case selected:
-		return styleCursor.Width(tuiLeftWidth).Render(line)
-	case it.Done:
-		return styleDone.Width(tuiLeftWidth).Render(line)
-	case wn.IsInProgress(it, time.Now().UTC()):
-		return styleInProgress.Width(tuiLeftWidth).Render(line)
-	default:
-		return lipgloss.NewStyle().Width(tuiLeftWidth).Render(line)
-	}
-}
-
-func (m tuiModel) renderFooter() string {
-	if m.err != nil {
-		return styleErrMsg.Render(" error: " + m.err.Error())
-	}
-	if m.filterMode {
-		return styleFooter.Render(fmt.Sprintf(" filter: /%s_  (Enter to confirm, Esc to cancel)", m.filterText))
-	}
-	if m.msg != "" {
-		return styleFooter.Render(" " + m.msg)
-	}
-	return m.renderHints()
+	footer := tuiRenderFooter(tuiComputeFooterLayout(m))
+	return header + "\n" + body + "\n" + footer
 }
 
 func (m tuiModel) renderHints() string {
-	if m.showHelp {
-		return styleFooter.Render(" [?]close help  [q]quit")
-	}
-	type hint struct{ k, d string }
-	hints := []hint{
-		{"↵", "cur"}, {"a", "add"}, {"e", "edit"}, {"x", "done"},
-		{"/", "search"}, {"f", "filt"}, {"g", "grp"}, {"q", "quit"}, {"?", "more"},
-	}
-	var parts []string
-	for _, h := range hints {
-		parts = append(parts, styleKey.Render("["+h.k+"]")+styleFooter.Render(h.d))
-	}
-	return " " + strings.Join(parts, "  ")
+	return tuiRenderHints(m.showHelp)
 }
 
 // tuiHelpContent returns a formatted string of all keyboard shortcuts for display in the help overlay.
