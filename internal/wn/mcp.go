@@ -112,6 +112,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_merge",
 		Description: "Squash-merge a feature branch into the current HEAD of the main repo, record the commit hash as a wn:commit note, and mark the associated work item done. The work item is found via its wn:branch note. Worktree-aware: git operations run in the main repo root. Use dry_run to preview without making changes.",
 	}, handleWnMerge)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_pick",
+		Description: "Set the current task (meta CurrentID). Pass a concrete item id to set it directly. Pass \".\" to select the item whose wn:branch note matches the current git branch of the project root (same as CLI wn pick .). Returns JSON {id, description} of the newly selected item.",
+	}, handleWnPick)
 
 	return server
 }
@@ -1065,4 +1069,49 @@ func handleWnMerge(ctx context.Context, req *mcp.CallToolRequest, in wnMergeIn) 
 		}
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}, nil
 	})
+}
+
+type wnPickIn struct {
+	ID   string `json:"id" jsonschema:"Item id to set as current task; use \".\" to select the item whose wn:branch note matches the current git branch of the project root"`
+	Root string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+}
+
+func handleWnPick(ctx context.Context, req *mcp.CallToolRequest, in wnPickIn) (*mcp.CallToolResult, any, error) {
+	store, root, err := getStoreWithRoot(ctx, in.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	if in.ID == "" {
+		return errResult("id is required: pass a concrete item id or \".\" to pick by current git branch"), nil, nil
+	}
+
+	var item *Item
+	if in.ID == "." {
+		branch, err := CurrentBranchInDir(root)
+		if err != nil {
+			return errResult(fmt.Sprintf("could not determine git branch: %s", err)), nil, nil
+		}
+		item, err = FindItemByBranch(store, branch)
+		if err != nil {
+			return nil, nil, err
+		}
+		if item == nil {
+			return errResult(fmt.Sprintf("no work item found for branch %q", branch)), nil, nil
+		}
+	} else {
+		item, err = store.Get(in.ID)
+		if err != nil {
+			return errResult(fmt.Sprintf("item %s not found", in.ID)), nil, nil
+		}
+	}
+
+	if err := WithMetaLock(root, func(m Meta) (Meta, error) {
+		m.CurrentID = item.ID
+		return m, nil
+	}); err != nil {
+		return nil, nil, err
+	}
+	out := map[string]any{"id": item.ID, "description": FirstLine(item.Description)}
+	raw, _ := json.Marshal(out)
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(raw)}}}, nil, nil
 }
