@@ -56,16 +56,12 @@ func runMerge(cmd *cobra.Command, args []string, flags *mergeFlags) error {
 		}
 	}
 
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 
-	result, err := wn.SquashMerge(store, root, branch, message, flags.dryRun)
+	result, err := wn.SquashMerge(cc.Store, cc.Root, branch, message, flags.dryRun)
 	if err != nil {
 		return err
 	}

@@ -32,11 +32,11 @@ func newDoneCmd() *cobra.Command {
 }
 
 func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -48,17 +48,13 @@ func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return err
 	}
 	if !flags.force {
 		for _, depID := range item.DependsOn {
-			dep, err := store.Get(depID)
+			dep, err := cc.Store.Get(depID)
 			if err != nil {
 				return err
 			}
@@ -70,12 +66,12 @@ func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 	}
 	now := time.Now().UTC()
 	for _, depID := range item.DependsOn {
-		dep, err := store.Get(depID)
+		dep, err := cc.Store.Get(depID)
 		if err != nil {
 			return err
 		}
 		if dep.PromptReady {
-			if err := store.UpdateItem(depID, func(it *wn.Item) (*wn.Item, error) {
+			if err := cc.Store.UpdateItem(depID, func(it *wn.Item) (*wn.Item, error) {
 				it.Done = true
 				it.PromptReady = false
 				it.DoneStatus = wn.DoneStatusDone
@@ -87,7 +83,7 @@ func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 			}
 		}
 	}
-	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	if err := cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
 		it.DoneMessage = flags.message
 		it.DoneStatus = wn.DoneStatusDone
@@ -101,7 +97,7 @@ func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 	if !flags.next {
 		return nil
 	}
-	undone, err := wn.UndoneItems(store)
+	undone, err := wn.UndoneItems(cc.Store)
 	if err != nil {
 		return err
 	}
@@ -111,7 +107,7 @@ func runDone(cmd *cobra.Command, args []string, flags *doneFlags) error {
 		return nil
 	}
 	next := ordered[0]
-	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+	if err := wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 		m.CurrentID = next.ID
 		return m, nil
 	}); err != nil {
@@ -132,11 +128,11 @@ func newUndoneCmd() *cobra.Command {
 }
 
 func runUndone(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -148,12 +144,8 @@ func runUndone(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = false
 		it.DoneMessage = ""
 		it.DoneStatus = ""

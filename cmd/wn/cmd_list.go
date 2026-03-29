@@ -47,11 +47,11 @@ Field selection (human-readable mode only):
 }
 
 func runShow(cmd *cobra.Command, args []string, flags *showFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -63,11 +63,7 @@ func runShow(cmd *cobra.Command, args []string, flags *showFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task; use 'wn pick' or 'wn next'")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
@@ -80,9 +76,8 @@ func runShow(cmd *cobra.Command, args []string, flags *showFlags) error {
 		fmt.Println(wn.PromptContent(item.Description))
 		return nil
 	}
-	settings, _ := wn.ReadSettingsInRoot(root)
-	fields := resolveShowFields(flags.all, flags.fields, settings)
-	return renderItemHuman(item, fields, store)
+	fields := resolveShowFields(flags.all, flags.fields, cc.Settings)
+	return renderItemHuman(item, fields, cc.Store)
 }
 
 // resolveShowFields returns the active field set for human-readable output.
@@ -237,11 +232,11 @@ func newLogCmd() *cobra.Command {
 }
 
 func runLog(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -253,11 +248,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return err
 	}
@@ -294,15 +285,11 @@ func newNextCmd() *cobra.Command {
 }
 
 func runNext(cmd *cobra.Command, args []string, flags *nextFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	next, err := wn.NextUndoneItem(store, flags.tag)
+	next, err := wn.NextUndoneItem(cc.Store, flags.tag)
 	if err != nil {
 		return err
 	}
@@ -310,7 +297,7 @@ func runNext(cmd *cobra.Command, args []string, flags *nextFlags) error {
 		fmt.Println("No next task.")
 		return nil
 	}
-	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+	if err := wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 		m.CurrentID = next.ID
 		return m, nil
 	}); err != nil {
@@ -326,7 +313,7 @@ func runNext(cmd *cobra.Command, args []string, flags *nextFlags) error {
 		}
 		now := time.Now().UTC()
 		until := now.Add(d)
-		if err := store.UpdateItem(next.ID, func(it *wn.Item) (*wn.Item, error) {
+		if err := cc.Store.UpdateItem(next.ID, func(it *wn.Item) (*wn.Item, error) {
 			it.InProgressUntil = until
 			it.InProgressBy = flags.claimBy
 			it.Updated = now
@@ -371,11 +358,7 @@ func newPickCmd() *cobra.Command {
 }
 
 func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
@@ -383,18 +366,18 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 	if len(args) == 1 {
 		id := args[0]
 		if id == "-" {
-			meta, err := wn.ReadMeta(root)
+			meta, err := wn.ReadMeta(cc.Root)
 			if err != nil {
 				return err
 			}
 			if meta.PreviousID == "" {
 				return fmt.Errorf("no previous task")
 			}
-			item, err := store.Get(meta.PreviousID)
+			item, err := cc.Store.Get(meta.PreviousID)
 			if err != nil {
 				return fmt.Errorf("previous task %s not found", meta.PreviousID)
 			}
-			if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			if err := wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 				m.CurrentID = meta.PreviousID
 				return m, nil
 			}); err != nil {
@@ -412,14 +395,14 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 			if err != nil {
 				return fmt.Errorf("could not determine git branch: %w", err)
 			}
-			item, err := wn.FindItemByBranch(store, branch)
+			item, err := wn.FindItemByBranch(cc.Store, branch)
 			if err != nil {
 				return err
 			}
 			if item == nil {
 				return fmt.Errorf("no work item found for branch %q", branch)
 			}
-			if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			if err := wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 				m.CurrentID = item.ID
 				return m, nil
 			}); err != nil {
@@ -428,10 +411,10 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 			fmt.Printf("%s %s\n", item.ID, wn.FirstLine(item.Description))
 			return nil
 		}
-		if _, err := store.Get(id); err != nil {
+		if _, err := cc.Store.Get(id); err != nil {
 			return fmt.Errorf("item %s not found", id)
 		}
-		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		return wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 			m.CurrentID = id
 			return m, nil
 		})
@@ -456,12 +439,12 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 
 	var items []*wn.Item
 	if flags.all {
-		items, err = store.List()
+		items, err = cc.Store.List()
 		if err != nil {
 			return err
 		}
 	} else if flags.done {
-		all, err := store.List()
+		all, err := cc.Store.List()
 		if err != nil {
 			return err
 		}
@@ -471,12 +454,12 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 			}
 		}
 	} else if flags.reviewReady {
-		items, err = wn.ReviewReadyItems(store)
+		items, err = wn.ReviewReadyItems(cc.Store)
 		if err != nil {
 			return err
 		}
 	} else {
-		items, err = wn.UndoneItems(store)
+		items, err = wn.UndoneItems(cc.Store)
 		if err != nil {
 			return err
 		}
@@ -495,7 +478,7 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 		fmt.Println(msg)
 		return nil
 	}
-	items = wn.ApplySort(items, interactiveSortSpec(root))
+	items = wn.ApplySort(items, interactiveSortSpec(cc.Root))
 	id, err := wn.PickInteractive(items)
 	if err != nil {
 		return err
@@ -503,7 +486,7 @@ func runPick(cmd *cobra.Command, args []string, flags *pickFlags) error {
 	if id == "" {
 		return nil
 	}
-	return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+	return wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 		m.CurrentID = id
 		return m, nil
 	})
@@ -548,24 +531,19 @@ func newListCmd() *cobra.Command {
 }
 
 func runList(cmd *cobra.Command, args []string, flags *listFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 	if len(args) > 0 && strings.HasPrefix(args[0], "@") {
 		viewName := args[0][1:]
-		settings, _ := wn.ReadSettingsInRoot(root)
-		viewArgs, err := wn.ResolveView(settings, viewName)
+		viewArgs, err := wn.ResolveView(cc.Settings, viewName)
 		if err != nil {
 			return err
 		}
 		if err := cmd.Flags().Parse(viewArgs); err != nil {
 			return fmt.Errorf("view %q: invalid flags: %w", viewName, err)
 		}
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
 	}
 	stateFlags := 0
 	if flags.all {
@@ -584,7 +562,7 @@ func runList(cmd *cobra.Command, args []string, flags *listFlags) error {
 		return fmt.Errorf("only one of --undone, --done, --all, --review-ready may be set")
 	}
 	useUndone := flags.undone || stateFlags == 0
-	allItems, err := store.List()
+	allItems, err := cc.Store.List()
 	if err != nil {
 		return err
 	}
@@ -599,12 +577,12 @@ func runList(cmd *cobra.Command, args []string, flags *listFlags) error {
 			}
 		}
 	} else if flags.reviewReady {
-		items, err = wn.ReviewReadyItems(store)
+		items, err = wn.ReviewReadyItems(cc.Store)
 		if err != nil {
 			return err
 		}
 	} else if useUndone {
-		items, err = wn.ListableUndoneItems(store)
+		items, err = wn.ListableUndoneItems(cc.Store)
 		if err != nil {
 			return err
 		}
@@ -613,7 +591,7 @@ func runList(cmd *cobra.Command, args []string, flags *listFlags) error {
 	}
 	items = wn.FilterByTag(items, flags.tag)
 	var ordered []*wn.Item
-	sortSpec := listSortSpec(root, flags.sort)
+	sortSpec := listSortSpec(cc.Root, flags.sort)
 	if len(sortSpec) > 0 {
 		ordered = wn.ApplySort(items, sortSpec)
 	} else {

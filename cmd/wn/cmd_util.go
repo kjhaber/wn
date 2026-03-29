@@ -43,18 +43,14 @@ func newRmCmd() *cobra.Command {
 }
 
 func runRm(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 
 	var idsToRemove []string
 	if len(args) == 0 {
-		meta, err := wn.ReadMeta(root)
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
@@ -66,25 +62,25 @@ func runRm(cmd *cobra.Command, args []string) error {
 		idsToRemove = args
 	}
 
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
 	clearCurrent := false
 	for _, id := range idsToRemove {
-		if _, err := store.Get(id); err != nil {
+		if _, err := cc.Store.Get(id); err != nil {
 			return fmt.Errorf("item %s not found", id)
 		}
 		if id == meta.CurrentID {
 			clearCurrent = true
 		}
-		if err := store.Delete(id); err != nil {
+		if err := cc.Store.Delete(id); err != nil {
 			return err
 		}
 		fmt.Printf("removed entry %s\n", id)
 	}
 	if clearCurrent {
-		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		return wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 			m.CurrentID = ""
 			return m, nil
 		})
@@ -116,22 +112,18 @@ By default, archives are saved under .wn/archive/<id>.json. Use --location to ov
 }
 
 func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 
 	var id string
 	if len(args) == 0 {
-		meta, err := wn.ReadMeta(root)
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
-		items, err := store.List()
+		items, err := cc.Store.List()
 		if err != nil {
 			return err
 		}
@@ -139,7 +131,7 @@ func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
 			fmt.Println("No tasks.")
 			return nil
 		}
-		items = wn.ApplySort(items, interactiveSortSpec(root))
+		items = wn.ApplySort(items, interactiveSortSpec(cc.Root))
 		ids, err := wn.PickMultiInteractive(items)
 		if err != nil {
 			return err
@@ -149,7 +141,7 @@ func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
 		}
 		clearCurrent := false
 		for _, aid := range ids {
-			archivePath, err := wn.ArchiveItem(store, aid, flags.location)
+			archivePath, err := wn.ArchiveItem(cc.Store, aid, flags.location)
 			if err != nil {
 				return err
 			}
@@ -159,7 +151,7 @@ func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
 			}
 		}
 		if clearCurrent {
-			return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+			return wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 				m.CurrentID = ""
 				return m, nil
 			})
@@ -168,17 +160,17 @@ func runArchive(cmd *cobra.Command, args []string, flags *archiveFlags) error {
 	}
 
 	id = args[0]
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
-	archivePath, err := wn.ArchiveItem(store, id, flags.location)
+	archivePath, err := wn.ArchiveItem(cc.Store, id, flags.location)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("archived %s -> %s\n", id, archivePath)
 	if id == meta.CurrentID {
-		return wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+		return wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 			m.CurrentID = ""
 			return m, nil
 		})
@@ -197,11 +189,11 @@ func newEditCmd() *cobra.Command {
 }
 
 func runEdit(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -213,11 +205,7 @@ func runEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		edited, err := wn.EditWithEditor(it.Description)
 		if err != nil {
 			return nil, err
@@ -390,18 +378,20 @@ func newVerifyCmd() *cobra.Command {
 }
 
 func runVerify(cobraCmd *cobra.Command, _ []string, f *verifyFlags) error {
-	root, _ := wn.FindRootForCLI()
+	cc, _ := newCmdCtx("")
+	var settings wn.Settings
+	if cc != nil {
+		settings = cc.Settings
+	}
 	if f.atRoot {
+		root, _ := wn.FindRootForCLI()
 		if root == "" {
 			return wn.ErrNoRoot
 		}
 		if err := os.Chdir(root); err != nil {
 			return err
 		}
-	}
-	settings, err := wn.ReadSettingsInRoot(root)
-	if err != nil {
-		return err
+		settings, _ = wn.ReadSettingsInRoot(root)
 	}
 	if settings.Verify == "" {
 		return fmt.Errorf("no verify command configured; set 'verify' in .wn/settings.json or ~/.config/wn/settings.json")
@@ -469,11 +459,7 @@ func newExportCmd() *cobra.Command {
 }
 
 func runExport(cmd *cobra.Command, args []string, flags *exportFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
@@ -495,16 +481,16 @@ func runExport(cmd *cobra.Command, args []string, flags *exportFlags) error {
 	}
 	useCriteria := stateFlags > 0 || flags.tag != "" || flags.sort != "" || flags.limit > 0 || flags.offset > 0
 	if !useCriteria {
-		return wn.Export(store, flags.output)
+		return wn.Export(cc.Store, flags.output)
 	}
 	var items []*wn.Item
 	if flags.undone {
-		items, err = wn.ListableUndoneItems(store)
+		items, err = wn.ListableUndoneItems(cc.Store)
 		if err != nil {
 			return err
 		}
 	} else if flags.done {
-		all, err := store.List()
+		all, err := cc.Store.List()
 		if err != nil {
 			return err
 		}
@@ -514,12 +500,12 @@ func runExport(cmd *cobra.Command, args []string, flags *exportFlags) error {
 			}
 		}
 	} else if flags.reviewReady {
-		items, err = wn.ReviewReadyItems(store)
+		items, err = wn.ReviewReadyItems(cc.Store)
 		if err != nil {
 			return err
 		}
 	} else {
-		items, err = store.List()
+		items, err = cc.Store.List()
 		if err != nil {
 			return err
 		}
@@ -532,8 +518,7 @@ func runExport(cmd *cobra.Command, args []string, flags *exportFlags) error {
 			return err
 		}
 	} else {
-		settings, _ := wn.ReadSettingsInRoot(root)
-		sortSpec = wn.SortSpecFromSettings(settings)
+		sortSpec = wn.SortSpecFromSettings(cc.Settings)
 	}
 	var ordered []*wn.Item
 	if len(sortSpec) > 0 {
@@ -584,15 +569,11 @@ func runImport(cmd *cobra.Command, args []string, flags *importFlags) error {
 		return fmt.Errorf("cannot use both --append and --replace; choose one")
 	}
 	path := args[0]
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	hasItems, err := wn.StoreHasItems(store)
+	hasItems, err := wn.StoreHasItems(cc.Store)
 	if err != nil {
 		return err
 	}
@@ -600,7 +581,7 @@ func runImport(cmd *cobra.Command, args []string, flags *importFlags) error {
 		return fmt.Errorf("store already has items; use --append to add to existing items or --replace to replace all")
 	}
 	if flags.replace {
-		return wn.ImportReplace(store, path)
+		return wn.ImportReplace(cc.Store, path)
 	}
-	return wn.ImportAppend(store, path)
+	return wn.ImportAppend(cc.Store, path)
 }

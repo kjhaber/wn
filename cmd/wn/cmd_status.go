@@ -41,11 +41,11 @@ func runStatus(cmd *cobra.Command, args []string, flags *statusFlags) error {
 	if !wn.ValidStatus(state) {
 		return fmt.Errorf("invalid status %q; must be one of: undone, claimed, review, done, closed, suspend", state)
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -56,10 +56,6 @@ func runStatus(cmd *cobra.Command, args []string, flags *statusFlags) error {
 	id, err := wn.ResolveItemID(meta.CurrentID, explicitID)
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
 	}
 	if state != wn.StatusClosed && flags.duplicateOf != "" {
 		return fmt.Errorf("--duplicate-of is only valid when setting status to closed")
@@ -75,7 +71,7 @@ func runStatus(cmd *cobra.Command, args []string, flags *statusFlags) error {
 		}
 		opts.ClaimFor = d
 	}
-	if err := wn.SetStatus(store, id, state, opts); err != nil {
+	if err := wn.SetStatus(cc.Store, id, state, opts); err != nil {
 		return err
 	}
 	if state == wn.StatusClosed && flags.duplicateOf != "" {
@@ -123,11 +119,11 @@ func runClaim(cmd *cobra.Command, args []string, flags *claimFlags) error {
 	if claimForMsg == "" {
 		claimForMsg = d.String()
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -139,13 +135,9 @@ func runClaim(cmd *cobra.Command, args []string, flags *claimFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task; use wn pick or wn next")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
 	until := now.Add(d)
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.InProgressUntil = until
 		it.InProgressBy = flags.by
 		it.Updated = now
@@ -165,11 +157,11 @@ func newReleaseCmd() *cobra.Command {
 }
 
 func runRelease(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -181,12 +173,8 @@ func runRelease(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.InProgressUntil = time.Time{}
 		it.InProgressBy = ""
 		it.ReviewReady = true
@@ -208,11 +196,11 @@ func newReviewReadyCmd() *cobra.Command {
 }
 
 func runReviewReady(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -224,12 +212,8 @@ func runReviewReady(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = false
 		it.InProgressUntil = time.Time{}
 		it.InProgressBy = ""
@@ -320,16 +304,12 @@ func promptYN(r io.Reader, w io.Writer, prompt string) bool {
 }
 
 func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string, f *cleanupMergedFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 	intoRef := f.branch
-	results, err := wn.MarkMergedItems(store, root, intoRef, f.dryRun)
+	results, err := wn.MarkMergedItems(cc.Store, cc.Root, intoRef, f.dryRun)
 	if err != nil {
 		return err
 	}
@@ -353,21 +333,13 @@ func runCleanupSetMergedReviewItemsDone(cmd *cobra.Command, args []string, f *cl
 }
 
 func runCleanupCloseDoneItems(cmd *cobra.Command, args []string, f *cleanupCloseDoneFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	settings, err := wn.ReadSettingsInRoot(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 	ageStr := f.age
 	if ageStr == "" {
-		ageStr = settings.Cleanup.CloseDoneItemsAge
+		ageStr = cc.Settings.Cleanup.CloseDoneItemsAge
 	}
 	if ageStr == "" {
 		return fmt.Errorf("--age is required when cleanup.close_done_items_age is not set in settings")
@@ -380,7 +352,7 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string, f *cleanupClose
 		return fmt.Errorf("age must be positive, got %v", age)
 	}
 	cutoff := time.Now().UTC().Add(-age)
-	results, err := wn.CloseDoneItems(store, cutoff, f.dryRun)
+	results, err := wn.CloseDoneItems(cc.Store, cutoff, f.dryRun)
 	if err != nil {
 		return err
 	}
@@ -402,16 +374,12 @@ func runCleanupCloseDoneItems(cmd *cobra.Command, args []string, f *cleanupClose
 }
 
 func runCleanupWorktrees(cmd *cobra.Command, args []string, f *cleanupWorktreesFlags) error {
-	root, err := wn.FindRootForCLI()
-	if err != nil {
-		return err
-	}
-	store, err := wn.NewFileStore(root)
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 
-	preview, err := wn.CleanupWorktrees(store, root, f.branch, true, f.cleanIgnored, f.worktreesOnly, nil)
+	preview, err := wn.CleanupWorktrees(cc.Store, cc.Root, f.branch, true, f.cleanIgnored, f.worktreesOnly, nil)
 	if err != nil {
 		return err
 	}
@@ -468,7 +436,7 @@ func runCleanupWorktrees(cmd *cobra.Command, args []string, f *cleanupWorktreesF
 		}
 	}
 
-	results, err := wn.CleanupWorktrees(store, root, f.branch, false, f.cleanIgnored, f.worktreesOnly, os.Stderr)
+	results, err := wn.CleanupWorktrees(cc.Store, cc.Root, f.branch, false, f.cleanIgnored, f.worktreesOnly, os.Stderr)
 	if err != nil {
 		return err
 	}

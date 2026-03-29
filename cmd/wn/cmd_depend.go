@@ -85,15 +85,11 @@ func runTagAdd(cmd *cobra.Command, args []string, persist *tagPersistFlags, addF
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		for _, t := range it.Tags {
 			if t == tag {
 				return it, nil
@@ -114,19 +110,15 @@ func runTagInteractive(args []string) error {
 	if err := wn.ValidateTag(tag); err != nil {
 		return err
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
+	items, err := wn.UndoneItems(cc.Store)
 	if err != nil {
 		return err
 	}
-	items, err := wn.UndoneItems(store)
-	if err != nil {
-		return err
-	}
-	items = wn.ApplySort(items, interactiveSortSpec(root))
+	items = wn.ApplySort(items, interactiveSortSpec(cc.Root))
 	ids, err := wn.PickMultiInteractiveWithTags(items)
 	if err != nil {
 		return err
@@ -136,7 +128,7 @@ func runTagInteractive(args []string) error {
 	}
 	now := time.Now().UTC()
 	for _, id := range ids {
-		err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+		err := cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 			hasTag := false
 			for _, t := range it.Tags {
 				if t == tag {
@@ -173,15 +165,11 @@ func runTagRm(cmd *cobra.Command, args []string, persist *tagPersistFlags) error
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		var newTags []string
 		for _, t := range it.Tags {
 			if t != tag {
@@ -200,15 +188,11 @@ func runTagList(cmd *cobra.Command, args []string, persist *tagPersistFlags) err
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
@@ -287,11 +271,11 @@ func newDependCmd() *cobra.Command {
 }
 
 func runDependAdd(cmd *cobra.Command, args []string, f *dependAddFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -299,13 +283,9 @@ func runDependAdd(cmd *cobra.Command, args []string, f *dependAddFlags) error {
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	var onID string
 	if f.interactive {
-		onID, err = runDependInteractive(store, root, id)
+		onID, err = runDependInteractive(cc.Store, cc.Root, id)
 		if err != nil {
 			return err
 		}
@@ -318,14 +298,14 @@ func runDependAdd(cmd *cobra.Command, args []string, f *dependAddFlags) error {
 		}
 		onID = f.on
 	}
-	items, err := store.List()
+	items, err := cc.Store.List()
 	if err != nil {
 		return err
 	}
 	if wn.WouldCreateCycle(items, id, onID) {
 		return fmt.Errorf("circular dependency detected, could not mark entry %s dependent on %s", id, onID)
 	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		for _, d := range it.DependsOn {
 			if d == onID {
 				return it, nil
@@ -357,11 +337,11 @@ func runDependInteractive(store wn.Store, root string, excludeID string) (string
 }
 
 func runDependRm(cmd *cobra.Command, args []string, f *dependRmFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -369,13 +349,9 @@ func runDependRm(cmd *cobra.Command, args []string, f *dependRmFlags) error {
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	var onID string
 	if f.interactive {
-		onID, err = runRmdependInteractive(store, root, id)
+		onID, err = runRmdependInteractive(cc.Store, cc.Root, id)
 		if err != nil {
 			return err
 		}
@@ -388,7 +364,7 @@ func runDependRm(cmd *cobra.Command, args []string, f *dependRmFlags) error {
 		}
 		onID = f.on
 	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		var newDeps []string
 		for _, d := range it.DependsOn {
 			if d != onID {
@@ -423,11 +399,11 @@ func runRmdependInteractive(store wn.Store, root string, id string) (string, err
 }
 
 func runDependList(cmd *cobra.Command, args []string, f *dependListFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -435,11 +411,7 @@ func runDependList(cmd *cobra.Command, args []string, f *dependListFlags) error 
 	if err != nil {
 		return fmt.Errorf("no work item (use --wid or set current task)")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}

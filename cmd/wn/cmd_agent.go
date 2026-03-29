@@ -86,17 +86,13 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 		return fmt.Errorf("-n / --max-tasks requires --loop")
 	}
 
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	settings, err := wn.ReadSettingsInRoot(root)
-	if err != nil {
-		return err
-	}
-	ws := settings.Worktree
-	as := settings.Agent
-	ns := settings.Next
+	ws := cc.Settings.Worktree
+	as := cc.Settings.Agent
+	ns := cc.Settings.Next
 
 	var runnerName, workID string
 	switch len(args) {
@@ -104,7 +100,7 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 		runnerName = args[0]
 		workID = args[1]
 	case 1:
-		if _, ok := settings.Runners[args[0]]; ok {
+		if _, ok := cc.Settings.Runners[args[0]]; ok {
 			runnerName = args[0]
 		} else {
 			workID = args[0]
@@ -119,7 +115,7 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 	}
 
 	opts := wn.AgentOrchOpts{
-		Root:  root,
+		Root:  cc.Root,
 		Audit: os.Stderr,
 	}
 
@@ -200,12 +196,15 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 
 	switch {
 	case f.next:
-		meta, err := wn.ReadMeta(root)
+		// If the current item is still undone (not done or review-ready), re-use it rather
+		// than picking a new item from the queue. This supports running "wn do --next"
+		// repeatedly while using "wn pick" to advance to the next item.
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
 		if meta.CurrentID != "" {
-			curStore, err := wn.NewFileStore(root)
+			curStore, err := wn.NewFileStore(cc.Root)
 			if err != nil {
 				return err
 			}
@@ -221,7 +220,7 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 	case workID != "":
 		opts.WorkID = workID
 	default:
-		meta, err := wn.ReadMeta(root)
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
@@ -231,7 +230,7 @@ func runDo(cmd *cobra.Command, args []string, f *doFlags) error {
 		opts.WorkID = meta.CurrentID
 	}
 
-	runner, err := wn.ResolveRunner(settings, runnerName)
+	runner, err := wn.ResolveRunner(cc.Settings, runnerName)
 	if err != nil {
 		return err
 	}
@@ -289,17 +288,13 @@ func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
 		return fmt.Errorf("-n / --max-tasks requires --loop")
 	}
 
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	settings, err := wn.ReadSettingsInRoot(root)
-	if err != nil {
-		return err
-	}
-	ws := settings.Worktree
-	as := settings.Agent
-	ns := settings.Next
+	ws := cc.Settings.Worktree
+	as := cc.Settings.Agent
+	ns := cc.Settings.Next
 
 	var runnerName, workID string
 	switch len(args) {
@@ -307,7 +302,7 @@ func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
 		runnerName = args[0]
 		workID = args[1]
 	case 1:
-		if _, ok := settings.Runners[args[0]]; ok {
+		if _, ok := cc.Settings.Runners[args[0]]; ok {
 			runnerName = args[0]
 		} else {
 			workID = args[0]
@@ -330,12 +325,15 @@ func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
 	var orchMaxTasks int
 	switch {
 	case f.next:
-		meta, err := wn.ReadMeta(root)
+		// If the current item is still undone (not done or review-ready), re-use it rather
+		// than picking a new item from the queue. This supports running "wn launch --next"
+		// repeatedly while using "wn pick" to advance to the next item.
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
 		if meta.CurrentID != "" {
-			curStore, err := wn.NewFileStore(root)
+			curStore, err := wn.NewFileStore(cc.Root)
 			if err != nil {
 				return err
 			}
@@ -351,7 +349,7 @@ func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
 	case workID != "":
 		orchWorkID = workID
 	default:
-		meta, err := wn.ReadMeta(root)
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
@@ -361,13 +359,13 @@ func runLaunch(cmd *cobra.Command, args []string, f *launchFlags) error {
 		orchWorkID = meta.CurrentID
 	}
 
-	runner, err := wn.ResolveLaunchRunner(settings, runnerName)
+	runner, err := wn.ResolveLaunchRunner(cc.Settings, runnerName)
 	if err != nil {
 		return err
 	}
 
 	opts := wn.AgentOrchOpts{
-		Root:          root,
+		Root:          cc.Root,
 		Audit:         os.Stderr,
 		Async:         true,
 		AgentCmd:      runner.Cmd,
@@ -480,16 +478,12 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 		return fmt.Errorf("use either an id argument or --next, not both")
 	}
 
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	settings, err := wn.ReadSettingsInRoot(root)
-	if err != nil {
-		return err
-	}
-	ws := settings.Worktree
-	ns := settings.Next
+	ws := cc.Settings.Worktree
+	ns := cc.Settings.Next
 
 	claimFor := 2 * time.Hour
 	if ws.Claim != "" {
@@ -519,11 +513,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 		tag = f.tag
 	}
 
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	absRoot, err := filepath.Abs(root)
+	absRoot, err := filepath.Abs(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -535,22 +525,22 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 	var item *wn.Item
 	switch {
 	case len(args) > 0:
-		item, err = store.Get(args[0])
+		item, err = cc.Store.Get(args[0])
 		if err != nil {
 			return fmt.Errorf("item %s not found", args[0])
 		}
 		if item.Done {
 			return fmt.Errorf("item %s is already done", args[0])
 		}
-		if err := wn.ClaimItem(store, root, item.ID, claimFor, ""); err != nil {
+		if err := wn.ClaimItem(cc.Store, cc.Root, item.ID, claimFor, ""); err != nil {
 			return err
 		}
-		item, err = store.Get(item.ID)
+		item, err = cc.Store.Get(item.ID)
 		if err != nil {
 			return err
 		}
 	case f.next:
-		item, err = wn.ClaimNextItem(store, root, claimFor, "", tag)
+		item, err = wn.ClaimNextItem(cc.Store, cc.Root, claimFor, "", tag)
 		if err != nil {
 			return err
 		}
@@ -558,24 +548,24 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 			return fmt.Errorf("no items in queue")
 		}
 	default:
-		meta, err := wn.ReadMeta(root)
+		meta, err := wn.ReadMeta(cc.Root)
 		if err != nil {
 			return err
 		}
 		if meta.CurrentID == "" {
 			return fmt.Errorf("no current task (use wn pick, wn next, or wn worktree --next)")
 		}
-		item, err = store.Get(meta.CurrentID)
+		item, err = cc.Store.Get(meta.CurrentID)
 		if err != nil {
 			return err
 		}
 		if item.Done {
 			return fmt.Errorf("current item %s is already done", item.ID)
 		}
-		if err := wn.ClaimItem(store, root, item.ID, claimFor, ""); err != nil {
+		if err := wn.ClaimItem(cc.Store, cc.Root, item.ID, claimFor, ""); err != nil {
 			return err
 		}
-		item, err = store.Get(item.ID)
+		item, err = cc.Store.Get(item.ID)
 		if err != nil {
 			return err
 		}
@@ -585,7 +575,7 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 		slug := wn.BranchSlug(f.branch)
 		fullBranch := branchPrefix + wn.ExpandBranchTemplate(branchTemplate, item.ID, slug)
 		now := time.Now().UTC()
-		if err = store.UpdateItem(item.ID, func(it *wn.Item) (*wn.Item, error) {
+		if err = cc.Store.UpdateItem(item.ID, func(it *wn.Item) (*wn.Item, error) {
 			idx := it.NoteIndexByName("branch")
 			if idx >= 0 {
 				it.Notes[idx].Body = fullBranch
@@ -597,13 +587,13 @@ func runWorktreeSetup(cmd *cobra.Command, args []string, f *worktreeSetupFlags) 
 		}); err != nil {
 			return fmt.Errorf("set branch note: %w", err)
 		}
-		item, err = store.Get(item.ID)
+		item, err = cc.Store.Get(item.ID)
 		if err != nil {
 			return err
 		}
 	}
 
-	worktreePath, branchName, err := wn.SetupItemWorktree(store, root, item, worktreesBase, mainDirname, branchPrefix, branchTemplate, os.Stderr)
+	worktreePath, branchName, err := wn.SetupItemWorktree(cc.Store, cc.Root, item, worktreesBase, mainDirname, branchPrefix, branchTemplate, os.Stderr)
 	if err != nil {
 		return err
 	}
@@ -637,15 +627,11 @@ Useful for a quick project health check without scrolling through all items.`,
 }
 
 func runSummary(_ *cobra.Command, _ []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	allItems, err := store.List()
+	allItems, err := cc.Store.List()
 	if err != nil {
 		return err
 	}
@@ -761,11 +747,11 @@ func runPrompt(cmd *cobra.Command, args []string, f *promptFlags) error {
 			return fmt.Errorf("empty question")
 		}
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -777,14 +763,10 @@ func runPrompt(cmd *cobra.Command, args []string, f *promptFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
+	if _, err := cc.Store.Get(parentID); err != nil {
 		return err
 	}
-	if _, err := store.Get(parentID); err != nil {
-		return err
-	}
-	promptID, err := wn.GenerateID(store)
+	promptID, err := wn.GenerateID(cc.Store)
 	if err != nil {
 		return err
 	}
@@ -797,18 +779,18 @@ func runPrompt(cmd *cobra.Command, args []string, f *promptFlags) error {
 		PromptReady: true,
 		Log:         []wn.LogEntry{{At: now, Kind: "created"}, {At: now, Kind: "prompt_ready"}},
 	}
-	if err := store.Put(promptItem); err != nil {
+	if err := cc.Store.Put(promptItem); err != nil {
 		return err
 	}
-	items, err := store.List()
+	items, err := cc.Store.List()
 	if err != nil {
 		return err
 	}
 	if wn.WouldCreateCycle(items, parentID, promptID) {
-		_ = store.Delete(promptID)
+		_ = cc.Store.Delete(promptID)
 		return fmt.Errorf("circular dependency would result")
 	}
-	if err := store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
+	if err := cc.Store.UpdateItem(parentID, func(it *wn.Item) (*wn.Item, error) {
 		it.DependsOn = append(it.DependsOn, promptID)
 		it.Updated = now
 		it.Log = append(it.Log, wn.LogEntry{At: now, Kind: "depend_added", Msg: promptID})
@@ -844,11 +826,11 @@ Use -m to provide the answer inline, or $EDITOR will be opened.`,
 }
 
 func runRespond(cmd *cobra.Command, args []string, f *respondFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -860,11 +842,7 @@ func runRespond(cmd *cobra.Command, args []string, f *respondFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return err
 	}
@@ -883,7 +861,7 @@ func runRespond(cmd *cobra.Command, args []string, f *respondFlags) error {
 		}
 	}
 	now := time.Now().UTC()
-	if err := store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	if err := cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		it.Done = true
 		it.DoneStatus = wn.DoneStatusDone
 		it.PromptReady = false

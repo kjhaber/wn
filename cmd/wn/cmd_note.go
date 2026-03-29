@@ -109,15 +109,11 @@ func runNoteSearch(cmd *cobra.Command, args []string, f *noteSearchFlags) error 
 	if len(args) > 1 {
 		value = args[1]
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	items, err := store.List()
+	items, err := cc.Store.List()
 	if err != nil {
 		return err
 	}
@@ -204,12 +200,12 @@ func runNoteAdd(cmd *cobra.Command, args []string, f *noteAddFlags) error {
 			}
 		}
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
 	if name == wn.NoteNameCommit {
-		exists, commitErr := wn.CommitExists(root, strings.TrimSpace(body))
+		exists, commitErr := wn.CommitExists(cc.Root, strings.TrimSpace(body))
 		if commitErr != nil {
 			return fmt.Errorf("wn:commit: %w", commitErr)
 		}
@@ -217,7 +213,7 @@ func runNoteAdd(cmd *cobra.Command, args []string, f *noteAddFlags) error {
 			return fmt.Errorf("wn:commit: commit %q not found in this repository", strings.TrimSpace(body))
 		}
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -229,12 +225,8 @@ func runNoteAdd(cmd *cobra.Command, args []string, f *noteAddFlags) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	now := time.Now().UTC()
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		if it.Notes == nil {
 			it.Notes = []wn.Note{}
 		}
@@ -251,11 +243,11 @@ func runNoteAdd(cmd *cobra.Command, args []string, f *noteAddFlags) error {
 }
 
 func runNoteShow(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -270,11 +262,7 @@ func runNoteShow(cmd *cobra.Command, args []string) error {
 		}
 		nameArg = args[0]
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
@@ -287,11 +275,11 @@ func runNoteShow(cmd *cobra.Command, args []string) error {
 }
 
 func runNoteList(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -303,11 +291,7 @@ func runNoteList(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("no id provided and no current task")
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	item, err := store.Get(id)
+	item, err := cc.Store.Get(id)
 	if err != nil {
 		return fmt.Errorf("item %s not found", id)
 	}
@@ -318,11 +302,11 @@ func runNoteList(cmd *cobra.Command, args []string) error {
 }
 
 func runNoteEdit(cmd *cobra.Command, args []string, f *noteEditFlags) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -337,13 +321,9 @@ func runNoteEdit(cmd *cobra.Command, args []string, f *noteEditFlags) error {
 		}
 		nameArg = args[0]
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
 	body := f.message
 	if body == "" {
-		item, err := store.Get(id)
+		item, err := cc.Store.Get(id)
 		if err != nil {
 			return fmt.Errorf("item %s not found", id)
 		}
@@ -364,7 +344,7 @@ func runNoteEdit(cmd *cobra.Command, args []string, f *noteEditFlags) error {
 		body = strings.TrimSpace(body)
 	}
 	now := time.Now().UTC()
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		idx := it.NoteIndexByName(nameArg)
 		if idx < 0 {
 			return nil, fmt.Errorf("no note named %q", nameArg)
@@ -376,11 +356,11 @@ func runNoteEdit(cmd *cobra.Command, args []string, f *noteEditFlags) error {
 }
 
 func runNoteRm(cmd *cobra.Command, args []string) error {
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	meta, err := wn.ReadMeta(root)
+	meta, err := wn.ReadMeta(cc.Root)
 	if err != nil {
 		return err
 	}
@@ -395,11 +375,7 @@ func runNoteRm(cmd *cobra.Command, args []string) error {
 		}
 		nameArg = args[0]
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	return store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
+	return cc.Store.UpdateItem(id, func(it *wn.Item) (*wn.Item, error) {
 		idx := it.NoteIndexByName(nameArg)
 		if idx < 0 {
 			return nil, fmt.Errorf("no note named %q", nameArg)

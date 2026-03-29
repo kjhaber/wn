@@ -39,15 +39,11 @@ func runAdd(cmd *cobra.Command, args []string, flags *addFlags) error {
 			return fmt.Errorf("empty description")
 		}
 	}
-	root, err := wn.FindRootForCLI()
+	cc, err := newCmdCtx("")
 	if err != nil {
 		return err
 	}
-	store, err := wn.NewFileStore(root)
-	if err != nil {
-		return err
-	}
-	id, err := wn.GenerateID(store)
+	id, err := wn.GenerateID(cc.Store)
 	if err != nil {
 		return err
 	}
@@ -61,10 +57,10 @@ func runAdd(cmd *cobra.Command, args []string, flags *addFlags) error {
 		DependsOn:   nil,
 		Log:         []wn.LogEntry{{At: now, Kind: "created"}},
 	}
-	if err := store.Put(item); err != nil {
+	if err := cc.Store.Put(item); err != nil {
 		return err
 	}
-	if err := wn.WithMetaLock(root, func(m wn.Meta) (wn.Meta, error) {
+	if err := wn.WithMetaLock(cc.Root, func(m wn.Meta) (wn.Meta, error) {
 		m.CurrentID = id
 		return m, nil
 	}); err != nil {
