@@ -424,11 +424,7 @@ func TestVerifyCommand_failingCommand_suppressesUsage(t *testing.T) {
 
 func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	dir, _ := setupWnRoot(t)
-	cwd, _ := os.Getwd()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
-	defer func() { _ = os.Chdir(cwd) }()
+	t.Chdir(dir)
 
 	verifyCmd := "echo verify-output"
 	writeVerifySettings(t, dir, verifyCmd)
@@ -451,10 +447,15 @@ func TestVerifyCommand_printsCmdBeforeRunning(t *testing.T) {
 	if !strings.Contains(stderrOut, verifyCmd) {
 		t.Errorf("stderr = %q, want to contain the configured command %q", stderrOut, verifyCmd)
 	}
+	if !strings.Contains(stderrOut, dir) {
+		t.Errorf("stderr = %q, want to contain the effective directory %q", stderrOut, dir)
+	}
 }
 
-func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
+func TestVerifyCommand_rootFlag_runsFromGitRoot(t *testing.T) {
 	mainRoot, _ := setupWnRoot(t)
+	// Initialize a git repo so --root resolves the git worktree root.
+	setupVerifyGitRepo(t, mainRoot)
 	writeVerifySettings(t, mainRoot, "pwd")
 
 	// cd into a subdirectory so cwd != mainRoot
@@ -462,11 +463,7 @@ func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		t.Fatalf("MkdirAll subdir: %v", err)
 	}
-	cwd, _ := os.Getwd()
-	if err := os.Chdir(subdir); err != nil {
-		t.Fatalf("Chdir subdir: %v", err)
-	}
-	defer func() { _ = os.Chdir(cwd) }()
+	t.Chdir(subdir)
 
 	configDir := t.TempDir()
 	t.Setenv("WN_CONFIG_DIR", configDir)
@@ -479,13 +476,30 @@ func TestVerifyCommand_rootFlag_runsFromWnRoot(t *testing.T) {
 		}
 	})
 
-	// pwd should print mainRoot, not subdir
+	// pwd should print mainRoot (the git root), not subdir
 	if !strings.Contains(out, mainRoot) {
-		t.Errorf("verify --root output = %q, want to contain main root %q", out, mainRoot)
+		t.Errorf("verify --root output = %q, want to contain git root %q", out, mainRoot)
 	}
 	if strings.Contains(out, subdir) {
 		t.Errorf("verify --root output = %q, should not contain subdir %q", out, subdir)
 	}
+}
+
+// setupVerifyGitRepo initializes a bare git repo in dir suitable for verify --root tests.
+func setupVerifyGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v: %s", args, out)
+		}
+	}
+	run("git", "init")
+	run("git", "config", "user.email", "test@example.com")
+	run("git", "config", "user.name", "Test")
+	run("git", "commit", "--allow-empty", "-m", "init")
 }
 
 func TestSettingsShow(t *testing.T) {

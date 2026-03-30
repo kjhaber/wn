@@ -373,7 +373,7 @@ func newVerifyCmd() *cobra.Command {
 		},
 		SilenceUsage: true,
 	}
-	cmd.Flags().BoolVar(&flags.atRoot, "root", false, "Change to the project root directory before running verify")
+	cmd.Flags().BoolVar(&flags.atRoot, "root", false, "Run verify in the main git worktree root instead of cwd; useful when invoked from a linked git worktree or subdirectory")
 	return cmd
 }
 
@@ -384,19 +384,22 @@ func runVerify(cobraCmd *cobra.Command, _ []string, f *verifyFlags) error {
 		settings = cc.Settings
 	}
 	if f.atRoot {
-		root, _ := wn.FindRootForCLI()
-		if root == "" {
-			return wn.ErrNoRoot
+		gitRoot, err := wn.GitRepoRoot()
+		if err != nil {
+			return fmt.Errorf("--root: %w", err)
 		}
-		if err := os.Chdir(root); err != nil {
+		if err := os.Chdir(gitRoot); err != nil {
 			return err
 		}
-		settings, _ = wn.ReadSettingsInRoot(root)
+		if wnRoot, err := wn.FindRootFromDir(gitRoot); err == nil {
+			settings, _ = wn.ReadSettingsInRoot(wnRoot)
+		}
 	}
 	if settings.Verify == "" {
 		return fmt.Errorf("no verify command configured; set 'verify' in .wn/settings.json or ~/.config/wn/settings.json")
 	}
-	_, _ = fmt.Fprintf(cobraCmd.ErrOrStderr(), "running: %s\n", settings.Verify)
+	effectiveDir, _ := os.Getwd()
+	_, _ = fmt.Fprintf(cobraCmd.ErrOrStderr(), "running: %s\nin: %s\n", settings.Verify, effectiveDir)
 	cmd := exec.Command("sh", "-c", settings.Verify)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

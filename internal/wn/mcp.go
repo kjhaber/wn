@@ -119,7 +119,7 @@ func NewMCPServer() *mcp.Server {
 	}, handleWnRoot)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "wn_verify",
-		Description: "Run the project's configured verify command (settings.verify, e.g. 'make all') from the project root directory. Returns JSON with stdout, stderr, and exit_code. Sets IsError when exit_code is non-zero. Equivalent to 'wn verify --root'. Use this to confirm a build or test suite passes without relying on the MCP server's working directory.",
+		Description: "Run the project's configured verify command (settings.verify, e.g. 'make all'). Returns JSON with stdout, stderr, and exit_code. Sets IsError when exit_code is non-zero. By default runs in the MCP server's cwd (equivalent to 'wn verify'). Set at_root=true to run in the main git worktree root instead (equivalent to 'wn verify --root'), which is useful when the server was started from a linked git worktree or subdirectory.",
 	}, handleWnVerify)
 
 	return server

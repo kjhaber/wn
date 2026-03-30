@@ -14,12 +14,12 @@ import (
 const defaultVerifyTimeout = 10 * time.Minute
 
 type wnVerifyIn struct {
-	Root    string `json:"root,omitempty" jsonschema:"Optional project root path (directory containing .wn); if omitted, uses process cwd"`
+	AtRoot  bool   `json:"at_root,omitempty" jsonschema:"If true, run verify in the main git worktree root instead of the process cwd"`
 	Timeout string `json:"timeout,omitempty" jsonschema:"Maximum time to wait for the verify command (e.g. 30s, 5m); default is 10m"`
 }
 
 func handleWnVerify(ctx context.Context, req *mcp.CallToolRequest, in wnVerifyIn) (*mcp.CallToolResult, any, error) {
-	_, root, err := getStoreWithRoot(ctx, in.Root)
+	_, root, err := getStoreWithRoot(ctx, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -30,6 +30,19 @@ func handleWnVerify(ctx context.Context, req *mcp.CallToolRequest, in wnVerifyIn
 	}
 	if settings.Verify == "" {
 		return errResult("no verify command configured; set 'verify' in .wn/settings.json or ~/.config/wn/settings.json"), nil, nil
+	}
+
+	runDir := "" // empty = inherit process cwd
+	if in.AtRoot {
+		gitRoot, gitErr := GitRepoRootFromDir(root)
+		if gitErr != nil {
+			return errResult("--root: not in a git repository"), nil, nil
+		}
+		runDir = gitRoot
+	}
+	effectiveDir := runDir
+	if effectiveDir == "" {
+		effectiveDir, _ = os.Getwd()
 	}
 
 	timeout := defaultVerifyTimeout
@@ -45,14 +58,7 @@ func handleWnVerify(ctx context.Context, req *mcp.CallToolRequest, in wnVerifyIn
 	defer cancel()
 
 	cmd := exec.CommandContext(cmdCtx, "sh", "-c", settings.Verify)
-	cmd.Dir = root
-
-	devNull, err := os.Open(os.DevNull)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer func() { _ = devNull.Close() }()
-	cmd.Stdin = devNull
+	cmd.Dir = runDir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -77,6 +83,8 @@ func handleWnVerify(ctx context.Context, req *mcp.CallToolRequest, in wnVerifyIn
 		"stdout":    stdout.String(),
 		"stderr":    stderr.String(),
 		"exit_code": exitCode,
+		"dir":       effectiveDir,
+		"cmd":       settings.Verify,
 	}
 	raw, _ := json.Marshal(out)
 	return &mcp.CallToolResult{
