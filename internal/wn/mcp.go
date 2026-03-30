@@ -117,6 +117,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_root",
 		Description: "Return the absolute main git repository root path (worktree-aware). In a linked worktree, resolves to the main repo root. Returns JSON {root: \"/absolute/path\"}. Useful for agents that need to run git commands in the correct repo when operating from a worktree.",
 	}, handleWnRoot)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_verify",
+		Description: "Run the project's configured verify command (settings.verify, e.g. 'make all') from the project root directory. Returns JSON with stdout, stderr, and exit_code. Sets IsError when exit_code is non-zero. Equivalent to 'wn verify --root'. Use this to confirm a build or test suite passes without relying on the MCP server's working directory.",
+	}, handleWnVerify)
 
 	return server
 }
