@@ -91,19 +91,28 @@ func FindRootFromDir(dir string) (string, error) {
 // the trailing /.git gives the main repo root. In a normal checkout, it
 // returns the root of the current repository.
 func GitRepoRoot() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	return GitRepoRootFromDir("")
+}
+
+// GitRepoRootFromDir returns the absolute path to the main git repository root
+// starting from dir. If dir is empty, uses the current working directory.
+func GitRepoRootFromDir(dir string) (string, error) {
+	if dir == "" {
+		var err error
+		dir, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
 	}
 	cmd := exec.Command("git", "rev-parse", "--git-common-dir")
-	cmd.Dir = cwd
+	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("not a git repository")
 	}
 	gitCommonDir := strings.TrimSpace(string(out))
 	if !filepath.IsAbs(gitCommonDir) {
-		gitCommonDir = filepath.Join(cwd, gitCommonDir)
+		gitCommonDir = filepath.Join(dir, gitCommonDir)
 	}
 	return filepath.Dir(gitCommonDir), nil
 }

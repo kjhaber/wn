@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,104 @@ func TestMCP_fixed_root_guardrail(t *testing.T) {
 	}
 	if !foundA {
 		t.Errorf("fixed root guardrail: expected A's item (aaaaaa, only in A), got %q", text)
+	}
+}
+
+func TestMCP_wn_root_from_cwd(t *testing.T) {
+	ctx, cs, _, dir, cleanup := setupMCPSessionGit(t)
+	defer cleanup()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_root",
+		Arguments: map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_root unexpected error: %s", textContent(res))
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(textContent(res)), &got); err != nil {
+		t.Fatalf("wn_root response not valid JSON: %v, raw: %q", err, textContent(res))
+	}
+	normGot, _ := filepath.EvalSymlinks(got["root"])
+	normDir, _ := filepath.EvalSymlinks(dir)
+	if normGot != normDir {
+		t.Errorf("wn_root from cwd: got %q (norm %q), want %q (norm %q)", got["root"], normGot, dir, normDir)
+	}
+}
+
+func TestMCP_wn_root_with_explicit_root(t *testing.T) {
+	gitDir := t.TempDir()
+	setupGitRepo(t, gitDir)
+
+	// Use a plain dir as cwd (no git, no wn); wn_root uses the explicit root param.
+	plainDir := t.TempDir()
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(plainDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, _ := server.Connect(ctx, serverTransport, nil)
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	cs, _ := client.Connect(ctx, clientTransport, nil)
+	defer func() { _ = cs.Close() }()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_root",
+		Arguments: map[string]any{"root": gitDir},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("wn_root explicit root unexpected error: %s", textContent(res))
+	}
+	var got map[string]string
+	if err := json.Unmarshal([]byte(textContent(res)), &got); err != nil {
+		t.Fatalf("wn_root explicit root response not valid JSON: %v", err)
+	}
+	normGot, _ := filepath.EvalSymlinks(got["root"])
+	normDir, _ := filepath.EvalSymlinks(gitDir)
+	if normGot != normDir {
+		t.Errorf("wn_root explicit root: got %q (norm %q), want %q (norm %q)", got["root"], normGot, gitDir, normDir)
+	}
+}
+
+func TestMCP_wn_root_non_git_returns_error(t *testing.T) {
+	nonGitDir := t.TempDir()
+
+	plainDir := t.TempDir()
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(plainDir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	ctx := context.Background()
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	server := NewMCPServer()
+	serverSession, _ := server.Connect(ctx, serverTransport, nil)
+	defer func() { _ = serverSession.Wait() }()
+	client := mcp.NewClient(&mcp.Implementation{Name: "test"}, nil)
+	cs, _ := client.Connect(ctx, clientTransport, nil)
+	defer func() { _ = cs.Close() }()
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "wn_root",
+		Arguments: map[string]any{"root": nonGitDir},
+	})
+	if err != nil {
+		return // protocol error acceptable
+	}
+	if res == nil || !res.IsError {
+		t.Error("wn_root in non-git dir: expected IsError result")
 	}
 }
 

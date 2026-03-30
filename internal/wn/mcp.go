@@ -113,6 +113,10 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_pick",
 		Description: "Set the current task (meta CurrentID). Pass a concrete item id to set it directly. Pass \".\" to select the item whose wn:branch note matches the current git branch of the project root (same as CLI wn pick .). Returns JSON {id, description} of the newly selected item.",
 	}, handleWnPick)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_root",
+		Description: "Return the absolute main git repository root path (worktree-aware). In a linked worktree, resolves to the main repo root. Returns JSON {root: \"/absolute/path\"}. Useful for agents that need to run git commands in the correct repo when operating from a worktree.",
+	}, handleWnRoot)
 
 	return server
 }
