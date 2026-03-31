@@ -88,6 +88,24 @@ func writeLaunchRunnerSettings(t *testing.T, root, runnerName, cmd string) {
 	}
 }
 
+// createdLog returns a single "created" log entry at the given time.
+func createdLog(at time.Time) []wn.LogEntry {
+	return []wn.LogEntry{{At: at, Kind: "created"}}
+}
+
+// runCmd executes a wn command with the given args, captures stdout, and reports any
+// error as a non-fatal test failure. Use this when the command is expected to succeed.
+func runCmd(t *testing.T, args []string) string {
+	t.Helper()
+	return captureStdout(t, func() {
+		root := newRootCmd()
+		root.SetArgs(args)
+		if err := root.Execute(); err != nil {
+			t.Errorf("wn %v: %v", args, err)
+		}
+	})
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 	old := os.Stdout
