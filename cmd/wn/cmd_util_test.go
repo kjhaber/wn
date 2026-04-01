@@ -609,6 +609,212 @@ func TestSettingsEdit_userFlag(t *testing.T) {
 	}
 }
 
+func TestSettingsGet(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"sort":"updated:desc","picker":"numbered"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS_USER", userPath)
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	wnDir := filepath.Join(dir, ".wn")
+	if err := os.WriteFile(filepath.Join(wnDir, "settings.json"), []byte(`{"sort":"created:asc"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&buf)
+	defer root.SetOut(nil)
+	root.SetArgs([]string{"settings", "get", "sort"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("settings get sort: %v", err)
+	}
+	// Project overrides user
+	got := strings.TrimSpace(buf.String())
+	if got != "created:asc" {
+		t.Errorf("settings get sort = %q, want %q", got, "created:asc")
+	}
+}
+
+func TestSettingsGet_nested(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	if err := os.WriteFile(userPath, []byte(`{"runners":{"tmux-claude":{"cmd":"my-launcher {{.ItemID}}"}}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WN_SETTINGS_USER", userPath)
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	var buf bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&buf)
+	defer root.SetOut(nil)
+	root.SetArgs([]string{"settings", "get", "runners.tmux-claude.cmd"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("settings get runners.tmux-claude.cmd: %v", err)
+	}
+	got := strings.TrimSpace(buf.String())
+	if got != "my-launcher {{.ItemID}}" {
+		t.Errorf("settings get runners.tmux-claude.cmd = %q, want cmd string", got)
+	}
+}
+
+func TestSettingsGet_missingKey(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	t.Setenv("WN_SETTINGS_USER", filepath.Join(t.TempDir(), "user.json"))
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "get", "nonexistent.key"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error for missing key, got nil")
+	}
+}
+
+func TestSettingsSet_projectScope(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	t.Setenv("WN_SETTINGS_USER", filepath.Join(t.TempDir(), "user.json"))
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "set", "sort", "priority", "--scope", "project"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("settings set sort --scope project: %v", err)
+	}
+
+	projectPath := filepath.Join(dir, ".wn", "settings.json")
+	data, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["sort"] != "priority" {
+		t.Errorf("sort = %v, want %q", m["sort"], "priority")
+	}
+}
+
+func TestSettingsSet_userScope(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	userDir := t.TempDir()
+	userPath := filepath.Join(userDir, "settings.json")
+	t.Setenv("WN_SETTINGS_USER", userPath)
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "set", "picker", "numbered", "--scope", "user"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("settings set picker --scope user: %v", err)
+	}
+
+	data, err := os.ReadFile(userPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m["picker"] != "numbered" {
+		t.Errorf("picker = %v, want %q", m["picker"], "numbered")
+	}
+}
+
+func TestSettingsSet_nestedKey(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	t.Setenv("WN_SETTINGS_USER", filepath.Join(t.TempDir(), "user.json"))
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "set", "runners.tmux-claude.cmd", "wn-tmux {{.Worktree}}", "--scope", "project-local"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("settings set nested --scope project-local: %v", err)
+	}
+
+	projectLocalPath := filepath.Join(dir, ".wn", "settings.local.json")
+	data, err := os.ReadFile(projectLocalPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	runners, ok := m["runners"].(map[string]any)
+	if !ok {
+		t.Fatalf("runners not a map: %T", m["runners"])
+	}
+	runner, ok := runners["tmux-claude"].(map[string]any)
+	if !ok {
+		t.Fatalf("runners.tmux-claude not a map: %T", runners["tmux-claude"])
+	}
+	if runner["cmd"] != "wn-tmux {{.Worktree}}" {
+		t.Errorf("cmd = %v, want cmd string", runner["cmd"])
+	}
+}
+
+func TestSettingsSet_requiresScope(t *testing.T) {
+	dir, _ := setupWnRoot(t)
+	cwd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(cwd) }()
+
+	t.Setenv("WN_SETTINGS_USER", filepath.Join(t.TempDir(), "user.json"))
+	t.Setenv("WN_SETTINGS_USER_LOCAL", "")
+
+	root := newRootCmd()
+	root.SetArgs([]string{"settings", "set", "sort", "priority"})
+	err := root.Execute()
+	if err == nil {
+		t.Error("expected error when --scope is missing, got nil")
+	}
+}
+
 // setupGitWnRepo creates a temp dir with a git repo and wn store, creates an item
 // with a branch note (already "merged" since the branch is at HEAD), and marks
 // the item done. Returns the dir and worktree path.

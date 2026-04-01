@@ -121,6 +121,14 @@ func NewMCPServer() *mcp.Server {
 		Name:        "wn_verify",
 		Description: "Run the project's configured verify command (settings.verify, e.g. 'make all'). Returns JSON with stdout, stderr, and exit_code. Sets IsError when exit_code is non-zero. By default runs in the MCP server's cwd (equivalent to 'wn verify'). Set at_root=true to run in the main git worktree root instead (equivalent to 'wn verify --root'), which is useful when the server was started from a linked git worktree or subdirectory.",
 	}, handleWnVerify)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_settings_get",
+		Description: "Read the value of a settings key from the merged effective settings (user + project overrides). Key uses dot notation (e.g. sort, runners.tmux-claude.cmd). Returns the raw string for string values, or JSON for objects/booleans/numbers. Sets IsError if the key is not found.",
+	}, handleWnSettingsGet)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "wn_settings_set",
+		Description: "Write a value to the settings file for the specified scope (user, user-local, project, project-local). Key uses dot notation; intermediate objects are created as needed. The value is stored as its JSON type if it is valid JSON (e.g. true, 42), otherwise as a string. Sets IsError for invalid scope or write failure.",
+	}, handleWnSettingsSet)
 
 	return server
 }

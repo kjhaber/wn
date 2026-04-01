@@ -79,6 +79,8 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn note rm [id] <name>` | Remove a note by name. |
 | `wn note search <name> [value]` | Search all work items for those having a note named `<name>`. If `<value>` is given, only items where the note body exactly matches are returned. Prints `<id>  <first line>` per match. Use `--first` to return only the oldest match (by created time) or `--latest` for the most recently updated. Use `--id-only` to print just the item ID(s), one per line — useful for scripts (e.g. `wn note search wn:branch <branch> --first --id-only`). |
 | `wn settings show` | Print the fully merged effective settings as JSON. |
+| `wn settings get <key>` | Print the value of a settings key (dot-notation, e.g. `sort`, `runners.tmux-claude.cmd`). Reads merged effective settings; prints raw string for string values, JSON for other types. |
+| `wn settings set <key> <value> --scope <scope>` | Write a value to the settings file for the given scope (`user`, `user-local`, `project`, `project-local`). Dot-notation key creates intermediate objects as needed. Value is stored as JSON if valid (e.g. `true`, `42`), otherwise as a string. |
 | `wn settings edit [--user\|--user-local\|--project\|--project-local]` | Interactively pick a settings file to open in `$EDITOR` (fzf or numbered). Use a flag to skip the picker and open a specific file directly. Missing files are created as `{}` before opening. |
 | `wn root` | Print the absolute path to the main git repository root, worktree-aware. In a linked worktree, resolves to the main repo rather than the worktree directory. Useful in scripts and hooks: `root=$(wn root); git -C "$root" <command>`. |
 | `wn verify [--root]` | Run the shell command configured in `settings.verify` (e.g. `make all`, `npm test`). Useful for agents and humans to confirm the build passes. `--root` runs in the main git worktree root instead of cwd, useful when invoked from a linked git worktree or subdirectory. |
@@ -155,7 +157,7 @@ export WN_SETTINGS_USER="$HOME/.config/wn/settings.json"
 export WN_SETTINGS_USER_LOCAL="$HOME/.config-local/wn/settings.json"
 ```
 
-Missing files are silently skipped. Use `wn settings show` to see the merged effective settings, and `wn settings edit` to open any of these files in `$EDITOR`.
+Missing files are silently skipped. Use `wn settings show` to see the merged effective settings, `wn settings get <key>` to read a specific key, `wn settings set <key> <value> --scope <scope>` to write a key to a specific file, and `wn settings edit` to open any of these files in `$EDITOR`.
 
 ```json
 {

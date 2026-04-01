@@ -228,7 +228,7 @@ func newSettingsCmd() *cobra.Command {
 	settingsCmd := &cobra.Command{
 		Use:   "settings",
 		Short: "Manage wn settings",
-		Long:  "Subcommands: show (print effective merged settings as JSON), edit (open a settings file in $EDITOR).",
+		Long:  "Subcommands: show, get, set, edit.",
 	}
 
 	settingsShowCmd := &cobra.Command{
@@ -236,6 +236,29 @@ func newSettingsCmd() *cobra.Command {
 		Short: "Print effective merged settings as JSON",
 		Long:  "Prints the fully merged effective settings (user + user-local + project + project-local) as JSON.",
 		RunE:  runSettingsShow,
+	}
+
+	settingsGetCmd := &cobra.Command{
+		Use:          "get <key>",
+		Short:        "Print the value of a settings key",
+		Long:         "Reads the effective merged settings and prints the value at the given dot-notation key.\nFor string values the raw value is printed; for objects/arrays/booleans/numbers, JSON is printed.",
+		Args:         cobra.ExactArgs(1),
+		RunE:         runSettingsGet,
+		SilenceUsage: true,
+	}
+
+	var setScope string
+	settingsSetCmd := &cobra.Command{
+		Use:          "set <key> <value>",
+		Short:        "Set a settings key in a specific scope file",
+		Long:         "Writes the given value to the settings file for the specified scope.\nThe value is stored as JSON if it is valid JSON (e.g. true, 42), otherwise as a string.\n\nScopes: user, user-local, project, project-local",
+		Args:         cobra.ExactArgs(2),
+		RunE:         func(cmd *cobra.Command, args []string) error { return runSettingsSet(cmd, args, setScope) },
+		SilenceUsage: true,
+	}
+	settingsSetCmd.Flags().StringVar(&setScope, "scope", "", "Settings scope: user, user-local, project, project-local (required)")
+	if err := settingsSetCmd.MarkFlagRequired("scope"); err != nil {
+		panic(err)
 	}
 
 	editF := &settingsEditFlags{}
@@ -258,7 +281,7 @@ Missing files are created as {} before opening.`,
 	settingsEditCmd.Flags().BoolVar(&editF.project, "project", false, "Edit project settings (.wn/settings.json)")
 	settingsEditCmd.Flags().BoolVar(&editF.projectLocal, "project-local", false, "Edit project-local settings (.wn/settings.local.json)")
 
-	settingsCmd.AddCommand(settingsShowCmd, settingsEditCmd)
+	settingsCmd.AddCommand(settingsShowCmd, settingsGetCmd, settingsSetCmd, settingsEditCmd)
 	return settingsCmd
 }
 
@@ -274,6 +297,42 @@ func runSettingsShow(cmd *cobra.Command, _ []string) error {
 	}
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), string(data))
 	return nil
+}
+
+func runSettingsGet(cmd *cobra.Command, args []string) error {
+	root, _ := wn.FindRootForCLI()
+	settings, err := wn.ReadSettingsInRoot(root)
+	if err != nil {
+		return err
+	}
+	val, err := wn.SettingsGetValue(settings, args[0])
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintln(cmd.OutOrStdout(), val)
+	return nil
+}
+
+func runSettingsSet(_ *cobra.Command, args []string, scope string) error {
+	root, _ := wn.FindRootForCLI()
+
+	candidates, err := settingsEditCandidates(root)
+	if err != nil {
+		return err
+	}
+
+	var targetPath string
+	for _, c := range candidates {
+		if c.label == scope {
+			targetPath = c.path
+			break
+		}
+	}
+	if targetPath == "" {
+		return fmt.Errorf("settings scope %q not available (for user-local, set WN_SETTINGS_USER_LOCAL; for project files, run from a wn project)", scope)
+	}
+
+	return wn.SettingsSetValue(targetPath, args[0], args[1])
 }
 
 type settingsFileEntry struct {
