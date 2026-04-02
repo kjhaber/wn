@@ -730,6 +730,47 @@ func TestSetupItemWorktree_writesWnColonBranchNote(t *testing.T) {
 
 // TestRunAgentOrch_blockedItemError verifies that RunAgentOrch returns an error
 // when the target work item (WorkID) is blocked by an unresolved dependency.
+// TestRunAgentOrch_worktreePreservedAfterRun verifies that RunAgentOrch leaves the
+// worktree in place after completing a run. Cleanup is delegated to 'wn cleanup worktrees'.
+func TestRunAgentOrch_worktreePreservedAfterRun(t *testing.T) {
+	repoDir := t.TempDir()
+	setupGitRepo(t, repoDir)
+	store, err := NewFileStore(repoDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	item := &Item{
+		ID:          "task1",
+		Description: "test task",
+		Created:     now,
+		Updated:     now,
+		Log:         []LogEntry{{At: now, Kind: "created"}},
+	}
+	if err := store.Put(item); err != nil {
+		t.Fatal(err)
+	}
+	worktreesBase := t.TempDir()
+	opts := AgentOrchOpts{
+		Root:          repoDir,
+		AgentCmd:      "echo done",
+		ClaimFor:      30 * time.Minute,
+		WorkID:        "task1",
+		WorktreesBase: worktreesBase,
+	}
+	if err := RunAgentOrch(context.Background(), opts); err != nil {
+		t.Fatalf("RunAgentOrch: %v", err)
+	}
+	// Worktree should be preserved (not auto-removed) after run.
+	entries, err := os.ReadDir(worktreesBase)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("worktree should be preserved after run (use 'wn cleanup worktrees' to remove)")
+	}
+}
+
 func TestRunAgentOrch_blockedItemError(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewFileStore(root)

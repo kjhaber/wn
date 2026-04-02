@@ -49,8 +49,7 @@ func TestReadSettings_newStructure(t *testing.T) {
 		"runners": {
 			"cursor": {
 				"cmd": "cursor agent --print --trust \"{{.Prompt}}\"",
-				"prompt": "{{.Description}}",
-				"leave_worktree": true
+				"prompt": "{{.Description}}"
 			}
 		},
 		"agent": {
@@ -86,7 +85,7 @@ func TestReadSettings_newStructure(t *testing.T) {
 	if !ok {
 		t.Fatal("Runners[cursor] not found")
 	}
-	if runner.Cmd == "" || runner.Prompt != "{{.Description}}" || !runner.LeaveWorktree {
+	if runner.Cmd == "" || runner.Prompt != "{{.Description}}" {
 		t.Errorf("Runners[cursor] = %+v, unexpected values", runner)
 	}
 	if got.Cleanup.CloseDoneItemsAge != "30d" {
@@ -240,7 +239,7 @@ func TestReadSettings_withRunners(t *testing.T) {
 	body := `{
 		"runners": {
 			"claude": {"cmd": "claude --print \"{{.Prompt}}\""},
-			"cursor": {"cmd": "cursor agent --print \"{{.Prompt}}\"", "leave_worktree": true}
+			"cursor": {"cmd": "cursor agent --print \"{{.Prompt}}\""}
 		},
 		"agent": {"default": "claude", "default_launch": "cursor"}
 	}`
@@ -259,8 +258,8 @@ func TestReadSettings_withRunners(t *testing.T) {
 		t.Errorf("Runners[claude] = %+v, want non-empty cmd", claude)
 	}
 	cursor, ok := got.Runners["cursor"]
-	if !ok || !cursor.LeaveWorktree {
-		t.Errorf("Runners[cursor] = %+v, want leave_worktree true", cursor)
+	if !ok || cursor.Cmd == "" {
+		t.Errorf("Runners[cursor] = %+v, want non-empty cmd", cursor)
 	}
 	if got.Agent.Default != "claude" {
 		t.Errorf("Agent.Default = %q, want claude", got.Agent.Default)
@@ -325,7 +324,7 @@ func TestResolveRunner_noDefault(t *testing.T) {
 func TestResolveLaunchRunner_usesDefaultLaunch(t *testing.T) {
 	s := Settings{
 		Runners: map[string]RunnerConfig{
-			"tmux-claude": {Cmd: "tmux new-window -c {{.Worktree}} 'claude -p \"{{.Prompt}}\"'", LeaveWorktree: true},
+			"tmux-claude": {Cmd: "tmux new-window -c {{.Worktree}} 'claude -p \"{{.Prompt}}\"'"},
 		},
 		Agent: AgentSettings{DefaultLaunch: "tmux-claude"},
 	}
@@ -333,8 +332,8 @@ func TestResolveLaunchRunner_usesDefaultLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveLaunchRunner: %v", err)
 	}
-	if !r.LeaveWorktree {
-		t.Error("RunnerConfig.LeaveWorktree should be true for tmux-claude")
+	if r.Cmd == "" {
+		t.Error("RunnerConfig.Cmd should be set for tmux-claude")
 	}
 }
 

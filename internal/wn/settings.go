@@ -67,11 +67,10 @@ func expandHomePath(p string) (string, error) {
 	return p, nil
 }
 
-// RunnerConfig defines an agent command profile (cmd template, optional prompt override, worktree behavior).
+// RunnerConfig defines an agent command profile (cmd template, optional prompt override).
 type RunnerConfig struct {
-	Cmd           string `json:"cmd"`
-	Prompt        string `json:"prompt,omitempty"`
-	LeaveWorktree bool   `json:"leave_worktree,omitempty"`
+	Cmd    string `json:"cmd"`
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // Settings is the user's wn configuration (e.g. ~/.config/wn/settings.json).

@@ -35,7 +35,7 @@ func TestSettingsGetValue_nestedRunnerCmd(t *testing.T) {
 func TestSettingsGetValue_runnerObject(t *testing.T) {
 	s := Settings{
 		Runners: map[string]RunnerConfig{
-			"myrunner": {Cmd: "some-cmd", LeaveWorktree: true},
+			"myrunner": {Cmd: "some-cmd"},
 		},
 	}
 	got, err := SettingsGetValue(s, "runners.myrunner")
@@ -48,21 +48,6 @@ func TestSettingsGetValue_runnerObject(t *testing.T) {
 	}
 	if got[0] != '{' {
 		t.Errorf("expected JSON object, got %q", got)
-	}
-}
-
-func TestSettingsGetValue_nestedBool(t *testing.T) {
-	s := Settings{
-		Runners: map[string]RunnerConfig{
-			"myrunner": {Cmd: "cmd", LeaveWorktree: true},
-		},
-	}
-	got, err := SettingsGetValue(s, "runners.myrunner.leave_worktree")
-	if err != nil {
-		t.Fatalf("SettingsGetValue: %v", err)
-	}
-	if got != "true" {
-		t.Errorf("got %q, want %q", got, "true")
 	}
 }
 
@@ -157,11 +142,11 @@ func TestSettingsSetValue_nestedKey(t *testing.T) {
 	}
 }
 
-func TestSettingsSetValue_boolValue(t *testing.T) {
+func TestSettingsSetValue_runnerCmd(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
 
-	if err := SettingsSetValue(path, "runners.myrunner.leave_worktree", "true"); err != nil {
+	if err := SettingsSetValue(path, "runners.myrunner.cmd", "echo hello"); err != nil {
 		t.Fatalf("SettingsSetValue: %v", err)
 	}
 
@@ -173,8 +158,8 @@ func TestSettingsSetValue_boolValue(t *testing.T) {
 	if !ok {
 		t.Fatal("runners.myrunner not found after set")
 	}
-	if !r.LeaveWorktree {
-		t.Error("LeaveWorktree should be true")
+	if r.Cmd != "echo hello" {
+		t.Errorf("cmd = %q, want echo hello", r.Cmd)
 	}
 }
 

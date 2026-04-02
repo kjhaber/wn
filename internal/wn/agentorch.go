@@ -111,7 +111,6 @@ type AgentOrchOpts struct {
 	AgentCmd       string        // command template, e.g. `cursor agent --print "{{.Prompt}}"`
 	PromptTpl      string        // prompt template, e.g. "{{.Description}}"
 	WorktreesBase  string        // base path for worktrees
-	LeaveWorktree  bool          // if true, leave worktree after run; else remove
 	DefaultBranch  string        // override default branch (empty = detect)
 	BranchPrefix   string        // prefix for generated branch names (e.g. "keith/"); not applied when reusing branch note
 	BranchTemplate string        // Go template for branch base name; vars: {{.ID}}, {{.Slug}}; default: "wn-{{.ID}}-{{.Slug}}"
@@ -372,13 +371,6 @@ func runOneItem(store Store, opts AgentOrchOpts, item *Item, mainRoot, worktrees
 		_ = clearItemClaim(store, item.ID)
 	} else {
 		_ = releaseItemClaim(store, item.ID)
-	}
-	if !opts.LeaveWorktree {
-		if err := RemoveWorktree(opts.Root, worktreePath, opts.Audit); err != nil {
-			if opts.Audit != nil {
-				_, _ = fmt.Fprintf(opts.Audit, "%s remove worktree failed: %v\n", time.Now().UTC().Format("2006-01-02 15:04:05"), err)
-			}
-		}
 	}
 	return nil
 }

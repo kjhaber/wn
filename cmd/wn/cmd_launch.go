@@ -133,16 +133,15 @@ func runLaunch(_ *cobra.Command, args []string, f *launchFlags) error {
 	}
 
 	opts := wn.AgentOrchOpts{
-		Root:          cc.Root,
-		Audit:         os.Stderr,
-		Async:         true,
-		AgentCmd:      runner.Cmd,
-		PromptTpl:     runner.Prompt,
-		LeaveWorktree: true,
-		WorkID:        orchWorkID,
-		FailIfEmpty:   orchFailIfEmpty,
-		MaxTasks:      orchMaxTasks,
-		Tag:           tag,
+		Root:        cc.Root,
+		Audit:       os.Stderr,
+		Async:       true,
+		AgentCmd:    runner.Cmd,
+		PromptTpl:   runner.Prompt,
+		WorkID:      orchWorkID,
+		FailIfEmpty: orchFailIfEmpty,
+		MaxTasks:    orchMaxTasks,
+		Tag:         tag,
 	}
 
 	if ws.Claim != "" {

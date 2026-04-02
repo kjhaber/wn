@@ -209,7 +209,6 @@ func runDo(_ *cobra.Command, args []string, f *doFlags) error {
 	}
 	opts.AgentCmd = runner.Cmd
 	opts.PromptTpl = runner.Prompt
-	opts.LeaveWorktree = runner.LeaveWorktree
 
 	ctx := context.Background()
 	return wn.RunAgentOrch(ctx, opts)

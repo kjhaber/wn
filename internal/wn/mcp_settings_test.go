@@ -232,6 +232,7 @@ func TestMCP_wn_settings_set_userScope(t *testing.T) {
 }
 
 func TestMCP_wn_settings_set_boolValue(t *testing.T) {
+	// Tests that setting a runner cmd value via MCP works correctly.
 	dir := initSettingsTestRoot(t, "")
 	t.Chdir(dir)
 
@@ -240,7 +241,7 @@ func TestMCP_wn_settings_set_boolValue(t *testing.T) {
 
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "wn_settings_set",
-		Arguments: map[string]any{"key": "runners.myrunner.leave_worktree", "value": "true", "scope": "project"},
+		Arguments: map[string]any{"key": "runners.myrunner.cmd", "value": "echo hello", "scope": "project"},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -257,8 +258,8 @@ func TestMCP_wn_settings_set_boolValue(t *testing.T) {
 	if !ok {
 		t.Fatal("runners.myrunner not found")
 	}
-	if !r.LeaveWorktree {
-		t.Error("leave_worktree should be true")
+	if r.Cmd != "echo hello" {
+		t.Errorf("cmd = %q, want echo hello", r.Cmd)
 	}
 }
 
