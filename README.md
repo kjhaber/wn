@@ -89,7 +89,7 @@ wn done abc123 -m "Completed in git commit ca1f722"
 | `wn mcp` | Run MCP server on stdio (for Cursor and other MCP clients). |
 | `wn help` / `wn completion` | Help and shell completion. |
 
-Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory.
+Work item IDs are 6-character hex prefixes (e.g. `af1234`). The tool finds the wn root by walking up from the current directory until it finds a `.wn` directory. If you are in a linked git worktree and the main checkout also has a `.wn`, that main checkout is used (so a secondary `.wn` under the worktree does not shadow the canonical store).
 
 **Work item status:** Each item has one of the following statuses. Use `wn status <state> [id]` to set any state (omit id for current task). `wn done` and `wn undone` are shortcuts for the common cases.
 

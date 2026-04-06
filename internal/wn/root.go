@@ -60,6 +60,13 @@ func FindRoot() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Linked worktrees may contain a local .wn (e.g. agent scratch data). Prefer
+	// the main checkout's .wn when it exists so the canonical store wins.
+	if root, err := findRootMainWhenInLinkedWorktree(dir); err == nil {
+		return root, nil
+	} else if err != ErrNoRoot {
+		return "", err
+	}
 	root, err := findRootFrom(dir)
 	if err == nil {
 		return root, nil
@@ -68,6 +75,72 @@ func FindRoot() (string, error) {
 		return "", err
 	}
 	return findRootViaGitWorktree()
+}
+
+// findRootMainWhenInLinkedWorktree returns the main git checkout's directory if
+// cwd is inside a linked worktree (not the primary checkout) and that
+// checkout contains .wn. Otherwise ErrNoRoot.
+func findRootMainWhenInLinkedWorktree(cwd string) (string, error) {
+	cmdTop := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmdTop.Dir = cwd
+	outTop, err := cmdTop.Output()
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	wtTop := strings.TrimSpace(string(outTop))
+	if wtTop == "" {
+		return "", ErrNoRoot
+	}
+	if !filepath.IsAbs(wtTop) {
+		wtTop = filepath.Join(cwd, wtTop)
+	}
+	wtTop, err = filepath.Abs(wtTop)
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	cmdCommon := exec.Command("git", "rev-parse", "--git-common-dir")
+	cmdCommon.Dir = cwd
+	outCommon, err := cmdCommon.Output()
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	gitCommonDir := strings.TrimSpace(string(outCommon))
+	if gitCommonDir == "" {
+		return "", ErrNoRoot
+	}
+	if !filepath.IsAbs(gitCommonDir) {
+		gitCommonDir = filepath.Join(cwd, gitCommonDir)
+	}
+	mainRepoRoot := filepath.Dir(gitCommonDir)
+	mainRepoRoot, err = filepath.Abs(mainRepoRoot)
+	if err != nil {
+		return "", ErrNoRoot
+	}
+	if pathsEqualForRoot(wtTop, mainRepoRoot) {
+		return "", ErrNoRoot
+	}
+	mainWN := filepath.Join(mainRepoRoot, ".wn")
+	info, err := os.Stat(mainWN)
+	if err != nil || !info.IsDir() {
+		return "", ErrNoRoot
+	}
+	return mainRepoRoot, nil
+}
+
+func pathsEqualForRoot(a, b string) bool {
+	ea, errA := filepath.EvalSymlinks(a)
+	eb, errB := filepath.EvalSymlinks(b)
+	if errA != nil {
+		ea = filepath.Clean(a)
+	} else {
+		ea = filepath.Clean(ea)
+	}
+	if errB != nil {
+		eb = filepath.Clean(b)
+	} else {
+		eb = filepath.Clean(eb)
+	}
+	return ea == eb
 }
 
 // FindRootFromDir walks up from the given directory until it finds a directory

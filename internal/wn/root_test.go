@@ -246,6 +246,48 @@ func TestFindRoot_GitWorktree(t *testing.T) {
 	}
 }
 
+func TestFindRoot_GitWorktree_LocalWnPrefersMain(t *testing.T) {
+	// A linked worktree may have its own .wn; the canonical store should still be the main checkout.
+	mainRepo := t.TempDir()
+	setupGitRepo(t, mainRepo)
+
+	if err := os.MkdirAll(filepath.Join(mainRepo, ".wn", "items"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	worktreeDir := t.TempDir()
+	execIn(t, mainRepo, "git", "worktree", "add", worktreeDir, "-b", "wn-findroot-local-wn-test")
+
+	if err := os.MkdirAll(filepath.Join(worktreeDir, ".wn", "items"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	origWd, _ := os.Getwd()
+	origEnv := os.Getenv("WN_ROOT")
+	_ = os.Unsetenv("WN_ROOT")
+	t.Cleanup(func() {
+		_ = os.Chdir(origWd)
+		if origEnv == "" {
+			_ = os.Unsetenv("WN_ROOT")
+		} else {
+			_ = os.Setenv("WN_ROOT", origEnv)
+		}
+	})
+	if err := os.Chdir(worktreeDir); err != nil {
+		t.Fatal(err)
+	}
+
+	root, err := FindRoot()
+	if err != nil {
+		t.Fatalf("FindRoot() from worktree with local .wn: %v", err)
+	}
+	normRoot, _ := filepath.EvalSymlinks(root)
+	normMain, _ := filepath.EvalSymlinks(mainRepo)
+	if normRoot != normMain {
+		t.Errorf("FindRoot() = %q (norm %q), want main repo %q (norm %q)", root, normRoot, mainRepo, normMain)
+	}
+}
+
 func TestGitRepoRoot_NormalRepo(t *testing.T) {
 	mainRepo := t.TempDir()
 	setupGitRepo(t, mainRepo)
