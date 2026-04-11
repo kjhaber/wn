@@ -33,6 +33,7 @@ archives:
 
 brews:
   - name: wn
+    directory: Formula
     repository:
       owner: kjhaber
       name: homebrew-tap
